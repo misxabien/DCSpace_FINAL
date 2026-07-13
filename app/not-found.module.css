@@ -1,0 +1,60 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  background: #ffffff;
+  font-family: var(--font);
+  text-align: center;
+}
+
+.illustration {
+  width: min(806px, 100%);
+  height: auto;
+  margin-bottom: 28px;
+}
+
+.message {
+  margin: 0 0 24px;
+  max-width: 520px;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #4d76b8;
+  line-height: 1.5;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 8px;
+  background: #448aff;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background 0.15s ease;
+}
+
+.button:hover {
+  background: #3a7aee;
+}
+
+.arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .message {
+    font-size: 1rem;
+  }
+
+  .button {
+    padding: 12px 20px;
+    font-size: 0.8rem;
+  }
+}
