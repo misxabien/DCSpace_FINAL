@@ -53,4 +53,5 @@ Then restart the dev server.
 - Page markup and styles are preserved from the HTML prototype via the legacy renderer.
 - Interactive behavior still uses the original JS modules in `public/legacy/`.
 - The sidebar is a React component with Next.js `Link` navigation.
-- Header name (`Your Name`) remains a static placeholder until a backend is connected.
+- Auth is a frontend mock: one SDCA login resolves student vs organizer permissions (cookie session).
+- Demo accounts: `organizer@sdca.edu.ph` / `student.organizer@sdca.edu.ph` (password: `password`) see **Events Organized**. Any other `@sdca.edu.ph` email signs in as a student.

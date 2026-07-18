@@ -1,0 +1,262 @@
+.page {
+  width: 100%;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(68, 138, 255, 0.25);
+  margin: 0 0 28px;
+}
+
+.section {
+  margin-bottom: 28px;
+}
+
+.section h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 14px;
+}
+
+.participantCard {
+  background: rgba(68, 138, 255, 0.1);
+  border-radius: 12px;
+  padding: 22px 28px;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: 12px 20px;
+  padding: 7px 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.detailLabel {
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.detailValue {
+  font-weight: 500;
+  color: var(--blue);
+}
+
+.tableWrap {
+  width: 100%;
+  overflow: visible;
+}
+
+.filesTableWrap {
+  overflow: visible;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--blue);
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.25);
+}
+
+.table thead th:last-child {
+  width: 160px;
+  text-align: right;
+}
+
+.table tbody td {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.12);
+  vertical-align: top;
+  overflow: visible;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.fileCell {
+  width: 56px;
+}
+
+.fileIcon {
+  width: 34px;
+  height: 34px;
+  color: var(--blue);
+  display: block;
+}
+
+.fileName {
+  font-style: italic;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.fileViewed {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.actionCell {
+  text-align: right;
+  position: relative;
+  overflow: visible;
+}
+
+.actionMenu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  z-index: 1;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8dce3;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.actionBtn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.statusBadgeBtn {
+  border: none;
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+.actionDropdown {
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid #d8dce3;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(26, 26, 26, 0.12);
+  overflow: hidden;
+}
+
+.actionOption {
+  display: block;
+  width: 100%;
+  border: none;
+  background: #fff;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.actionOption:hover {
+  background: rgba(68, 138, 255, 0.08);
+}
+
+.actionOptionActive {
+  background: rgba(68, 138, 255, 0.12);
+  color: var(--blue);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.statusAccepted {
+  background: rgba(76, 175, 80, 0.16);
+  color: #2e7d32;
+}
+
+.statusRejected {
+  background: rgba(229, 57, 53, 0.14);
+  color: #c62828;
+}
+
+.statusOnTime,
+.statusMet {
+  background: rgba(76, 175, 80, 0.16);
+  color: #2e7d32;
+}
+
+.statusLate,
+.statusIncomplete {
+  background: rgba(245, 166, 35, 0.18);
+  color: #b26a00;
+}
+
+.statusList {
+  display: flex;
+  flex-direction: column;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.12);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.statusRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .detailRow {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .table thead th:last-child,
+  .actionCell {
+    text-align: left;
+  }
+
+  .actionMenu {
+    justify-content: flex-start;
+  }
+}

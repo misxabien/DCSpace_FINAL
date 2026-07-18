@@ -1,18 +1,75 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
-import { BOTTOM_NAV, isNavActive, NAV_ITEMS } from "@/lib/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  BOTTOM_NAV,
+  getNavItemsForRole,
+  isNavActive,
+} from "@/lib/navigation";
 import { NavIcon } from "@/components/layout/NavIcons";
-import styles from "./Sidebar.module.css";
+import { useAuth } from "@/components/auth/AuthProvider";
+
+const SIDEBAR_STORAGE_KEY = "dc_sidebar_collapsed";
+
+function useSidebarCollapse() {
+  useEffect(() => {
+    const app = document.querySelector(".app");
+    const collapse = document.getElementById("sidebar-collapse");
+    const toggle = document.getElementById("sidebar-toggle");
+    if (!app || !collapse || !toggle) return;
+
+    if (localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true" && window.innerWidth > 900) {
+      app.classList.add("is-sidebar-collapsed");
+    }
+
+    const onCollapse = () => {
+      if (window.innerWidth > 900) {
+        app.classList.add("is-sidebar-collapsed");
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, "true");
+      }
+    };
+    const onExpand = () => {
+      if (window.innerWidth > 900) {
+        app.classList.remove("is-sidebar-collapsed");
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, "false");
+      }
+    };
+
+    collapse.addEventListener("click", onCollapse);
+    toggle.addEventListener("click", onExpand);
+    return () => {
+      collapse.removeEventListener("click", onCollapse);
+      toggle.removeEventListener("click", onExpand);
+    };
+  }, []);
+}
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isOrganizer, logout } = useAuth();
+  const navItems = getNavItemsForRole(isOrganizer);
+  useSidebarCollapse();
+
+  const handleBottomClick = async (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string
+  ) => {
+    if (href !== "/login") return;
+    event.preventDefault();
+    await logout();
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
-    <aside className={`${styles.sidebar} sidebar`} aria-label="Main navigation">
+    <aside className="sidebar" aria-label="Main navigation">
       <button
         type="button"
-        className={`${styles.collapse} sidebar__collapse`}
+        className="sidebar__collapse"
         id="sidebar-collapse"
         aria-label="Collapse sidebar"
       >
@@ -25,26 +82,32 @@ export function Sidebar() {
       </button>
       <button
         type="button"
-        className={`${styles.toggle} sidebar__toggle`}
+        className="sidebar__toggle"
         id="sidebar-toggle"
         aria-label="Expand sidebar"
       >
         <Image src="/finallogo.png" alt="" width={32} height={32} />
       </button>
-      <div className={`${styles.brand} sidebar__brand`}>
-        <Image src="/finallogo.png" alt="DC Space" className={styles.logo} width={120} height={60} />
-        <span className={styles.title}>DC SPACE</span>
+      <div className="sidebar__brand">
+        <Image
+          src="/finallogo.png"
+          alt="DC Space"
+          className="sidebar__logo"
+          width={120}
+          height={60}
+        />
+        <span className="sidebar__title">DC SPACE</span>
       </div>
 
       <nav aria-label="Primary">
-        <ul className={`${styles.nav} nav`}>
-          {NAV_ITEMS.map((item) => {
+        <ul className="nav">
+          {navItems.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={active ? `${styles.active} is-active` : undefined}
+                  className={active ? "is-active" : undefined}
                   aria-current={active ? "page" : undefined}
                 >
                   <NavIcon icon={item.icon} />
@@ -56,14 +119,18 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className={`${styles.spacer} sidebar__spacer`} aria-hidden="true" />
+      <div className="sidebar__spacer" aria-hidden="true" />
 
-      <ul className={`${styles.nav} ${styles.navBottom} nav nav--bottom`}>
+      <ul className="nav nav--bottom">
         {BOTTOM_NAV.map((item) => {
           const active = isNavActive(pathname, item.href);
           return (
             <li key={item.href}>
-              <Link href={item.href} className={active ? `${styles.active} is-active` : undefined}>
+              <Link
+                href={item.href}
+                className={active ? "is-active" : undefined}
+                onClick={(event) => handleBottomClick(event, item.href)}
+              >
                 <NavIcon icon={item.icon} />
                 {item.label}
               </Link>
@@ -76,5 +143,5 @@ export function Sidebar() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  return <div className={`${styles.app} app`}>{children}</div>;
+  return <div className="app">{children}</div>;
 }

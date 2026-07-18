@@ -1,9 +1,37 @@
-import { AppLegacyPage } from "@/components/legacy/AppLegacyPage";
+"use client";
+
+import { useEffect } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
-import legacyData from "@/content/legacy/36-profile.json";
+import { AppShell, Sidebar } from "@/components/layout/Sidebar";
+import { LegacyContent } from "@/components/legacy/useLegacyPage";
+import { ProfileOrganizerBadge } from "@/components/auth/OrganizerCues";
+import { useAuth } from "@/components/auth/AuthProvider";
+import legacyProfile from "@/content/legacy/36-profile.json";
 
-const legacy = legacyData as LegacyPageData;
+const profile = legacyProfile as LegacyPageData;
 
-export default function Page() {
-  return <AppLegacyPage data={legacy} />;
+function SyncProfileName() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user?.name) return;
+    document.querySelectorAll(".main__user-name, .profile-name, .profile__name").forEach((el) => {
+      el.textContent = user.name;
+    });
+  }, [user]);
+
+  return null;
+}
+
+export default function ProfilePage() {
+  return (
+    <AppShell>
+      <Sidebar />
+      <main className="main">
+        <ProfileOrganizerBadge />
+        <LegacyContent data={profile} />
+        <SyncProfileName />
+      </main>
+    </AppShell>
+  );
 }

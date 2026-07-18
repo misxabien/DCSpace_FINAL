@@ -1,0 +1,526 @@
+.page {
+  width: 100%;
+}
+
+.hero {
+  width: 100%;
+  height: 240px;
+  overflow: hidden;
+  margin-bottom: 28px;
+  background: #d4e2f7;
+}
+
+.hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.head {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 24px;
+  align-items: start;
+  padding-bottom: 24px;
+}
+
+.date {
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.dateMonth,
+.dateYear {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dateDay {
+  display: block;
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--blue);
+  margin: 4px 0;
+  line-height: 1;
+}
+
+.info h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 12px;
+  line-height: 1.2;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.metaRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metaRow svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.metaVenue {
+  color: var(--blue);
+}
+
+.metaVenue svg {
+  stroke: var(--blue);
+}
+
+.metaTime {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.metaTime svg {
+  stroke: var(--text);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.iconBtn {
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid var(--blue);
+  border-radius: 50%;
+  background: var(--main-bg);
+  color: var(--blue);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBtn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.iconBtnSaved {
+  background: #ffe082;
+  border-color: transparent;
+}
+
+.iconBtnSaved svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(68, 138, 255, 0.25);
+  margin: 0 0 28px;
+}
+
+.section {
+  margin-bottom: 28px;
+}
+
+.section h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.section p {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.section p:last-child {
+  margin-bottom: 0;
+}
+
+.types {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.listItem svg {
+  width: 18px;
+  height: 18px;
+  color: var(--blue);
+  flex-shrink: 0;
+  stroke: var(--blue);
+  fill: none;
+}
+
+.organizerBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 36px;
+  width: 100%;
+}
+
+.attendedBtn {
+  flex: 1;
+  border: none;
+  border-radius: 999px;
+  padding: 15px 28px;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  background: var(--sidebar-bg);
+  color: var(--blue);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.attendedBtn:hover {
+  background: #c9d8f5;
+}
+
+.organizerTools {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.toolBtn {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: var(--sidebar-bg);
+  color: var(--blue);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease;
+  text-decoration: none;
+}
+
+.toolBtn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.toolBtn:hover {
+  background: #c9d8f5;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.inviteSection {
+  margin-bottom: 28px;
+}
+
+.inviteHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+
+.inviteHead h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.inviteSearch {
+  flex: 1;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.35);
+}
+
+.inviteSearch svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--blue);
+  opacity: 0.65;
+}
+
+.inviteSearch input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+}
+
+.inviteSearch input::placeholder {
+  color: rgba(68, 138, 255, 0.55);
+}
+
+.inviteFilterBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--blue);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.inviteFilterBtn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.inviteChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.inviteChip {
+  border: 1px solid rgba(68, 138, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(68, 138, 255, 0.08);
+  color: var(--blue);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.inviteChipActive {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.inviteTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.inviteTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.inviteTable thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--blue);
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.25);
+}
+
+.inviteTable tbody td {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.12);
+  vertical-align: middle;
+}
+
+.inviteTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.inviteStatus {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+.inviteFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+.inviteSort {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.inviteSortBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.inviteSortBtn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.inviteSortBtnActive {
+  color: var(--blue);
+}
+
+.invitePagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.invitePageBtn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d8dce3;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--blue);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.invitePageBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.gallerySection {
+  margin-bottom: 28px;
+}
+
+.gallerySection h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 14px;
+}
+
+.galleryGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.galleryItem {
+  margin: 0;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #d4e2f7;
+}
+
+.galleryItem img {
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .head {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .organizerBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .organizerTools {
+    justify-content: flex-end;
+  }
+
+  .inviteHead {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .inviteSearch {
+    max-width: none;
+  }
+
+  .inviteFooter {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
