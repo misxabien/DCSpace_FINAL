@@ -302,8 +302,12 @@ export function syncProfileToLegacyStorage(profile: UserProfile) {
       fullName: profile.fullName,
       studentNumber: profile.studentNumber,
       role: profile.role,
+      organizationRole: profile.organizationRole || "",
+      organizationPart: profile.organizationPart || "",
     }),
   );
+
+  window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
 
   void import("@/lib/profile-images").then((mod) => {
     mod.cacheAccountImages(profile);
@@ -315,7 +319,12 @@ export function readRegistrationDraft(): RegistrationDraft {
     return {};
   }
   try {
-    return JSON.parse(window.sessionStorage.getItem(registrationDraftKey) || "{}") as RegistrationDraft;
+    const sessionRaw = window.sessionStorage.getItem(registrationDraftKey);
+    if (sessionRaw) {
+      return JSON.parse(sessionRaw) as RegistrationDraft;
+    }
+    const localRaw = window.localStorage.getItem(registrationDraftKey);
+    return localRaw ? (JSON.parse(localRaw) as RegistrationDraft) : {};
   } catch {
     return {};
   }
@@ -326,7 +335,13 @@ export function writeRegistrationDraft(patch: RegistrationDraft) {
     return;
   }
   const next = { ...readRegistrationDraft(), ...patch };
-  window.sessionStorage.setItem(registrationDraftKey, JSON.stringify(next));
+  const raw = JSON.stringify(next);
+  window.sessionStorage.setItem(registrationDraftKey, raw);
+  try {
+    window.localStorage.setItem(registrationDraftKey, raw);
+  } catch {
+    /* ignore quota */
+  }
 }
 
 export function clearRegistrationDraft() {
@@ -334,4 +349,5 @@ export function clearRegistrationDraft() {
     return;
   }
   window.sessionStorage.removeItem(registrationDraftKey);
+  window.localStorage.removeItem(registrationDraftKey);
 }

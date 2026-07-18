@@ -50,10 +50,11 @@ export async function POST(request: Request) {
       NextResponse.json(
         {
           message: result.devMode
-            ? "Verification code generated. Check the terminal where npm run dev is running (SMTP not configured)."
+            ? "Verification code ready. Check the terminal where npm run dev is running (SMTP unavailable or fallback enabled)."
             : "Verification code sent. Please check your school email inbox (and spam folder).",
           email: result.email,
           expiresAt: result.expiresAt,
+          ...(result.devMode && result.code ? { debugHint: "Code printed in server terminal." } : {}),
         },
         { status: 200 },
       ),

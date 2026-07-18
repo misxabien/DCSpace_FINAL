@@ -9,6 +9,13 @@ import {
   useState,
 } from "react";
 import type { SessionUser } from "@/lib/auth/types";
+import {
+  clearAuthSession,
+  clearRegistrationDraft,
+  saveAuthSession,
+  syncProfileToLegacyStorage,
+  type UserProfile,
+} from "@/lib/user-api";
 
 type AuthContextValue = {
   user: SessionUser | null;
@@ -16,7 +23,7 @@ type AuthContextValue = {
   isOrganizer: boolean;
   login: (
     email: string,
-    password: string
+    password: string,
   ) => Promise<{ ok: boolean; error?: string; user?: SessionUser }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -54,16 +61,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const data = (await res.json()) as { user?: SessionUser; error?: string };
+    const data = (await res.json()) as {
+      user?: SessionUser;
+      error?: string;
+      token?: string;
+      profile?: UserProfile;
+    };
     if (!res.ok || !data.user) {
       return { ok: false, error: data.error || "Unable to sign in." };
     }
+
+    // Persist Mongo JWT + profile fields for legacy pages / profile hydration.
+    if (data.token && data.profile) {
+      saveAuthSession(data.token, data.profile);
+      syncProfileToLegacyStorage(data.profile);
+    }
+
     setUser(data.user);
     return { ok: true, user: data.user };
   }, []);
 
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
+    clearAuthSession();
+    clearRegistrationDraft();
+    try {
+      window.sessionStorage.removeItem("dcspaceLoggedIn");
+      window.sessionStorage.removeItem("dcspaceCurrentUser");
+    } catch {
+      /* ignore */
+    }
     setUser(null);
   }, []);
 
@@ -76,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       refresh,
     }),
-    [user, loading, login, logout, refresh]
+    [user, loading, login, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

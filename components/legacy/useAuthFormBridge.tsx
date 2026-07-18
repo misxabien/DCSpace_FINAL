@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   clearRegistrationDraft,
-  loginUser,
   readRegistrationDraft,
   registerUser,
   saveAuthSession,
@@ -12,6 +11,7 @@ import {
   syncProfileToLegacyStorage,
   writeRegistrationDraft,
 } from "@/lib/user-api";
+import { canOrganizeEvents } from "@/lib/organize-access";
 
 function ensureErrorBanner() {
   let banner = document.getElementById("dcspace-auth-error");
@@ -54,7 +54,9 @@ function clearError() {
 }
 
 function setSubmitting(form: HTMLFormElement, submitting: boolean) {
-  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const button =
+    form.querySelector<HTMLButtonElement>("[data-auth-continue]") ||
+    form.querySelector<HTMLButtonElement>('button[type="submit"], .btn-continue, .btn-create, .btn-signin');
   if (!button) {
     return;
   }
@@ -71,9 +73,56 @@ function setSubmitting(form: HTMLFormElement, submitting: boolean) {
 }
 
 function getActiveRole(): "student" | "faculty" {
-  const active = document.querySelector<HTMLElement>(".role-btn.active, .role-btn[aria-pressed='true']");
-  const role = active?.getAttribute("data-role") || window.localStorage.getItem("dcspaceAccountType");
+  const active = document.querySelector<HTMLElement>(
+    ".role-btn.active, .role-btn[aria-pressed='true']",
+  );
+  const role =
+    active?.getAttribute("data-role") || window.localStorage.getItem("dcspaceAccountType");
   return role === "faculty" ? "faculty" : "student";
+}
+
+function lockNativeFormNavigation(form: HTMLFormElement) {
+  form.setAttribute("method", "post");
+  form.setAttribute("action", "javascript:void(0)");
+  form.setAttribute("onsubmit", "return false;");
+}
+
+function isPasswordStrong(password: string) {
+  return (
+    password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password)
+  );
+}
+
+function requireFields(
+  data: FormData,
+  fields: Array<{ name: string; label: string }>,
+): string | null {
+  for (const field of fields) {
+    if (!String(data.get(field.name) || "").trim()) {
+      return `${field.label} is required.`;
+    }
+  }
+  return null;
+}
+
+function lockAllAuthForms() {
+  document.querySelectorAll<HTMLFormElement>("form").forEach(lockNativeFormNavigation);
+}
+
+function findAuthForm(from: EventTarget | null): HTMLFormElement | null {
+  if (!(from instanceof Element)) {
+    return null;
+  }
+  return from.closest("form");
+}
+
+function go(path: string) {
+  // Hard navigation so step-to-step never stalls on a soft-router race.
+  window.location.assign(path);
 }
 
 const AUTH_PATHS = new Set([
@@ -94,65 +143,77 @@ export function useAuthFormBridge() {
       return;
     }
 
-    const form = document.querySelector<HTMLFormElement>("form");
-    if (!form) {
-      return;
-    }
-
     let cancelled = false;
+    let submitting = false;
 
-    const onSubmit = async (event: Event) => {
-      event.preventDefault();
-      if (cancelled) {
+    lockAllAuthForms();
+    const lockTimer = window.setInterval(() => {
+      if (!cancelled) lockAllAuthForms();
+    }, 200);
+    const observer = new MutationObserver(() => {
+      if (!cancelled) lockAllAuthForms();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    const handleAuthAction = async (formEl: HTMLFormElement) => {
+      if (cancelled || submitting) {
         return;
       }
 
       clearError();
-      const formEl = event.currentTarget as HTMLFormElement;
+      lockNativeFormNavigation(formEl);
       const data = new FormData(formEl);
 
       try {
         if (pathname === "/login") {
-          const email = String(data.get("email") || "")
-            .trim()
-            .toLowerCase();
-          const password = String(data.get("password") || "");
-          if (!email || !password) {
-            showError("Please enter your school email and password.");
-            return;
-          }
-
-          setSubmitting(formEl, true);
-          const role = getActiveRole();
-          window.localStorage.setItem("dcspaceAccountType", role);
-          const result = await loginUser(email, password);
-          saveAuthSession(result.token, result.user);
-          syncProfileToLegacyStorage(result.user);
-          router.push("/home");
+          // Login is handled by LoginBridge + /api/auth/login (main design).
           return;
         }
 
         if (pathname === "/create") {
+          const missing = requireFields(data, [
+            { name: "firstName", label: "First name" },
+            { name: "lastName", label: "Last name" },
+            { name: "studentNumber", label: "Student number" },
+          ]);
+          if (missing) {
+            showError(missing);
+            return;
+          }
           writeRegistrationDraft({
             firstName: String(data.get("firstName") || "").trim(),
             lastName: String(data.get("lastName") || "").trim(),
             studentNumber: String(data.get("studentNumber") || "").trim(),
           });
-          router.push("/school-details");
+          go("/school-details");
           return;
         }
 
         if (pathname === "/school-details") {
-          const organizationRole =
-            String(data.get("organizationRole") || "").trim() ||
-            String(data.get("organizationPosition") || "").trim();
+          const missing = requireFields(data, [
+            { name: "course", label: "Course" },
+            { name: "schoolDepartment", label: "School / department" },
+          ]);
+          if (missing) {
+            showError(missing);
+            return;
+          }
+
+          const organizationRoleSelect = String(data.get("organizationRole") || "").trim();
+          const organizationPosition = String(data.get("organizationPosition") || "").trim();
+          const organizationRole = organizationRoleSelect
+            ? organizationPosition && organizationRoleSelect === "officer"
+              ? `${organizationRoleSelect}:${organizationPosition}`
+              : organizationRoleSelect
+            : organizationPosition;
+
           writeRegistrationDraft({
             course: String(data.get("course") || "").trim(),
             school: String(data.get("schoolDepartment") || "").trim(),
             organizationPart: String(data.get("organization") || "").trim(),
             organizationRole,
           });
-          router.push("/accounts");
+          go("/accounts");
           return;
         }
 
@@ -164,15 +225,33 @@ export function useAuthFormBridge() {
           const confirmPassword = String(data.get("confirmPassword") || "");
           const rfidNumber = String(data.get("rfidTagNumber") || "").trim();
 
+          if (!email.endsWith("@sdca.edu.ph")) {
+            showError("Please use your school email (@sdca.edu.ph).");
+            return;
+          }
+          if (!rfidNumber) {
+            showError("Please enter your RFID tag number.");
+            return;
+          }
           if (password !== confirmPassword) {
             showError("Passwords do not match.");
             return;
           }
-          if (password.length < 8) {
-            showError("Password must be at least 8 characters.");
+          if (!isPasswordStrong(password)) {
+            showError(
+              "Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.",
+            );
             return;
           }
 
+          const draftSoFar = readRegistrationDraft();
+          if (!draftSoFar.firstName || !draftSoFar.lastName || !draftSoFar.studentNumber) {
+            showError("Registration details are incomplete. Please start again from Create Account.");
+            go("/create");
+            return;
+          }
+
+          submitting = true;
           setSubmitting(formEl, true);
           writeRegistrationDraft({
             email,
@@ -181,10 +260,14 @@ export function useAuthFormBridge() {
             rfidNumber,
             role: getActiveRole(),
           });
+
           const result = await sendRegistrationVerificationEmail(email);
           clearError();
-          window.alert(result.message || "Verification code sent. Check your school email.");
-          router.push("/verify");
+          window.alert(
+            result.message ||
+              "Verification code sent. Check your school email, or the terminal running npm run dev.",
+          );
+          go("/verify");
           return;
         }
 
@@ -193,11 +276,11 @@ export function useAuthFormBridge() {
             .trim()
             .replace(/\s/g, "");
           if (!/^\d{6}$/.test(verificationCode)) {
-            showError("Enter the 6-digit verification code from your email.");
+            showError("Enter the 6-digit verification code from your email (or server terminal).");
             return;
           }
           writeRegistrationDraft({ verificationCode });
-          router.push("/agreement");
+          go("/agreement");
           return;
         }
 
@@ -222,6 +305,7 @@ export function useAuthFormBridge() {
             return;
           }
 
+          submitting = true;
           setSubmitting(formEl, true);
           const result = await registerUser({
             firstName: draft.firstName,
@@ -242,20 +326,81 @@ export function useAuthFormBridge() {
 
           saveAuthSession(result.token, result.user);
           syncProfileToLegacyStorage(result.user);
+
+          // Set main-branch organizer session cookie so /organized middleware works.
+          try {
+            await fetch("/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email: draft.email,
+                password: draft.password,
+              }),
+            });
+          } catch {
+            /* cookie sync is best-effort; JWT session already saved */
+          }
+
           clearRegistrationDraft();
-          router.push("/home");
+          router.push(canOrganizeEvents(result.user) ? "/organized" : "/home");
           return;
         }
       } catch (error) {
         showError(error instanceof Error ? error.message : "Something went wrong. Please try again.");
         setSubmitting(formEl, false);
+        submitting = false;
       }
     };
 
-    form.addEventListener("submit", onSubmit);
+    const onSubmit = (event: Event) => {
+      const formEl = event.target as HTMLFormElement | null;
+      if (!formEl || formEl.tagName !== "FORM") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof (event as SubmitEvent).stopImmediatePropagation === "function") {
+        (event as SubmitEvent).stopImmediatePropagation();
+      }
+      void handleAuthAction(formEl);
+    };
+
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (!target) {
+        return;
+      }
+      const button = target.closest<HTMLButtonElement>(
+        "[data-auth-continue], .btn-continue, button.btn-create, button.btn-signin",
+      );
+      if (!button || button.disabled) {
+        return;
+      }
+      // Ignore password toggles / role chips that might share a class.
+      if (
+        button.classList.contains("toggle-password") ||
+        button.classList.contains("role-btn")
+      ) {
+        return;
+      }
+      const formEl = findAuthForm(button);
+      if (!formEl) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void handleAuthAction(formEl);
+    };
+
+    document.addEventListener("submit", onSubmit, true);
+    document.addEventListener("click", onClick, true);
+
     return () => {
       cancelled = true;
-      form.removeEventListener("submit", onSubmit);
+      window.clearInterval(lockTimer);
+      observer.disconnect();
+      document.removeEventListener("submit", onSubmit, true);
+      document.removeEventListener("click", onClick, true);
     };
   }, [pathname, router]);
 }

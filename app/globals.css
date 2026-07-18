@@ -55,16 +55,35 @@ a {
 .app {
   display: flex;
   min-height: 100vh;
+  align-items: flex-start;
 }
 
 .main {
   flex: 1;
   min-width: 0;
+  min-height: 100vh;
   padding: 32px 40px 48px;
   background: var(--main-bg);
 }
 
 /* ── Sidebar (same as Home) ── */
+/* Use .app > .sidebar (+ !important) so legacy page <style> cannot unpin it */
+.app > .sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 28px 20px 32px;
+  position: sticky !important;
+  top: 0 !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  transition: width 0.22s ease, padding 0.22s ease;
+  z-index: 40;
+}
+
 .sidebar {
   width: var(--sidebar-width);
   flex-shrink: 0;
@@ -72,9 +91,13 @@ a {
   display: flex;
   flex-direction: column;
   padding: 28px 20px 32px;
-  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   transition: width 0.22s ease, padding 0.22s ease;
-  position: relative;
+  z-index: 40;
 }
 
 .sidebar__collapse {
@@ -267,14 +290,29 @@ a {
 @media (max-width: 900px) {
   .app {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .sidebar {
     width: 100%;
+    height: auto !important;
+    max-height: none !important;
     min-height: auto;
+    position: relative !important;
+    top: auto !important;
+    overflow: visible !important;
     flex-direction: row;
     flex-wrap: wrap;
     padding: 20px;
+    z-index: 1;
+  }
+
+  .app > .sidebar {
+    height: auto !important;
+    max-height: none !important;
+    position: relative !important;
+    top: auto !important;
+    overflow: visible !important;
   }
 
   .sidebar__brand {

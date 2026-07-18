@@ -72,9 +72,10 @@ export async function issueRegistrationVerificationCode(
     !dbAvailable ||
     (shouldUseMemoryVerificationStore() && process.env.FORCE_VERIFICATION_MEMORY === "true");
 
-  if (useMemory) {
-    saveMemoryVerification({ email: normalizedEmail, codeHash, expiresAt });
-  } else if (db) {
+  // Always keep a memory copy so verify still works if Mongo TTL/index has hiccups.
+  saveMemoryVerification({ email: normalizedEmail, codeHash, expiresAt });
+
+  if (!useMemory && db) {
     const verifications = await getVerificationsCollection(db);
     const now = new Date();
     await verifications.updateOne(

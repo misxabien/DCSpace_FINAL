@@ -178,28 +178,79 @@ export function applyCoverImageLocally(bannerUrl: string) {
   }
 }
 
+const DEFAULT_TOPBAR_AVATAR_SVG =
+  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z"/></svg>';
+
+function ensureTopbarAvatarPhotoStyles() {
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (document.getElementById("dcspace-topbar-avatar-style")) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "dcspace-topbar-avatar-style";
+  style.textContent = `
+    a.tool-btn.tool-btn--avatar.has-photo {
+      background-size: cover !important;
+      background-position: center !important;
+      background-repeat: no-repeat !important;
+      overflow: hidden;
+      color: transparent;
+    }
+    a.tool-btn.tool-btn--avatar.has-photo svg {
+      display: none;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+export function applyTopbarAvatar(photoUrl?: string) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  ensureTopbarAvatarPhotoStyles();
+
+  document.querySelectorAll<HTMLAnchorElement>("a.tool-btn--avatar").forEach((el) => {
+    if (!el.dataset.defaultHtml) {
+      el.dataset.defaultHtml = el.innerHTML.trim() || DEFAULT_TOPBAR_AVATAR_SVG;
+    }
+
+    if (photoUrl) {
+      el.style.backgroundImage = `url("${photoUrl}")`;
+      el.classList.add("has-photo");
+      el.setAttribute("aria-label", "Profile");
+      return;
+    }
+
+    el.style.backgroundImage = "";
+    el.classList.remove("has-photo");
+    el.innerHTML = el.dataset.defaultHtml || DEFAULT_TOPBAR_AVATAR_SVG;
+  });
+}
+
 export function applyAvatarToDom(photoUrl?: string) {
   const avatarEl = document.getElementById("profile-avatar");
-  if (!avatarEl) {
-    return;
+  if (avatarEl) {
+    if (photoUrl) {
+      avatarEl.style.backgroundImage = `url("${photoUrl}")`;
+      avatarEl.style.backgroundSize = "cover";
+      avatarEl.style.backgroundPosition = "center";
+      avatarEl.textContent = "";
+      avatarEl.classList.add("is-photo");
+      avatarEl.setAttribute("aria-label", "Profile photo");
+    } else {
+      avatarEl.style.backgroundImage = "";
+      avatarEl.classList.remove("is-photo");
+      if (!avatarEl.textContent?.trim()) {
+        avatarEl.textContent = "🐱";
+      }
+      avatarEl.setAttribute("aria-label", "Profile photo placeholder");
+    }
   }
 
-  if (photoUrl) {
-    avatarEl.style.backgroundImage = `url("${photoUrl}")`;
-    avatarEl.style.backgroundSize = "cover";
-    avatarEl.style.backgroundPosition = "center";
-    avatarEl.textContent = "";
-    avatarEl.classList.add("is-photo");
-    avatarEl.setAttribute("aria-label", "Profile photo");
-    return;
-  }
-
-  avatarEl.style.backgroundImage = "";
-  avatarEl.classList.remove("is-photo");
-  if (!avatarEl.textContent?.trim()) {
-    avatarEl.textContent = "🐱";
-  }
-  avatarEl.setAttribute("aria-label", "Profile photo placeholder");
+  applyTopbarAvatar(photoUrl);
 }
 
 export function applyBannerToDom(bannerUrl?: string) {
