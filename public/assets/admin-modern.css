@@ -211,7 +211,7 @@ a.user-card {
   }
 }
 
-.welcome p {
+.topbar .welcome p {
   font-family: "Poppins", sans-serif !important;
   font-size: 42px !important;
   font-weight: 600 !important;
@@ -533,8 +533,14 @@ a.user-card {
 /* ?? Events list ?? */
 .event-tabs {
   gap: 4px;
-  border-bottom-width: 3px;
-  border-bottom-color: rgba(68, 138, 255, 0.85);
+  border: none !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  position: relative;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
 .event-tabs button {
@@ -550,9 +556,7 @@ a.user-card {
   background: rgba(68, 138, 255, 0.1);
 }
 
-.event-tabs button.active {
-  filter: saturate(1.05);
-}
+.event-tabs button.active { filter: none; }
 
 .section-heading {
   margin: 18px 0 12px;
@@ -886,7 +890,7 @@ a.event-item:hover {
 .approve-dialog,
 .reject-dialog,
 .revision-dialog,
-[class*="-dialog"] {
+[class$="-dialog"] {
   border-radius: 20px;
   border: 1px solid var(--border-soft);
   box-shadow: var(--shadow-md);
@@ -6828,4 +6832,110 @@ h1.page-title {
 .report-btn svg {
   width: 14px !important;
   height: 14px !important;
+}
+
+/* Event tabs — single solid bar (no light hairline above) */
+.event-tabs {
+  gap: 4px !important;
+  border: none !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  position: relative !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  padding-bottom: 4px !important;
+  background-color: transparent !important;
+}
+.event-tabs::-webkit-scrollbar {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+.event-tabs::before {
+  content: none !important;
+  display: none !important;
+}
+.event-tabs::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: 4px !important;
+  background: #448aff !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+.event-tabs button {
+  position: relative !important;
+  z-index: 1 !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  filter: none !important;
+}
+.event-tabs button.active {
+  filter: none !important;
+  margin-bottom: -4px !important;
+  padding-bottom: 16px !important;
+}
+
+/* Dialog action rows — do not inherit dialog chrome */
+.approve-dialog-actions,
+.reject-dialog-actions,
+.revision-dialog-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 12px !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.approve-yes,
+.approve-back,
+.reject-send,
+.reject-cancel,
+.revision-send,
+.revision-cancel {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 46px !important;
+  height: 46px !important;
+  min-width: 132px !important;
+  padding: 0 22px !important;
+  border-radius: 12px !important;
+  font-family: "Montserrat", sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  box-sizing: border-box !important;
+}
+.approve-back,
+.reject-cancel,
+.revision-cancel {
+  border: 1.5px solid #448aff !important;
+  background: #fff !important;
+  color: #448aff !important;
+  box-shadow: none !important;
+}
+.approve-yes,
+.reject-send,
+.revision-send {
+  border: 1.5px solid #448aff !important;
+  background: #448aff !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(68, 138, 255, 0.28) !important;
 }
