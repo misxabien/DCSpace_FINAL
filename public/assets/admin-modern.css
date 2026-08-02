@@ -149,7 +149,8 @@ a.user-card {
   box-shadow: var(--shadow-md);
 }
 
-.app.sidebar-collapsed .user-card {
+.app.sidebar-collapsed .user-card,
+.app.sidebar-collapsed .user-menu {
   display: none !important;
 }
 
@@ -6938,4 +6939,74 @@ h1.page-title {
   background: #448aff !important;
   color: #fff !important;
   box-shadow: 0 4px 14px rgba(68, 138, 255, 0.28) !important;
+}
+
+/* User card profile menu */
+.user-menu {
+  position: relative;
+  margin-top: auto;
+  z-index: 20;
+}
+.user-menu-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid rgba(68, 138, 255, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(68, 138, 255, 0.18);
+}
+.user-menu-popover[hidden] {
+  display: none !important;
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #448aff;
+  font-family: "Montserrat", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.user-menu-item:hover,
+.user-menu-item:focus-visible {
+  background: rgba(68, 138, 255, 0.12);
+  outline: none;
+}
+.user-menu-item.logout {
+  color: #e11d48;
+}
+.user-menu-item.logout:hover,
+.user-menu-item.logout:focus-visible {
+  background: rgba(225, 29, 72, 0.08);
+}
+.user-menu-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+button.user-card {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.app.sidebar-collapsed .user-menu {
+  display: none !important;
 }
