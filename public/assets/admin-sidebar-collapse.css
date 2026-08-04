@@ -1,9 +1,47 @@
-/* Admin shell — isolate from student globals + fix collapsed sidebar icons */
+/* Admin shell — isolate from student globals + collapsible sidebar */
+
+/* Brand white (logo photo): clean cool white, no blue/cream wash */
+[data-admin-legacy],
+[data-admin-legacy] .admin-legacy-root {
+  --bg: #ffffff !important;
+  --panel: #ffffff !important;
+  --surface: #ffffff !important;
+  --surface-muted: #fafcff !important;
+}
+
+html:has([data-admin-legacy]),
+body:has([data-admin-legacy]),
+body[data-admin-legacy],
+[data-admin-legacy] body,
+.admin-legacy-root {
+  background: #ffffff !important;
+}
+
+[data-admin-legacy] .app,
+[data-admin-legacy] .main {
+  background: #ffffff !important;
+}
+
+[data-admin-legacy] .sidebar {
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: 1px solid rgba(68, 138, 255, 0.1) !important;
+}
+
+[data-admin-legacy] .sidebar::before,
+[data-admin-legacy] .sidebar::after,
+[data-admin-legacy] .sidebar-glow {
+  display: none !important;
+  opacity: 0 !important;
+}
+
 [data-admin-legacy] .app {
   display: grid !important;
   grid-template-columns: 260px 1fr !important;
   min-height: 100vh;
   width: 100%;
+  transition: grid-template-columns 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 [data-admin-legacy] .app.sidebar-collapsed {
@@ -17,8 +55,8 @@
   min-height: 100vh !important;
   flex-shrink: 1 !important;
   position: relative !important;
-  background: rgba(255, 255, 255, 0.72) !important;
   padding: 28px 18px 20px !important;
+  transition: padding 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 [data-admin-legacy] .app.sidebar-collapsed .sidebar {
@@ -26,14 +64,86 @@
   align-items: center !important;
 }
 
+[data-admin-legacy] .brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+[data-admin-legacy] .menu-toggle {
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  color: #448aff !important;
+}
+
+[data-admin-legacy] .menu-toggle:hover {
+  opacity: 0.85;
+}
+
+[data-admin-legacy] .brand-logo {
+  cursor: pointer !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  overflow: visible !important;
+  flex-shrink: 0 !important;
+  box-shadow: none !important;
+}
+
+[data-admin-legacy] .brand-logo img {
+  width: 40px !important;
+  height: 40px !important;
+  object-fit: contain !important;
+  display: block !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-admin-legacy] .brand-logo .expand-icon {
+  display: none !important;
+  width: 28px !important;
+  height: 28px !important;
+  pointer-events: none !important;
+}
+
 [data-admin-legacy] .app.sidebar-collapsed .brand {
   justify-content: center !important;
+  width: 100% !important;
 }
 
 [data-admin-legacy] .app.sidebar-collapsed .brand-text,
 [data-admin-legacy] .app.sidebar-collapsed .menu-toggle,
-[data-admin-legacy] .app.sidebar-collapsed .user-card {
+[data-admin-legacy] .app.sidebar-collapsed .user-card,
+[data-admin-legacy] .app.sidebar-collapsed button.user-card,
+[data-admin-legacy] .app.sidebar-collapsed #user-menu-toggle,
+[data-admin-legacy] .app.sidebar-collapsed .user-menu,
+[data-admin-legacy] .app.sidebar-collapsed .user-avatar,
+[data-admin-legacy] .app.sidebar-collapsed .user-meta,
+[data-admin-legacy] .app.sidebar-collapsed .user-menu-popover {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
 }
 
 [data-admin-legacy] .app.sidebar-collapsed .nav {
@@ -74,11 +184,50 @@
   background: rgba(68, 138, 255, 0.12) !important;
 }
 
-[data-admin-legacy] .app.sidebar-collapsed .brand-logo:hover img {
+/* Don't let collapsed `.nav a { display:flex }` reveal Administration for regular admins */
+[data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-only,
+[data-admin-legacy] .app .nav a.nav-super-only[hidden] {
   display: none !important;
 }
 
-[data-admin-legacy] .app.sidebar-collapsed .brand-logo:hover .expand-icon {
+/* Super Admin: Administration icon always visible (sidebar open or closed) */
+body.is-super-admin [data-admin-legacy] .nav a.nav-super-only,
+body.is-super-admin [data-admin-legacy] .app .nav a.nav-super-only,
+body.is-super-admin [data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-only,
+body.is-super-admin [data-admin-legacy] .app .nav a.nav-super-only[hidden] {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  position: relative !important;
+  left: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+body.is-super-admin [data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-only {
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+body.is-super-admin [data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-only svg {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+[data-admin-legacy] .app.sidebar-collapsed .brand-logo:hover img,
+[data-admin-legacy] .app.sidebar-collapsed .brand-logo:focus-visible img {
+  display: none !important;
+}
+
+[data-admin-legacy] .app.sidebar-collapsed .brand-logo:hover .expand-icon,
+[data-admin-legacy] .app.sidebar-collapsed .brand-logo:focus-visible .expand-icon {
   display: block !important;
   transform: scaleX(-1);
 }
@@ -93,4 +242,65 @@
 
 [data-admin-legacy] .sidebar .nav a svg path {
   /* Preserve inline fill from admin SVGs */
+}
+
+@media (max-width: 900px) {
+  [data-admin-legacy] .app {
+    grid-template-columns: 78px 1fr !important;
+  }
+
+  [data-admin-legacy] .app .brand-text,
+  [data-admin-legacy] .app .menu-toggle,
+  [data-admin-legacy] .app .user-card,
+  [data-admin-legacy] .app button.user-card,
+  [data-admin-legacy] .app #user-menu-toggle,
+  [data-admin-legacy] .app .user-menu,
+  [data-admin-legacy] .app .user-avatar,
+  [data-admin-legacy] .app .user-meta {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  [data-admin-legacy] .app .sidebar {
+    padding: 28px 10px 20px !important;
+    align-items: center !important;
+  }
+
+  [data-admin-legacy] .app .nav {
+    align-items: center !important;
+    gap: 10px !important;
+  }
+
+  [data-admin-legacy] .app .nav a {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    overflow: hidden !important;
+    color: transparent !important;
+  }
+
+  [data-admin-legacy] .app .nav a svg {
+    display: block !important;
+    width: 22px !important;
+    height: 22px !important;
+  }
+
+  [data-admin-legacy] .app .nav a.nav-super-only {
+    display: none !important;
+  }
+
+  body.is-super-admin [data-admin-legacy] .app .nav a.nav-super-only {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
 }

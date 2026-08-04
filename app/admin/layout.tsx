@@ -18,14 +18,15 @@ export default function AdminLayout({
         href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Poppins:wght@400;500;600&display=swap"
         rel="stylesheet"
       />
-      <link rel="stylesheet" href="/assets/admin-sidebar-collapse.css" />
+      <link rel="stylesheet" href="/assets/admin-sidebar-collapse.css?v=3" />
       {/* Isolate admin HTML pages from student globals as much as possible */}
       <style>{`
         html:has([data-admin-legacy]),
-        body:has([data-admin-legacy]) {
+        body:has([data-admin-legacy]),
+        body[data-admin-legacy] {
           max-width: none !important;
           overflow-x: auto !important;
-          background: transparent;
+          background: #ffffff !important;
         }
       `}</style>
       {children}
