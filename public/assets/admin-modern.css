@@ -5,7 +5,7 @@
   --blue: #448aff;
   --blue-dark: #448aff;
   --blue-link: #448aff;
-  --bg: #f3f8fd;
+  --bg: #ffffff;
   --text: #3a3544;
   --black: #0f172a;
   --gold: #6b5720;
@@ -39,11 +39,7 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(ellipse 70% 45% at 0% 0%, rgba(68, 138, 255, 0.1), transparent 55%),
-    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(203, 238, 243, 0.35), transparent 50%),
-    radial-gradient(ellipse 50% 35% at 80% 100%, rgba(245, 210, 157, 0.12), transparent 55%),
-    var(--bg);
+  background: #ffffff;
   color: var(--text);
   font-size: var(--font-base);
   line-height: 1.45;
@@ -56,9 +52,9 @@ body {
 }
 
 .sidebar {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: #ffffff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-right: 1px solid var(--border-soft);
   padding: 24px 16px 18px;
 }
@@ -66,12 +62,30 @@ body {
 .sidebar::before,
 .sidebar::after,
 .sidebar-glow {
-  opacity: 0.42;
+  display: none;
+  opacity: 0;
 }
 
 .brand-logo {
-  border-radius: 12px;
+  border-radius: 50%;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+
+.brand-logo img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 0;
+  display: block;
+  background: transparent;
 }
 
 .brand-logo:hover {
@@ -150,8 +164,16 @@ a.user-card {
 }
 
 .app.sidebar-collapsed .user-card,
-.app.sidebar-collapsed .user-menu {
+.app.sidebar-collapsed button.user-card,
+.app.sidebar-collapsed #user-menu-toggle,
+.app.sidebar-collapsed .user-menu,
+.app.sidebar-collapsed .user-avatar,
+.app.sidebar-collapsed .user-meta,
+.app.sidebar-collapsed .user-menu-popover {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .app.sidebar-collapsed .brand-text,
@@ -332,13 +354,19 @@ a.user-card {
 }
 
 .icon-btn {
-  transition: transform 0.15s ease, opacity 0.15s ease;
-  border-radius: 10px;
+  transition: none;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.icon-btn:hover {
-  transform: translateY(-1px);
-  opacity: 0.88;
+.icon-btn:hover,
+.icon-btn:focus,
+.icon-btn:active {
+  transform: none !important;
+  opacity: 1 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* ?? Stats / dashboard cards ?? */
@@ -4202,40 +4230,55 @@ a.school-card:hover {
 }
 
 .stat-tile {
-  min-height: 96px !important;
-  padding: 12px 10px !important;
-  gap: 6px !important;
-  border: 1px solid var(--border-soft) !important;
-  border-radius: var(--radius-md) !important;
-  background: #fff;
-  box-shadow: none;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  min-height: 110px !important;
+  padding: 16px 12px !important;
+  gap: 10px !important;
+  border: 1px solid rgba(68, 138, 255, 0.2) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: none !important;
   transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease !important;
 }
 
 a.stat-tile:hover,
 .stat-tile:hover {
-  background: #f3f8ff !important;
-  border-color: var(--border-strong) !important;
-  box-shadow: var(--shadow-sm) !important;
-  transform: translateY(-2px) !important;
+  background: #448aff !important;
+  border-color: #448aff !important;
+  box-shadow: 0 6px 16px rgba(68, 138, 255, 0.22) !important;
+  transform: translateY(-1px) !important;
+}
+
+a.stat-tile:hover .stat-label,
+a.stat-tile:hover .stat-value,
+.stat-tile:hover .stat-label,
+.stat-tile:hover .stat-value {
+  color: #fff !important;
 }
 
 .stat-tile.active {
   background: #fff !important;
-  border-color: var(--border-soft) !important;
+  border-color: rgba(68, 138, 255, 0.2) !important;
 }
 
 .stat-tile .stat-label {
-  font-size: var(--font-sm) !important;
+  font-size: 13px !important;
   font-weight: 600 !important;
+  line-height: 1.3 !important;
   color: #475569 !important;
+  text-align: center !important;
 }
 
 .stat-tile .stat-value {
-  font-size: var(--font-2xl) !important;
-  font-weight: 650 !important;
-  letter-spacing: -0.02em;
-  color: var(--blue-link) !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em;
+  line-height: 1 !important;
+  color: #334155 !important;
 }
 
 .stat-tile.active .stat-label,
@@ -4248,7 +4291,7 @@ a.stat-tile:hover,
 }
 
 .stat-tile.active .stat-value {
-  color: var(--blue-link) !important;
+  color: #334155 !important;
 }
 
 .attendance-wrap {
@@ -7143,4 +7186,86 @@ button.user-card {
     width: 100% !important;
     min-width: 0 !important;
   }
+}
+
+/* Super Admin — Administration nav */
+.nav-super-only {
+  display: none !important;
+}
+body.is-super-admin .nav-super-only {
+  display: flex !important;
+}
+
+/* Make Admin toggle — Super Admin only (participant details)
+   Must beat `.sa-actions-card .action-row { display:flex }` */
+.sa-only-row,
+.action-row.sa-only-row,
+.participant-actions .action-row.sa-only-row,
+.sa-actions-card .action-row.sa-only-row {
+  display: none !important;
+}
+body.is-super-admin .sa-only-row,
+body.is-super-admin .action-row.sa-only-row,
+body.is-super-admin .participant-actions .action-row.sa-only-row,
+body.is-super-admin .sa-actions-card .action-row.sa-only-row {
+  display: flex !important;
+}
+
+/* Event Summary cards (info30) */
+.admin-legacy-root #admin-event-summary .es-grid,
+.admin-legacy-root #admin-event-summary .admin-stat-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+.admin-legacy-root #participant-event-summary .es-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+.admin-legacy-root #admin-event-summary .es-card,
+.admin-legacy-root #participant-event-summary .es-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  min-height: 112px !important;
+  padding: 18px 14px !important;
+  gap: 12px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(68, 138, 255, 0.22) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  transform: none !important;
+}
+.admin-legacy-root #admin-event-summary .es-card .stat-label,
+.admin-legacy-root #participant-event-summary .es-card .stat-label {
+  color: #475569 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  text-align: center !important;
+}
+.admin-legacy-root #admin-event-summary .es-card .stat-value,
+.admin-legacy-root #participant-event-summary .es-card .stat-value {
+  color: #334155 !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  background: transparent !important;
+  text-align: center !important;
+}
+.admin-legacy-root #admin-event-summary .es-card:hover,
+.admin-legacy-root #participant-event-summary .es-card:hover {
+  background: #448aff !important;
+  border-color: #448aff !important;
+  box-shadow: 0 6px 16px rgba(68, 138, 255, 0.22) !important;
+  transform: translateY(-1px) !important;
+}
+.admin-legacy-root #admin-event-summary .es-card:hover .stat-label,
+.admin-legacy-root #admin-event-summary .es-card:hover .stat-value,
+.admin-legacy-root #participant-event-summary .es-card:hover .stat-label,
+.admin-legacy-root #participant-event-summary .es-card:hover .stat-value {
+  color: #ffffff !important;
 }
