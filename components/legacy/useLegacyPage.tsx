@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
+import { bindPasswordToggles } from "@/components/legacy/bindPasswordToggles";
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -60,10 +61,20 @@ export function LegacyContent({
     document.title = data.title ? `DC Space — ${data.title}` : "DC Space";
   }, [data.title]);
 
+  useEffect(() => {
+    const host = document.querySelector("[data-legacy-content]");
+    if (!host) return;
+    return bindPasswordToggles(host);
+  }, [data.id]);
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: data.styles }} />
-      <div className={className} dangerouslySetInnerHTML={{ __html: data.html }} />
+      <div
+        data-legacy-content=""
+        className={className}
+        dangerouslySetInnerHTML={{ __html: data.html }}
+      />
     </>
   );
 }

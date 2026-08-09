@@ -39,6 +39,7 @@ body[data-admin-legacy],
 [data-admin-legacy] .app {
   display: grid !important;
   grid-template-columns: 260px 1fr !important;
+  align-items: start !important;
   min-height: 100vh;
   width: 100%;
   transition: grid-template-columns 0.28s cubic-bezier(0.22, 1, 0.36, 1);
@@ -48,15 +49,75 @@ body[data-admin-legacy],
   grid-template-columns: 78px 1fr !important;
 }
 
+/* Manage schools: cards stretch to fill the wider main area when sidebar is closed */
+[data-admin-legacy] .app.sidebar-collapsed .main {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+[data-admin-legacy] .app.sidebar-collapsed .school-grid {
+  display: grid !important;
+  width: 100% !important;
+  max-width: none !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+}
+[data-admin-legacy] .app.sidebar-collapsed .school-card,
+[data-admin-legacy] .app.sidebar-collapsed a.school-card {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+@media (max-width: 1400px) {
+  [data-admin-legacy] .app.sidebar-collapsed .school-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 1100px) {
+  [data-admin-legacy] .app.sidebar-collapsed .school-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 720px) {
+  [data-admin-legacy] .app.sidebar-collapsed .school-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 [data-admin-legacy] .sidebar {
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
+  position: sticky !important;
+  top: 0 !important;
+  align-self: start !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
   min-height: 100vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
   flex-shrink: 1 !important;
-  position: relative !important;
   padding: 28px 18px 20px !important;
   transition: padding 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-admin-legacy] .sidebar .nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+[data-admin-legacy] .sidebar .user-menu {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
+[data-admin-legacy] .main {
+  min-height: 100vh;
+  min-width: 0;
 }
 
 [data-admin-legacy] .app.sidebar-collapsed .sidebar {
@@ -244,6 +305,113 @@ body.is-super-admin [data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-
   /* Preserve inline fill from admin SVGs */
 }
 
+/* Shared topbar polish (also reinforced after page styles in AdminLegacyPage) */
+[data-admin-legacy] .topbar {
+  border-bottom: 1px solid rgba(68, 138, 255, 0.14) !important;
+  align-items: center !important;
+}
+[data-admin-legacy] .topbar .welcome p,
+[data-admin-legacy] .page-title h1,
+[data-admin-legacy] .page-heading h1,
+[data-admin-legacy] .page-heading-row .texts h1,
+[data-admin-legacy] h1.page-title,
+[data-admin-legacy] .page-title {
+  font-family: "Poppins", sans-serif !important;
+  font-size: 24px !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+  color: #448AFF !important;
+}
+[data-admin-legacy] .topbar .page-title,
+[data-admin-legacy] .topbar .page-title h1,
+[data-admin-legacy] .topbar .welcome,
+[data-admin-legacy] .topbar .welcome p {
+  margin: 0 !important;
+}
+[data-admin-legacy] .topbar .welcome p + p {
+  margin-top: 2px !important;
+}
+[data-admin-legacy] .top-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-height: 36px !important;
+}
+[data-admin-legacy] .top-actions > .search-wrap,
+[data-admin-legacy] .top-actions > .search-bar,
+[data-admin-legacy] .top-actions > .icon-btn,
+[data-admin-legacy] .top-actions > a.icon-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  align-self: center !important;
+  height: 36px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+[data-admin-legacy] .top-actions .search-bar {
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+  box-sizing: border-box !important;
+  padding: 0 8px 0 12px !important;
+  gap: 8px !important;
+}
+[data-admin-legacy] .top-actions > .icon-btn,
+[data-admin-legacy] .top-actions > a.icon-btn {
+  width: 36px !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  line-height: 0 !important;
+}
+[data-admin-legacy] .top-actions > .icon-btn svg,
+[data-admin-legacy] .top-actions > a.icon-btn svg,
+[data-admin-legacy] .top-actions .icon-btn.help svg {
+  width: 22px !important;
+  height: 22px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
+  display: block !important;
+}
+[data-admin-legacy] .search-wrap {
+  gap: 0 !important;
+  height: 36px !important;
+}
+[data-admin-legacy] .search-bar:has(.filter-wrap) {
+  overflow: visible !important;
+}
+[data-admin-legacy] .search-bar .filter-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  width: 22px !important;
+  height: 22px !important;
+}
+[data-admin-legacy] .search-bar .search-filter,
+[data-admin-legacy] .search-bar > .icon-btn,
+[data-admin-legacy] .search-bar .filter-wrap .icon-btn {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  padding: 0 !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  line-height: 0 !important;
+}
+[data-admin-legacy] .search-bar .search-filter svg,
+[data-admin-legacy] .search-bar > .icon-btn svg,
+[data-admin-legacy] .search-bar .filter-wrap .icon-btn svg {
+  width: 16px !important;
+  height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  display: block !important;
+}
+
 @media (max-width: 900px) {
   [data-admin-legacy] .app {
     grid-template-columns: 78px 1fr !important;
@@ -303,4 +471,67 @@ body.is-super-admin [data-admin-legacy] .app.sidebar-collapsed .nav a.nav-super-
     visibility: visible !important;
     opacity: 1 !important;
   }
+}
+
+
+/* filter-menu-solid-v2 */
+[data-admin-legacy] .filter-wrap {
+  z-index: 9999 !important;
+  isolation: isolate !important;
+}
+[data-admin-legacy] .events-filter-menu {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  z-index: 10000 !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18) !important;
+  overflow: hidden !important;
+}
+[data-admin-legacy] .events-filter-menu::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: #ffffff !important;
+  z-index: -1 !important;
+}
+[data-admin-legacy] .events-filter-menu button {
+  background: #ffffff !important;
+}
+[data-admin-legacy] .events-filter-menu button:hover,
+[data-admin-legacy] .events-filter-menu button.active {
+  background: #e8f1ff !important;
+}
+
+/* Participant Attendance List — fit beside details when sidebar is open */
+[data-admin-legacy] .main:has(.listp-layout) {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+[data-admin-legacy] .listp-layout {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px) !important;
+  gap: 14px !important;
+  box-sizing: border-box !important;
+}
+[data-admin-legacy] .listp-layout > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+[data-admin-legacy] .listp-table-wrap {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+[data-admin-legacy] .listp-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+[data-admin-legacy] .app.sidebar-collapsed .listp-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px) !important;
 }
