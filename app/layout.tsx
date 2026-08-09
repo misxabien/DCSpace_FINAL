@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { RoutePresence } from "@/components/motion/RoutePresence";
+import { TopLoadingBarHost } from "@/components/navigation/TopLoadingBarHost";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +28,10 @@ export default function RootLayout({
         <link rel="stylesheet" href="/site-tour.css" />
       </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <TopLoadingBarHost />
+          <RoutePresence>{children}</RoutePresence>
+        </AuthProvider>
       </body>
     </html>
   );

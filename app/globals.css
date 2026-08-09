@@ -1,5 +1,73 @@
 @import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap");
 
+/* Tailwind v4 — theme + utilities only (skip preflight to preserve existing CSS) */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* iOS-style spring press — also used by SpringButton */
+@utility spring-press {
+  transition-property: transform;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transform: scale(1);
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+/* Global top loading bar */
+.top-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  height: 3px;
+  pointer-events: none;
+  overflow: hidden;
+  background: transparent;
+}
+
+.top-loading-bar__fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg, #448aff 0%, #7eb6ff 55%, #448aff 100%);
+  box-shadow: 0 0 10px rgba(68, 138, 255, 0.55);
+  transition:
+    transform 0.2s ease-out,
+    opacity 0.18s ease;
+}
+
+.top-loading-bar--indeterminate .top-loading-bar__fill {
+  animation: top-loading-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes top-loading-indeterminate {
+  0% {
+    transform: translateX(-40%) scaleX(0.35);
+  }
+  50% {
+    transform: translateX(20%) scaleX(0.55);
+  }
+  100% {
+    transform: translateX(110%) scaleX(0.35);
+  }
+}
+
+.route-loading {
+  min-height: 40vh;
+}
+
 :root {
   --sidebar-bg: #dae4f8;
   --main-bg: #fffcf8;
