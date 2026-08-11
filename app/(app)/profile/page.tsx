@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { LegacyContent } from "@/components/legacy/useLegacyPage";
-import { ProfileOrganizerBadge } from "@/components/auth/OrganizerCues";
 import { useAuth } from "@/components/auth/AuthProvider";
 import legacyProfile from "@/content/legacy/36-profile.json";
 
@@ -28,7 +27,6 @@ export default function ProfilePage() {
     <AppShell>
       <Sidebar />
       <main className="main">
-        <ProfileOrganizerBadge />
         <LegacyContent data={profile} />
         <SyncProfileName />
       </main>

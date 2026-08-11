@@ -170,6 +170,79 @@
     return DEFAULT_RFID;
   }
 
+  var SAVED_STORAGE_KEY = "dc_saved_events";
+
+  function getSavedIds() {
+    try {
+      var raw = localStorage.getItem(SAVED_STORAGE_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function isEventSaved(id) {
+    return getSavedIds().indexOf(String(id)) !== -1;
+  }
+
+  function toggleSaved(id) {
+    var sid = String(id);
+    var ids = getSavedIds();
+    var index = ids.indexOf(sid);
+    if (index === -1) {
+      ids.push(sid);
+    } else {
+      ids.splice(index, 1);
+    }
+    localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(ids));
+    window.dispatchEvent(new CustomEvent("dc-saved-changed"));
+    return ids.indexOf(sid) !== -1;
+  }
+
+  function syncDetailSaveButton(btn, id) {
+    if (!btn) return;
+    var saved = isEventSaved(id);
+    btn.classList.toggle("is-saved", saved);
+    btn.setAttribute("aria-pressed", saved ? "true" : "false");
+    btn.setAttribute("aria-label", saved ? "Remove from saved events" : "Save event");
+  }
+
+  function bindDetailSaveButton(eventId) {
+    var btn =
+      document.getElementById("detail-save") ||
+      document.querySelector('.detail-actions .detail-icon-btn[aria-label="Save event"]') ||
+      document.querySelector('.detail-actions .detail-icon-btn[aria-label="Remove from saved events"]');
+    if (!btn) return;
+
+    btn.setAttribute("data-event-id", String(eventId));
+    syncDetailSaveButton(btn, eventId);
+    if (btn.dataset.saveBound === "1") return;
+    btn.dataset.saveBound = "1";
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      var id = btn.getAttribute("data-event-id") || eventId;
+      toggleSaved(id);
+      syncDetailSaveButton(btn, id);
+    });
+  }
+
+  function bindDetailBack(fallbackHref) {
+    var btn = document.getElementById("detail-back");
+    if (!btn || btn.dataset.backBound === "1") return;
+    btn.dataset.backBound = "1";
+    btn.addEventListener("click", function (event) {
+      event.preventDefault();
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      window.location.href = btn.getAttribute("data-fallback") || fallbackHref || "/events";
+    });
+  }
+
   global.DCEvents = {
     list: DC_EVENTS,
     getEventById: getEventById,
@@ -177,6 +250,11 @@
     formatDateParts: formatDateParts,
     getEventDetailUrl: getEventDetailUrl,
     getEventSubmitUrl: getEventSubmitUrl,
-    getAttendanceRfid: getAttendanceRfid
+    getAttendanceRfid: getAttendanceRfid,
+    getSavedIds: getSavedIds,
+    isEventSaved: isEventSaved,
+    toggleSaved: toggleSaved,
+    bindDetailSaveButton: bindDetailSaveButton,
+    bindDetailBack: bindDetailBack
   };
 })(window);

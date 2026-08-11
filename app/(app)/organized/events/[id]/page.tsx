@@ -40,14 +40,14 @@ export default function OrganizedEventDetailPage() {
 
   if (!event) {
     return (
-      <OrganizedShell title="Events Name">
+      <OrganizedShell title="Events Name" backHref="/organized/events">
         <p className={styles.empty}>Loading event…</p>
       </OrganizedShell>
     );
   }
 
   return (
-    <OrganizedShell title={event.title}>
+    <OrganizedShell title={event.title} backHref="/organized/events">
       <OrganizedEventDetailView event={event} />
     </OrganizedShell>
   );

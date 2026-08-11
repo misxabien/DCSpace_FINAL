@@ -138,7 +138,7 @@
 }
 
 .section h3 {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text);
   margin: 0 0 12px;
@@ -178,12 +178,12 @@
 }
 
 .listItem svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   color: var(--blue);
   flex-shrink: 0;
-  stroke: var(--blue);
-  fill: none;
+  fill: currentColor;
+  stroke: none;
 }
 
 .organizerBar {

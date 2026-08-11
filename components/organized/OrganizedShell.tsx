@@ -108,9 +108,11 @@ function defaultEvents(): OrganizedEvent[] {
 
 export function OrganizedShell({
   title = "Organize an Event!",
+  backHref,
   children,
 }: {
   title?: string;
+  backHref?: string;
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
@@ -120,7 +122,22 @@ export function OrganizedShell({
       <Sidebar />
       <main className={`main ${styles.page}`}>
         <div className={styles.top}>
-          <h1 className={styles.greeting}>{title}</h1>
+          <div className={styles.titleRow}>
+            {backHref ? (
+              <Link href={backHref} className={styles.backBtn} aria-label="Go back">
+                <svg width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+                  <circle cx="40" cy="40" r="40" fill="#FFFBF6" />
+                  <path
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                    d="M48.3839 24.1161C48.872 24.6043 48.872 25.3957 48.3839 25.8839L34.2678 40L48.3839 54.1161C48.872 54.6043 48.872 55.3957 48.3839 55.8839C47.8957 56.372 47.1043 56.372 46.6161 55.8839L31.6161 40.8839C31.128 40.3957 31.128 39.6043 31.6161 39.1161L46.6161 24.1161C47.1043 23.628 47.8957 23.628 48.3839 24.1161Z"
+                    fill="#448AFF"
+                  />
+                </svg>
+              </Link>
+            ) : null}
+            <h1 className={styles.greeting}>{title}</h1>
+          </div>
           <div className={styles.tools}>
             <span className={`main__user-name ${styles.userName}`}>
               {user?.name || "Your Name"}

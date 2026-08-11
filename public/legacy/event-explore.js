@@ -48,6 +48,13 @@
 
     toggleBlock('detail-files-required', event.requiresFiles);
 
+    if (DCEvents.bindDetailSaveButton) {
+      DCEvents.bindDetailSaveButton(event.id);
+    }
+    if (DCEvents.bindDetailBack) {
+      DCEvents.bindDetailBack('/events');
+    }
+
     var actionBtn = document.getElementById('detail-action');
     if (!actionBtn) return;
 

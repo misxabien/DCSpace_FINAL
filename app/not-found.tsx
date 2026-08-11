@@ -17,7 +17,7 @@ export default function NotFound() {
         Oops! The page you&apos;re looking for could not be found.
       </p>
 
-      <Link href="/home" className={styles.button}>
+      <Link href="/admin/selection01" className={styles.button}>
         <span className={styles.arrow} aria-hidden="true">
           ←
         </span>

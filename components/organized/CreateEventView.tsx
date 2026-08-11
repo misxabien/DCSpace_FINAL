@@ -11,6 +11,16 @@ import {
 } from "@/components/organized/OrganizedShell";
 import styles from "@/components/organized/CreateEvent.module.css";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
+import {
+  IconAttendanceTime,
+  IconEventType,
+  IconGracePeriod,
+  IconHostedBook,
+  IconHostedBuilding,
+  IconHostedPeople,
+  IconRequiredFile,
+  IconVenueType,
+} from "@/components/organized/EventDetailIcons";
 
 const DEFAULT_REVIEW_IMAGE =
   "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=480&fit=crop&q=80";
@@ -1276,16 +1286,11 @@ export function CreateEventView() {
                   ))}
                   <div className={detailStyles.types}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                        <path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />
-                      </svg>
+                      <IconVenueType />
                       <span>Venue Type ({venueType || "On/Off Campus"})</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" />
-                        <path d="M16 2v4M8 2v4M3 10h18" />
-                      </svg>
+                      <IconEventType />
                       <span>Event Type ({eventType || "Seminar/Outreach/Party"})</span>
                     </div>
                   </div>
@@ -1295,25 +1300,15 @@ export function CreateEventView() {
                   <h3>Hosted By</h3>
                   <div className={detailStyles.list}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-                      </svg>
+                      <IconHostedPeople />
                       <span>{hostedOrganization}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
-                      </svg>
+                      <IconHostedBook />
                       <span>{hostedCourse}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M3 21h18M6 21V7h12v14" />
-                        <path d="M9 21v-4h6v4" />
-                      </svg>
+                      <IconHostedBuilding />
                       <span>School/Department</span>
                     </div>
                   </div>
@@ -1323,24 +1318,15 @@ export function CreateEventView() {
                   <h3>Event Requirements</h3>
                   <div className={detailStyles.list}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 6v6l4 2" />
-                      </svg>
+                      <IconAttendanceTime />
                       <span>Attendance Time Required: {minAttendance || "—"}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M5 3v4M19 3v4M5 7h14v14H5z" />
-                        <path d="M9 11h6" />
-                      </svg>
+                      <IconGracePeriod />
                       <span>Grace Period: {gracePeriod || "—"}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                        <path d="M14 2v6h6" />
-                      </svg>
+                      <IconRequiredFile />
                       <span>Required File(s): {requiredFilesLabel}</span>
                     </div>
                   </div>

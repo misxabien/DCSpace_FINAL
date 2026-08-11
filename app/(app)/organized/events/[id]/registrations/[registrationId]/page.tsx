@@ -60,14 +60,14 @@ export default function OrganizedParticipantPage() {
 
   if (!event || !participant) {
     return (
-      <OrganizedShell title="Events Name">
+      <OrganizedShell title="Events Name" backHref={`/organized/events/${eventId}/registrations`}>
         <p className={styles.empty}>Loading participant…</p>
       </OrganizedShell>
     );
   }
 
   return (
-    <OrganizedShell title={event.title}>
+    <OrganizedShell title={event.title} backHref={`/organized/events/${event.id}/registrations`}>
       <OrganizedParticipantView event={event} participant={participant} />
     </OrganizedShell>
   );

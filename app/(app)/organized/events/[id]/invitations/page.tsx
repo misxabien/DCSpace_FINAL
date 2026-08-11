@@ -47,7 +47,7 @@ export default function OrganizedEventInvitationsPage() {
   }
 
   return (
-    <OrganizedShell title={event.title}>
+    <OrganizedShell title={event.title} backHref={`/organized/events/${event.id}`}>
       <OrganizedInvitationsView event={event} />
     </OrganizedShell>
   );

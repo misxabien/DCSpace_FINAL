@@ -58,6 +58,7 @@
       document.body.classList.add('detail-page--missing');
       setText('detail-title', 'Event Not Found');
       toggleBlock('detail-action', false);
+      if (DCEvents.bindDetailBack) DCEvents.bindDetailBack('/home');
       return;
     }
 
@@ -94,6 +95,13 @@
     toggleBlock('detail-footer-cancelled', event.status === 'cancelled');
     toggleBlock('detail-footer-postponed', event.status === 'postponed');
     toggleBlock('detail-rejection-note', event.status === 'cancelled' || event.status === 'postponed' || event.status === 'rejected');
+
+    if (DCEvents.bindDetailSaveButton) {
+      DCEvents.bindDetailSaveButton(event.id);
+    }
+    if (DCEvents.bindDetailBack) {
+      DCEvents.bindDetailBack('/home');
+    }
   }
 
   DCEvents.renderEventDetails = renderEventDetails;
