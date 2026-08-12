@@ -1503,9 +1503,9 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   border-radius: 999px !important;
 }
 [data-admin-legacy] #event-info-card .src-tag.eroom {
-  background: #ffe4e8 !important;
-  color: #c45b6a !important;
-  border: 1px solid rgba(196, 91, 106, 0.35) !important;
+  background: #ffe3e3 !important;
+  color: #c62828 !important;
+  border: 1px solid rgba(198, 40, 40, 0.35) !important;
 }
 [data-admin-legacy] #event-info-card .src-tag.dcspace {
   background: #e8f1ff !important;
@@ -1559,6 +1559,11 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   font-weight: 600 !important;
   border-radius: 5px !important;
   line-height: 1 !important;
+}
+[data-admin-legacy] .vorg-btn.eroom {
+  background: #ffe3e3 !important;
+  color: #c62828 !important;
+  border: 1px solid rgba(198, 40, 40, 0.35) !important;
 }
 
 /* Program & Activities — closer cards, less empty box height */
