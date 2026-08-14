@@ -7,12 +7,19 @@ import { bindPasswordToggles } from "@/components/legacy/bindPasswordToggles";
 
 const SIDEBAR_STORAGE_KEY = "dc_admin_sidebar_collapsed";
 
+/** Keep SSR/client markup identical (Windows JSON often has CRLF). */
+function normalizeLegacyMarkup(value: string) {
+  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 /**
  * Renders a full admin HTML document body + styles with no AppShell wrapper,
  * so Figma/HTML designs stay visually identical.
  */
 export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
   useLegacyScripts(data.scripts);
+  const pageStyles = normalizeLegacyMarkup(data.styles);
+  const pageHtml = normalizeLegacyMarkup(data.html);
 
   useEffect(() => {
     document.title = data.title || "DC Space Admin";
@@ -189,6 +196,41 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
     };
   }, [data.id, data.route, data.title]);
 
+  // register03 — Save & Continue → school details
+  useEffect(() => {
+    if (data.id !== "register03") return;
+    const root = document.querySelector(".admin-legacy-root");
+    if (!root) return;
+
+    const goNext = (event: Event) => {
+      event.preventDefault();
+      window.location.assign("/admin/school04");
+    };
+
+    const onClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const btn = target.closest(".continue-btn");
+      if (!btn || !root.contains(btn)) return;
+      // If it's already an anchor with href, let the browser navigate
+      if (btn.tagName === "A" && btn.getAttribute("href")) return;
+      goNext(event);
+    };
+
+    const onSubmit = (event: Event) => {
+      const form = event.target as HTMLElement | null;
+      if (!form || form.id !== "register-form") return;
+      goNext(event);
+    };
+
+    root.addEventListener("click", onClick);
+    root.addEventListener("submit", onSubmit, true);
+    return () => {
+      root.removeEventListener("click", onClick);
+      root.removeEventListener("submit", onSubmit, true);
+    };
+  }, [data.id, data.route]);
+
   // Admin Notes Resolve / Resolved pills — work on every event details page
   useEffect(() => {
     const root = document.querySelector(".admin-legacy-root");
@@ -269,11 +311,57 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
 
   return (
     <div data-admin-legacy="" data-admin-page={data.id} className="admin-legacy-root">
-      <style dangerouslySetInnerHTML={{ __html: data.styles }} />
+      <style dangerouslySetInnerHTML={{ __html: pageStyles }} />
       {/* Loaded after page styles so Super Admin Administration stays visible when collapsed */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
+/* register03 + school04 — shared signup form sizing */
+[data-admin-page="register03"] .page,
+[data-admin-page="school04"] .page {
+  grid-template-columns: minmax(280px, 38.177%) 1fr !important;
+}
+[data-admin-page="register03"] .panel,
+[data-admin-page="school04"] .panel {
+  padding: 4.5vh 4vw 4vh !important;
+}
+[data-admin-page="register03"] .panel .form,
+[data-admin-page="school04"] .panel .form,
+[data-admin-page="register03"] .panel .field,
+[data-admin-page="school04"] .panel .field,
+[data-admin-page="register03"] .panel .actions,
+[data-admin-page="school04"] .panel .actions {
+  width: 100% !important;
+  max-width: 720px !important;
+}
+[data-admin-page="register03"] .panel .field input,
+[data-admin-page="register03"] .panel .field select,
+[data-admin-page="school04"] .panel .field input,
+[data-admin-page="school04"] .panel .field select {
+  width: 100% !important;
+  max-width: 720px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  padding: 0 14px !important;
+  font-size: 14px !important;
+  border-radius: 6px !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="register03"] .panel h2,
+[data-admin-page="school04"] .panel h2 {
+  font-size: 28px !important;
+  margin: 0 0 28px !important;
+}
+
+/* Label → input breathing room on signup steps */
+[data-admin-page="register03"] .panel .field,
+[data-admin-page="school04"] .panel .field,
+[data-admin-page="acc05"] .panel .field,
+[data-admin-page="verify06"] .panel .field {
+  gap: 12px !important;
+}
+
 body.is-super-admin .nav a.nav-super-only,
 body.is-super-admin .app.sidebar-collapsed .nav a.nav-super-only,
 body.is-super-admin .admin-legacy-root .app.sidebar-collapsed .nav a.nav-super-only {
@@ -409,6 +497,74 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   color: #448AFF !important;
 }
 
+/* fcollection48 + feeddeets49 + scollection48 header — Figma: chevron + Feedback / subtitle */
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading,
+[data-admin-legacy] .page-heading.fb-page-heading {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading .back-btn,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading .back-btn,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading .back-btn,
+[data-admin-legacy] .page-heading.fb-page-heading .back-btn {
+  display: inline-grid !important;
+  place-items: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  margin-top: 2px !important;
+  flex-shrink: 0 !important;
+  color: #448AFF !important;
+  text-decoration: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading .back-btn svg,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading .back-btn svg,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading .back-btn svg,
+[data-admin-legacy] .page-heading.fb-page-heading .back-btn svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading .texts,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading .texts,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading .texts,
+[data-admin-legacy] .page-heading.fb-page-heading .texts {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading .texts h1,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading .texts h1,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading .texts h1,
+[data-admin-legacy] .page-heading.fb-page-heading .texts h1 {
+  margin: 0 !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+  color: #448AFF !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-page-heading .texts p,
+[data-admin-legacy][data-admin-page="feeddeets49"] .fb-page-heading .texts p,
+[data-admin-legacy][data-admin-page="scollection48"] .fb-page-heading .texts p,
+[data-admin-legacy] .page-heading.fb-page-heading .texts p {
+  margin: 2px 0 0 !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.3 !important;
+  color: #448AFF !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fc-head .fb-title,
+[data-admin-legacy][data-admin-page="fcollection48"] h2.fb-title,
+[data-admin-legacy][data-admin-page="scollection48"] .fc-head .fb-title,
+[data-admin-legacy][data-admin-page="scollection48"] h2.fb-title {
+  color: #000000 !important;
+}
+
 /* certdeets46: hide filter chips; section search = dashboard search-bar */
 [data-admin-legacy] .cd-chips,
 [data-admin-legacy] .cd-chip {
@@ -445,25 +601,106 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   padding: 0 !important;
 }
 
-/* certdeets46: keep Show entries tight next to Page */
-[data-admin-legacy] .cd-footer {
+/* certdeets46: Asc/Desc + Show entries — Figma outline bar */
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-footer {
   display: flex !important;
   flex-wrap: wrap !important;
   align-items: center !important;
-  justify-content: flex-start !important;
-  gap: 8px !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  width: 100% !important;
 }
-[data-admin-legacy] .cd-show {
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-sort {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  gap: 8px !important;
+  height: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-sort button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  background: #ffffff !important;
+  border: 1px solid #448aff !important;
+  border-radius: 6px !important;
+  color: #448aff !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-sort button svg {
+  width: 14px !important;
+  height: 14px !important;
+  flex-shrink: 0 !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-sort button.active,
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-sort button:hover {
+  background: #ffffff !important;
+  border-color: #448aff !important;
+  color: #448aff !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-pager {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 12px !important;
   margin-left: auto !important;
 }
-[data-admin-legacy] .cd-page {
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-show {
+  display: inline !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  color: #448aff !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+  background: none !important;
+  border: none !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-page {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  gap: 8px !important;
   margin-left: 0 !important;
+  color: #448aff !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-page .nav-btn {
+  display: inline-grid !important;
+  place-items: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  background: #ffffff !important;
+  border: 1.5px solid #448aff !important;
+  border-radius: 6px !important;
+  color: #448aff !important;
+  font-size: 18px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-page .nav-btn:hover {
+  background: #f3f8ff !important;
 }
 
 /* certdeets46 section titles — black */
@@ -1534,6 +1771,188 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   color: #448AFF !important;
   line-height: 1.2 !important;
 }
+[data-admin-legacy] .vorg-approval.is-pending,
+[data-admin-page="vorg36"] .rv-card.is-pending-view #approval-status,
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-approval.is-pending {
+  color: #d4a017 !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+}
+[data-admin-page="vorg36"] .vorg-view-event {
+  display: none !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0 !important;
+  margin: 0 !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-btn {
+  display: none !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-view-event {
+  display: inline-block !important;
+  margin: 2px 0 0 !important;
+  color: #448aff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-sub-label {
+  color: #448aff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  margin: 0 0 4px !important;
+  text-align: right !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view #event-name,
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-head-main h2 {
+  color: #448aff !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  margin: 0 0 8px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .vorg-head-main .desc {
+  color: #0f172a !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .rv-section-label {
+  color: #0f172a !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .rv-meta-grid {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .rv-meta {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  min-height: 88px !important;
+  padding: 28px 10px 14px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  border-radius: 12px !important;
+  gap: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .rv-meta .k {
+  position: absolute !important;
+  top: 10px !important;
+  left: 12px !important;
+  color: #64748b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  text-align: left !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-pending-view .rv-meta .v {
+  text-align: center !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+/* vorg36 rejected — Figma header */
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-view-event,
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-actions {
+  display: none !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 24px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-rejected-view #event-name,
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-head-main h2 {
+  color: #448aff !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  margin: 0 0 8px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-head-main .desc {
+  color: #0f172a !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-sub-label {
+  color: #448aff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+  text-align: right !important;
+}
+[data-admin-page="vorg36"] .vorg-approval.is-rejected,
+[data-admin-page="vorg36"] .rv-card.is-rejected-view #approval-status,
+[data-admin-page="vorg36"] .rv-card.is-rejected-view .vorg-approval.is-rejected {
+  color: #b12b2b !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  margin: 4px 0 0 !important;
+  text-align: right !important;
+}
+
+/* vorg36 validated — eRoom validated, awaiting DC Space accept */
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 24px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view #event-name,
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-head-main h2 {
+  color: #448aff !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  margin: 0 0 8px !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-head-main .desc {
+  color: #0f172a !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-sub-label {
+  color: #448aff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+  text-align: right !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view #approval-status,
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-approval {
+  color: #448aff !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  margin: 4px 0 2px !important;
+  text-align: right !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-view-event {
+  display: inline-block !important;
+  margin: 0 !important;
+  color: #448aff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px !important;
+  white-space: nowrap !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-actions {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+  margin: 0 !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-btn.dcspace {
+  display: none !important;
+}
+[data-admin-page="vorg36"] .rv-card.is-validated-view .vorg-btn.eroom {
+  display: inline-flex !important;
+}
 [data-admin-legacy] .vorg-head {
   margin-bottom: 10px !important;
 }
@@ -2224,6 +2643,364 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 }
 
 /* cert45 Certificate Processing Status footer — Figma */
+[data-admin-legacy][data-admin-page="cert45"] .cert-section-title {
+  color: #000000 !important;
+}
+[data-admin-legacy][data-admin-page="report51"] .rp-stat {
+  position: relative !important;
+  overflow: hidden !important;
+  padding: 36px 18px 18px !important;
+}
+[data-admin-legacy][data-admin-page="report51"] .rp-open {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  z-index: 3 !important;
+}
+[data-admin-legacy][data-admin-page="report51"] .rp-stat .name {
+  max-width: 140px !important;
+  padding: 0 10px !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .toolbar-selects .cert-dd-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 40 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .toolbar-select .toolbar-select-label {
+  max-width: 150px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  min-width: 220px !important;
+  max-width: min(420px, 92vw) !important;
+  max-height: 320px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 60 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-menu[hidden] {
+  display: none !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-course-menu {
+  min-width: 280px !important;
+  right: 0 !important;
+  left: auto !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-org-menu {
+  min-width: 300px !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-date-menu {
+  min-width: 260px !important;
+  padding: 10px !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  line-height: 1.35 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-option.is-nested {
+  padding-left: 22px !important;
+  font-weight: 400 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-org-section {
+  margin: 6px 4px 4px !important;
+  padding: 6px 6px 4px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  color: #1357C9 !important;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.16) !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-org-group {
+  margin: 6px 4px 2px !important;
+  padding: 4px 6px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-org-option {
+  padding-left: 18px !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #1357C9 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-head button {
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: rgba(68, 138, 255, 0.12) !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-weekdays,
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid {
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+  gap: 2px !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-weekdays span {
+  text-align: center !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #3476E3 !important;
+  padding: 4px 0 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid button {
+  height: 30px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #1357C9 !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid button:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid button.is-today {
+  border: 1px solid rgba(68, 138, 255, 0.45) !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid button.is-selected {
+  background: rgba(68, 138, 255, 0.22) !important;
+  font-weight: 700 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-cal-grid button.is-muted {
+  color: #9bb8ef !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .toolbar-selects .fb47-dd-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 40 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .toolbar-select .toolbar-select-label {
+  max-width: 150px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  min-width: 220px !important;
+  max-width: min(420px, 92vw) !important;
+  max-height: 320px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 60 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-menu[hidden] {
+  display: none !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-course-menu {
+  min-width: 280px !important;
+  right: 0 !important;
+  left: auto !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-org-menu {
+  min-width: 300px !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-date-menu {
+  min-width: 260px !important;
+  padding: 10px !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  line-height: 1.35 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option.is-nested {
+  padding-left: 22px !important;
+  font-weight: 400 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-org-section {
+  margin: 6px 4px 4px !important;
+  padding: 6px 6px 4px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  color: #1357C9 !important;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.16) !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-org-group {
+  margin: 6px 4px 2px !important;
+  padding: 4px 6px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-org-option {
+  padding-left: 18px !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #1357C9 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-head button {
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: rgba(68, 138, 255, 0.12) !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-weekdays,
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid {
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+  gap: 2px !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-weekdays span {
+  text-align: center !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #3476E3 !important;
+  padding: 4px 0 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button {
+  height: 30px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #1357C9 !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-today {
+  border: 1px solid rgba(68, 138, 255, 0.45) !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-selected {
+  background: rgba(68, 138, 255, 0.22) !important;
+  font-weight: 700 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-muted {
+  color: #9bb8ef !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table-wrap {
+  overflow-x: auto !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table {
+  width: 100% !important;
+  min-width: 920px !important;
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th {
+  color: #448aff !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  padding: 12px 10px !important;
+  vertical-align: middle !important;
+  line-height: 1.2 !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(1) {
+  width: 26% !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(2),
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(3),
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(4) {
+  width: 20% !important;
+  text-align: center !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(5) {
+  width: 14% !important;
+  text-align: center !important;
+}
 [data-admin-legacy] .cert-footer {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -2629,6 +3406,47 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   }
 }
 
+/* manages28 — square/portrait school cards + hide Filter */
+[data-admin-page="manages28"] .filter-btn,
+[data-admin-page="manages28"] button.filter-btn {
+  display: none !important;
+}
+[data-admin-page="manages28"] .school-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+[data-admin-page="manages28"] .school-card,
+[data-admin-page="manages28"] a.school-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  aspect-ratio: 1 / 1.12 !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 18px 14px !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="manages28"] .school-card .badge,
+[data-admin-page="manages28"] .school-card svg.badge {
+  width: 64px !important;
+  height: 84px !important;
+  margin: 0 0 8px !important;
+}
+@media (max-width: 1100px) {
+  [data-admin-page="manages28"] .school-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 820px) {
+  [data-admin-page="manages28"] .school-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
 /* Users Recent Activity — match dashboard Newly Submitted panel */
 /* Users Recent Activity — title outside card */
 [data-admin-legacy] .section-head-row {
@@ -2656,6 +3474,64 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   border-radius: 8px !important;
   color: #448aff !important;
   font-weight: 600 !important;
+}
+/* user27 Manage Users cards — Figma */
+[data-admin-legacy][data-admin-page="user27"] .manage-grid {
+  gap: 18px !important;
+  margin-top: 14px !important;
+  margin-bottom: 32px !important;
+  align-items: stretch !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card {
+  min-height: 220px !important;
+  padding: 28px 20px 24px !important;
+  border: 1px solid rgba(68, 138, 255, 0.16) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 10px rgba(68, 138, 255, 0.08) !important;
+  background: #fff !important;
+  gap: 14px !important;
+  justify-content: center !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card:hover {
+  background: #fff !important;
+  border-color: rgba(68, 138, 255, 0.28) !important;
+  box-shadow: 0 6px 18px rgba(68, 138, 255, 0.12) !important;
+  transform: translateY(-1px) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card .icon,
+[data-admin-legacy][data-admin-page="user27"] .manage-card svg.icon {
+  width: 52px !important;
+  height: 52px !important;
+  max-width: 52px !important;
+  max-height: 52px !important;
+  margin: 0 0 2px !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card h3 {
+  font-family: "Poppins", "Montserrat", sans-serif !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #1a1a1a !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.25 !important;
+  max-width: 11em !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card .cta {
+  min-width: 112px !important;
+  height: 36px !important;
+  margin-top: 8px !important;
+  padding: 0 22px !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background: #448aff !important;
+  color: #fff !important;
+  font-family: "Montserrat", "Poppins", sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 10px rgba(19, 87, 201, 0.28) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .manage-card .cta:hover {
+  background: #3476e3 !important;
+  color: #fff !important;
 }
 [data-admin-legacy] .users-table-panel .panel-head {
   display: none !important;
@@ -3144,6 +4020,24 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   padding: 0 !important;
 }
 
+/* Hide native browser password-reveal (Edge/IE) — keep custom eye only */
+[data-admin-legacy] input[type="password"]::-ms-reveal,
+[data-admin-legacy] input[type="password"]::-ms-clear,
+[data-admin-page="acc05"] input[type="password"]::-ms-reveal,
+[data-admin-page="acc05"] input[type="password"]::-ms-clear {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+[data-admin-legacy] input[type="password"]::-webkit-credentials-auto-fill-button,
+[data-admin-legacy] input[type="password"]::-webkit-strong-password-auto-fill-button {
+  visibility: hidden !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  right: 0 !important;
+  display: none !important;
+}
+
 /* Password eye toggle — ensure clickable above the input */
 [data-admin-legacy] .input-wrap {
   position: relative !important;
@@ -3154,10 +4048,10 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy] .input-wrap button.toggle-password {
   pointer-events: auto !important;
   cursor: pointer !important;
-  z-index: 3 !important;
-  width: 36px !important;
-  height: 36px !important;
-  right: 4px !important;
+  z-index: 5 !important;
+  width: 28px !important;
+  height: 28px !important;
+  right: 10px !important;
   background: transparent !important;
   border: none !important;
   padding: 0 !important;
@@ -3171,10 +4065,673 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy] .input-wrap .icon-right svg,
 [data-admin-legacy] .input-wrap #toggle-password svg,
 [data-admin-legacy] .input-wrap .toggle-password svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: 18px !important;
+  height: 18px !important;
   display: block !important;
   pointer-events: none !important;
+}
+
+/* acc05 — bordered wrap so eye sits inside the box */
+[data-admin-page="acc05"] .panel .field .input-wrap {
+  display: block !important;
+  height: 44px !important;
+  border: 1.5px solid #448aff !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="acc05"] .panel .field .input-wrap input {
+  border: none !important;
+  box-shadow: none !important;
+  height: 100% !important;
+  padding: 0 44px 0 14px !important;
+  background: transparent !important;
+}
+[data-admin-page="acc05"] .panel .field .input-wrap:focus-within {
+  box-shadow: 0 0 0 3px rgba(68, 138, 255, 0.12) !important;
+}
+
+/* aed15 / live16 / cc19 — Figma information card header + grid */
+[data-admin-page="aed15"] #event-info-card .approved-figma-top,
+[data-admin-page="aed15"] #event-info-card .detail-top,
+[data-admin-page="live16"] #event-info-card .approved-figma-top,
+[data-admin-page="live16"] #event-info-card .detail-top,
+[data-admin-page="cc19"] #event-info-card .approved-figma-top,
+[data-admin-page="cc19"] #event-info-card .detail-top {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 220px !important;
+  align-items: start !important;
+  gap: 18px 28px !important;
+}
+[data-admin-page="aed15"] #event-info-card .detail-top-main h3,
+[data-admin-page="live16"] #event-info-card .detail-top-main h3,
+[data-admin-page="cc19"] #event-info-card .detail-top-main h3 {
+  color: #448aff !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+}
+[data-admin-page="aed15"] #event-info-card .detail-top-main .submission-date-label,
+[data-admin-page="live16"] #event-info-card .detail-top-main .submission-date-label,
+[data-admin-page="cc19"] #event-info-card .detail-top-main .submission-date-label {
+  display: block !important;
+  color: #7aa6ff !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  text-align: left !important;
+  margin: 0 0 10px !important;
+  letter-spacing: 0.04em !important;
+  line-height: 1.2 !important;
+}
+[data-admin-page="aed15"] #event-info-card .detail-top-aside,
+[data-admin-page="live16"] #event-info-card .detail-top-aside,
+[data-admin-page="cc19"] #event-info-card .detail-top-aside {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 6px !important;
+}
+[data-admin-page="aed15"] #event-info-card .approved-date-label,
+[data-admin-page="live16"] #event-info-card .approved-date-label,
+[data-admin-page="cc19"] #event-info-card .approved-date-label {
+  display: block !important;
+  color: #0f172a !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-align: right !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+[data-admin-page="aed15"] #event-info-card .approved-by-link,
+[data-admin-page="live16"] #event-info-card .approved-by-link,
+[data-admin-page="cc19"] #event-info-card .approved-by-link {
+  display: block !important;
+  color: #448aff !important;
+  font-size: 12px !important;
+  font-style: italic !important;
+  font-weight: 600 !important;
+  text-align: right !important;
+  text-decoration: none !important;
+  margin: 0 0 8px !important;
+}
+[data-admin-page="aed15"] #event-info-card .poster,
+[data-admin-page="aed15"] #event-info-card .detail-top-aside .poster,
+[data-admin-page="live16"] #event-info-card .poster,
+[data-admin-page="live16"] #event-info-card .detail-top-aside .poster,
+[data-admin-page="cc19"] #event-info-card .poster,
+[data-admin-page="cc19"] #event-info-card .detail-top-aside .poster {
+  display: block !important;
+  width: 220px !important;
+  height: 124px !important;
+  border-radius: 12px !important;
+  margin: 0 !important;
+  background: linear-gradient(145deg, #7eb6ff 0%, #448aff 48%, #3476e3 100%) !important;
+  background-image: linear-gradient(145deg, #7eb6ff 0%, #448aff 48%, #3476e3 100%) !important;
+  border: none !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+[data-admin-page="aed15"] #event-info-card .poster img,
+[data-admin-page="aed15"] #event-info-card .detail-top-aside .poster img,
+[data-admin-page="live16"] #event-info-card .poster img,
+[data-admin-page="cc19"] #event-info-card .poster img,
+[data-admin-page="edetails14"] #event-info-card .poster img,
+[data-admin-page="cc19"] #event-info-card .detail-top-aside .poster img {
+  display: none !important;
+}
+[data-admin-page="aed15"] #event-info-card .figma-event-meta,
+[data-admin-page="aed15"] #event-info-card .approved-status,
+[data-admin-page="aed15"] #event-info-card .event-source-tags,
+[data-admin-page="live16"] #event-info-card .figma-event-meta,
+[data-admin-page="live16"] #event-info-card .approved-status,
+[data-admin-page="live16"] #event-info-card .event-source-tags,
+[data-admin-page="cc19"] #event-info-card .figma-event-meta,
+[data-admin-page="cc19"] #event-info-card .approved-status,
+[data-admin-page="cc19"] #event-info-card .event-source-tags {
+  display: none !important;
+}
+[data-admin-page="aed15"] #event-info-card .info-grid-figma,
+[data-admin-page="live16"] #event-info-card .info-grid-figma,
+[data-admin-page="cc19"] #event-info-card .info-grid-figma {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+[data-admin-page="aed15"] #event-info-card .info-grid-figma .field-box,
+[data-admin-page="live16"] #event-info-card .info-grid-figma .field-box,
+[data-admin-page="cc19"] #event-info-card .info-grid-figma .field-box {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 88px !important;
+  padding: 28px 10px 14px !important;
+  background: #f3f8ff !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  border-radius: 12px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+[data-admin-page="aed15"] #event-info-card .info-grid-figma .field-box .label,
+[data-admin-page="live16"] #event-info-card .info-grid-figma .field-box .label,
+[data-admin-page="cc19"] #event-info-card .info-grid-figma .field-box .label {
+  position: absolute !important;
+  top: 10px !important;
+  left: 12px !important;
+  text-align: left !important;
+  color: #64748b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+[data-admin-page="aed15"] #event-info-card .info-grid-figma .field-box .value,
+[data-admin-page="live16"] #event-info-card .info-grid-figma .field-box .value,
+[data-admin-page="cc19"] #event-info-card .info-grid-figma .field-box .value {
+  text-align: center !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+/* aed15 / live16 / cc19 — Participants & Collaborators Figma cards */
+[data-admin-page="aed15"] #event-info-card .participants-collab-grid,
+[data-admin-page="live16"] #event-info-card .participants-collab-grid,
+[data-admin-page="cc19"] #event-info-card .participants-collab-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+[data-admin-page="aed15"] #event-info-card .participants-collab-grid .field-box,
+[data-admin-page="live16"] #event-info-card .participants-collab-grid .field-box,
+[data-admin-page="cc19"] #event-info-card .participants-collab-grid .field-box {
+  position: static !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  min-height: 92px !important;
+  padding: 12px 14px 14px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  border-radius: 10px !important;
+  text-align: left !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+[data-admin-page="aed15"] #event-info-card .participants-collab-grid .field-box .label,
+[data-admin-page="live16"] #event-info-card .participants-collab-grid .field-box .label,
+[data-admin-page="cc19"] #event-info-card .participants-collab-grid .field-box .label {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  text-align: left !important;
+  color: #64748b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+[data-admin-page="aed15"] #event-info-card .participants-collab-grid .field-box .value,
+[data-admin-page="live16"] #event-info-card .participants-collab-grid .field-box .value,
+[data-admin-page="cc19"] #event-info-card .participants-collab-grid .field-box .value {
+  text-align: left !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  line-height: 1.35 !important;
+}
+
+/* edetails14 pending — information card with submission date + blue poster */
+[data-admin-page="edetails14"] #event-info-card .detail-top,
+[data-admin-page="edetails14"] #event-info-card .figma-detail-top {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 200px !important;
+  align-items: start !important;
+  gap: 20px 28px !important;
+}
+[data-admin-page="edetails14"] #event-info-card .detail-top-main h3 {
+  color: #448aff !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+}
+[data-admin-page="edetails14"] #event-info-card .detail-top-main .desc {
+  color: #0f172a !important;
+}
+[data-admin-page="edetails14"] #event-info-card .detail-top-aside {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 0 !important;
+  width: 100% !important;
+  max-width: 200px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="edetails14"] #event-info-card .detail-top-aside .submission-date-label,
+[data-admin-page="edetails14"] #event-info-card .submission-date-label {
+  display: block !important;
+  color: #448aff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-align: right !important;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  line-height: 1.2 !important;
+}
+[data-admin-page="edetails14"] #event-info-card .pending-status-label,
+[data-admin-page="edetails14"] #event-info-card .view-event-link {
+  display: none !important;
+}
+[data-admin-page="edetails14"] #event-info-card .poster,
+[data-admin-page="edetails14"] #event-info-card .detail-top .poster,
+[data-admin-page="edetails14"] #event-info-card .detail-top-aside .poster {
+  display: block !important;
+  width: 100% !important;
+  max-width: 200px !important;
+  height: 112px !important;
+  margin: 0 !important;
+  border-radius: 12px !important;
+  background: linear-gradient(145deg, #7eb6ff 0%, #448aff 48%, #3476e3 100%) !important;
+  background-image: linear-gradient(145deg, #7eb6ff 0%, #448aff 48%, #3476e3 100%) !important;
+  border: none !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="edetails14"] #event-info-card .approved-status,
+[data-admin-page="edetails14"] #event-info-card .event-source-tags,
+[data-admin-page="edetails14"] #event-info-card .figma-event-meta {
+  display: none !important;
+}
+[data-admin-page="edetails14"] #event-info-card .info-grid-figma {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+[data-admin-page="edetails14"] #event-info-card .info-grid-figma .field-box {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 88px !important;
+  padding: 28px 10px 14px !important;
+  background: #f3f8ff !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  border-radius: 12px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+[data-admin-page="edetails14"] #event-info-card .info-grid-figma .field-box .label {
+  position: absolute !important;
+  top: 10px !important;
+  left: 12px !important;
+  text-align: left !important;
+  color: #64748b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+[data-admin-page="edetails14"] #event-info-card .info-grid-figma .field-box .value {
+  text-align: center !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+
+/* edetails14 — submitted-by soft border (match event information card) */
+[data-admin-page="edetails14"] .detail-card.submitted-by-card {
+  border: 1px solid rgba(68, 138, 255, 0.2) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 18px rgba(68, 138, 255, 0.08) !important;
+}
+
+/* edetails14 — Participants & Collaborators Figma cards */
+[data-admin-page="edetails14"] #event-info-card .participants-collab-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+[data-admin-page="edetails14"] #event-info-card .participants-collab-grid .field-box {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  min-height: 92px !important;
+  padding: 12px 14px 14px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  border-radius: 10px !important;
+  text-align: left !important;
+}
+[data-admin-page="edetails14"] #event-info-card .participants-collab-grid .field-box .label {
+  position: static !important;
+  text-align: left !important;
+  color: #64748b !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+}
+[data-admin-page="edetails14"] #event-info-card .participants-collab-grid .field-box .value {
+  text-align: left !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  line-height: 1.35 !important;
+}
+
+/* rfid17 — compact scanned profile card (beat global 560px RFID rule) */
+[data-admin-page="rfid17"] aside.profile-card[aria-label="Scanned participant"],
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card,
+[data-admin-page="rfid17"] .profile-card {
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 16px 14px 18px !important;
+  overflow: hidden !important;
+}
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card .avatar-wrap,
+[data-admin-page="rfid17"] .profile-card .avatar-wrap,
+[data-admin-page="rfid17"] .profile-card .avatar {
+  width: 72px !important;
+  height: 72px !important;
+}
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card .avatar-wrap,
+[data-admin-page="rfid17"] .profile-card .avatar-wrap {
+  margin: 0 auto 10px !important;
+  margin-bottom: 10px !important;
+}
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card .profile-name,
+[data-admin-page="rfid17"] .profile-card .profile-name {
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+}
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card .profile-meta,
+[data-admin-page="rfid17"] .profile-card .profile-meta {
+  gap: 4px !important;
+  padding: 0 !important;
+}
+[data-admin-page="rfid17"] body:has(.tap-panel) .profile-card .profile-meta span,
+[data-admin-page="rfid17"] .profile-card .profile-meta span {
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1.25 !important;
+  font-size: 12px !important;
+}
+
+/* ongoing16 — Happening Now heading black */
+[data-admin-page="ongoing16"] .section-heading .heading-text {
+  color: #000000 !important;
+}
+
+/* inactive20 — Rejected Events heading black */
+[data-admin-page="inactive20"] .section-heading .heading-text {
+  color: #000000 !important;
+}
+
+/* attendance42 — Month control Figma SVG */
+[data-admin-page="attendance42"] .att-month-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 107px !important;
+  height: 35px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+[data-admin-page="attendance42"] .att-month-btn:hover,
+[data-admin-page="attendance42"] .att-month-btn:focus-visible {
+  transform: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+[data-admin-page="attendance42"] .att-month-btn svg {
+  display: block !important;
+  width: 107px !important;
+  height: 35px !important;
+}
+[data-admin-page="attendance42"] .att-month-btn svg > rect:first-child {
+  stroke: #1357C9 !important;
+  stroke-width: 1.2 !important;
+}
+[data-admin-page="attendance42"] .att-month-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 30 !important;
+}
+[data-admin-page="attendance42"] .att-month-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  min-width: 168px !important;
+  max-height: 280px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 40 !important;
+}
+[data-admin-page="attendance42"] .att-month-menu[hidden] {
+  display: none !important;
+}
+[data-admin-page="attendance42"] .att-month-menu-year {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 4px 4px 8px !important;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.16) !important;
+  margin-bottom: 6px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #1357C9 !important;
+}
+[data-admin-page="attendance42"] .att-month-menu-year button {
+  width: 24px !important;
+  height: 24px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: rgba(68, 138, 255, 0.12) !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+}
+[data-admin-page="attendance42"] .att-month-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+}
+[data-admin-page="attendance42"] .att-month-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-page="attendance42"] .att-month-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+[data-admin-page="attendance42"] .att-month-btn #att-month-label {
+  fill: #1357C9 !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+[data-admin-page="attendance42"] .att-course-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 30 !important;
+}
+[data-admin-page="attendance42"] .att-course-wrap .att-select-label {
+  max-width: 180px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+[data-admin-page="attendance42"] .att-course-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  right: 0 !important;
+  left: auto !important;
+  min-width: 280px !important;
+  max-width: min(420px, 92vw) !important;
+  max-height: 320px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 40 !important;
+}
+[data-admin-page="attendance42"] .att-course-menu[hidden] {
+  display: none !important;
+}
+[data-admin-page="attendance42"] .att-course-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  line-height: 1.35 !important;
+}
+[data-admin-page="attendance42"] .att-course-option.is-nested {
+  padding-left: 22px !important;
+  font-weight: 400 !important;
+  color: #3476E3 !important;
+}
+[data-admin-page="attendance42"] .att-course-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-page="attendance42"] .att-course-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+[data-admin-page="attendance42"] .att-org-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 30 !important;
+}
+[data-admin-page="attendance42"] .att-org-wrap .att-select-label {
+  max-width: 180px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+[data-admin-page="attendance42"] .att-org-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  right: auto !important;
+  min-width: 300px !important;
+  max-width: min(460px, 92vw) !important;
+  max-height: 340px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 40 !important;
+}
+[data-admin-page="attendance42"] .att-org-menu[hidden] {
+  display: none !important;
+}
+[data-admin-page="attendance42"] .att-org-section {
+  margin: 6px 4px 4px !important;
+  padding: 6px 6px 4px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  color: #1357C9 !important;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.16) !important;
+}
+[data-admin-page="attendance42"] .att-org-section:first-child {
+  margin-top: 0 !important;
+}
+[data-admin-page="attendance42"] .att-org-group {
+  margin: 6px 4px 2px !important;
+  padding: 4px 6px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #3476E3 !important;
+}
+[data-admin-page="attendance42"] .att-org-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px 8px 18px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  line-height: 1.35 !important;
+}
+[data-admin-page="attendance42"] .att-org-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-page="attendance42"] .att-org-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+
+/* Admin login02 — forced spacing (gap controls label→input) */
+[data-admin-page="login02"] .login-card h2#login-title,
+[data-admin-page="login02"] .login-card h2 {
+  margin: 0 0 24px !important;
+}
+[data-admin-page="login02"] .login-card .field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  margin-bottom: 16px !important;
+}
+[data-admin-page="login02"] .login-card .field label {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.2 !important;
+}
+[data-admin-page="login02"] .login-card .field:has(#password),
+[data-admin-page="login02"] .login-card .field:has(input#password) {
+  margin-bottom: 0 !important;
+}
+[data-admin-page="login02"] .login-card .forgot,
+[data-admin-page="login02"] a.forgot {
+  margin: 10px 0 16px !important;
 }
 
 /* Admin login — Register CTA only for Admin (hidden for Super Admin via [hidden]/JS) */
@@ -3201,7 +4758,7 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 `,
         }}
       />
-      <div dangerouslySetInnerHTML={{ __html: data.html }} />
+      <div dangerouslySetInnerHTML={{ __html: pageHtml }} />
     </div>
   );
 }
