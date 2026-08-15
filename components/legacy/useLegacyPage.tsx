@@ -21,7 +21,10 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
-export function useLegacyScripts(scripts: LegacyPageData["scripts"]) {
+export function useLegacyScripts(
+  scripts: LegacyPageData["scripts"],
+  pageKey?: string,
+) {
   useEffect(() => {
     let cancelled = false;
 
@@ -45,7 +48,8 @@ export function useLegacyScripts(scripts: LegacyPageData["scripts"]) {
     return () => {
       cancelled = true;
     };
-  }, [scripts]);
+    // Re-bind when navigating between legacy pages (soft nav)
+  }, [scripts, pageKey]);
 }
 
 export function LegacyContent({
@@ -55,7 +59,9 @@ export function LegacyContent({
   data: LegacyPageData;
   className?: string;
 }) {
-  useLegacyScripts(data.scripts);
+  useLegacyScripts(data.scripts, data.id);
+  const pageStyles = data.styles.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const pageHtml = data.html.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   useEffect(() => {
     document.title = data.title ? `DC Space — ${data.title}` : "DC Space";
@@ -69,11 +75,11 @@ export function LegacyContent({
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: data.styles }} />
+      <style dangerouslySetInnerHTML={{ __html: pageStyles }} />
       <div
         data-legacy-content=""
         className={className}
-        dangerouslySetInnerHTML={{ __html: data.html }}
+        dangerouslySetInnerHTML={{ __html: pageHtml }}
       />
     </>
   );

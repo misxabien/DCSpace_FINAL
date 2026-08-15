@@ -37,6 +37,15 @@ export function LoginBridge() {
       }
       errorEl.textContent = "";
 
+      const isSdcaEmail = /^[A-Za-z0-9._%+\-]+@sdca\.edu\.ph$/i.test(
+        email.trim(),
+      );
+      if (!isSdcaEmail) {
+        errorEl.textContent = "Use your school email ending in @sdca.edu.ph";
+        emailInput?.focus();
+        return;
+      }
+
       // Role comes from the SDCA account (organizer approval), not Faculty.
       // Organizers sign in on the Student side of this same form.
       const result = await login(email, password);

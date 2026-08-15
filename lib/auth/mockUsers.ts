@@ -33,7 +33,7 @@ export const ORGANIZER_DEMO_HINT =
   "Demo: organizer@sdca.edu.ph or student.organizer@sdca.edu.ph (password: password). Any other @sdca.edu.ph email signs in as a student.";
 
 function isSdcaEmail(email: string) {
-  return email.endsWith("@sdca.edu.ph") || email.endsWith("@sdca.edu");
+  return /^[a-z0-9._%+\-]+@sdca\.edu\.ph$/i.test(email.trim());
 }
 
 function toUser(account: MockAccount): SessionUser {

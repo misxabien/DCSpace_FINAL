@@ -23,6 +23,82 @@
   }
 }
 
+/* Global press + soft-nav feedback (admin + student legacy UIs)
+   Avoid transform:scale on buttons — it can cancel the click after pointerdown
+   (breaks dropdowns / month pickers). */
+a[href],
+button,
+[role="button"],
+.cta,
+.btn,
+.continue-btn,
+.view-btn,
+.add-user-btn,
+input[type="submit"],
+input[type="button"] {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    filter 0.16s ease,
+    opacity 0.16s ease,
+    box-shadow 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease !important;
+}
+
+/* Links can safely use a light press scale */
+a[href]:active,
+a[href].is-pressing {
+  transform: scale(0.98);
+  filter: brightness(0.97);
+}
+
+button:active:not(:disabled),
+[role="button"]:active,
+.cta:active,
+.btn:active,
+.continue-btn:active,
+.view-btn:active,
+.add-user-btn:active,
+input[type="submit"]:active:not(:disabled),
+input[type="button"]:active:not(:disabled),
+button.is-pressing,
+[role="button"].is-pressing,
+.cta.is-pressing,
+.btn.is-pressing {
+  filter: brightness(0.96);
+  box-shadow: inset 0 1px 2px rgba(19, 87, 201, 0.12);
+}
+
+/* Never transform dropdown / picker triggers */
+button[aria-haspopup],
+.toolbar-select,
+.att-month-btn,
+.att-select,
+.fb47-dd-wrap > button,
+.cert-dd-wrap > button {
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a[href],
+  button,
+  [role="button"],
+  .cta,
+  .btn,
+  .continue-btn,
+  .view-btn,
+  .add-user-btn,
+  input[type="submit"],
+  input[type="button"],
+  .is-pressing {
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+  }
+}
+
 /* Global top loading bar */
 .top-loading-bar {
   position: fixed;
