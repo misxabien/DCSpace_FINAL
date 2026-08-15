@@ -4,6 +4,10 @@ import { useEffect } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
 import { useLegacyScripts } from "@/components/legacy/useLegacyPage";
 import { bindPasswordToggles } from "@/components/legacy/bindPasswordToggles";
+import {
+  FILTER_DROPDOWN_PAGES,
+  bindAdminFilterDropdowns,
+} from "@/components/legacy/bindAdminFilterDropdowns";
 
 const SIDEBAR_STORAGE_KEY = "dc_admin_sidebar_collapsed";
 
@@ -17,7 +21,7 @@ function normalizeLegacyMarkup(value: string) {
  * so Figma/HTML designs stay visually identical.
  */
 export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
-  useLegacyScripts(data.scripts);
+  useLegacyScripts(data.scripts, data.id);
   const pageStyles = normalizeLegacyMarkup(data.styles);
   const pageHtml = normalizeLegacyMarkup(data.html);
 
@@ -37,6 +41,15 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
     if (!root) return;
     return bindPasswordToggles(root);
   }, [data.id, data.route]);
+
+  // Select Date / Org / Course — React-bound with cleanup (avoids stacked legacy listeners)
+  useEffect(() => {
+    const prefix = FILTER_DROPDOWN_PAGES[data.id];
+    if (!prefix) return;
+    const root = document.querySelector(".admin-legacy-root");
+    if (!root) return;
+    return bindAdminFilterDropdowns(root, prefix);
+  }, [data.id, data.route, data.html]);
 
   // Admin login — Register CTA only for Admin role (not Super Admin)
   useEffect(() => {
@@ -563,6 +576,14 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy][data-admin-page="scollection48"] .fc-head .fb-title,
 [data-admin-legacy][data-admin-page="scollection48"] h2.fb-title {
   color: #000000 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] h2.fb-title,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-title,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-title.under,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-title a,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-title.under a {
+  color: #000000 !important;
+  text-shadow: none !important;
 }
 
 /* certdeets46: hide filter chips; section search = dashboard search-bar */
@@ -2393,6 +2414,9 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   width: 100% !important;
   min-height: 32px !important;
   margin-bottom: 14px !important;
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 40 !important;
 }
 [data-admin-legacy] .users-toolbar .period-bar {
   display: inline-flex !important;
@@ -2428,7 +2452,11 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   justify-content: flex-end !important;
   gap: 6px !important;
   margin-left: auto !important;
-  height: 32px !important;
+  height: auto !important;
+  min-height: 32px !important;
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 45 !important;
 }
 [data-admin-legacy] .users-toolbar .toolbar-select {
   height: 32px !important;
@@ -2965,6 +2993,165 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   font-weight: 700 !important;
 }
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-muted {
+  color: #9bb8ef !important;
+}
+/* Shared Date/Org/Course dropdowns — user27 */
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-wrap,
+[data-admin-legacy][data-admin-page="user27"] .u27-dd-wrap {
+  position: relative !important;
+  display: inline-flex !important;
+  z-index: 40 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .toolbar-selects {
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 45 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .toolbar-select .toolbar-select-label {
+  max-width: 150px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  min-width: 220px !important;
+  max-width: min(420px, 92vw) !important;
+  max-height: 320px !important;
+  overflow: auto !important;
+  padding: 8px !important;
+  background: #fff !important;
+  border: 1px solid rgba(19, 87, 201, 0.22) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(19, 87, 201, 0.12) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  z-index: 90 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-menu[hidden] {
+  display: none !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-course-menu {
+  min-width: 280px !important;
+  right: 0 !important;
+  left: auto !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-org-menu {
+  min-width: 300px !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-date-menu {
+  min-width: 260px !important;
+  padding: 10px !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-option {
+  border: none !important;
+  background: transparent !important;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  line-height: 1.35 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-option.is-nested {
+  padding-left: 22px !important;
+  font-weight: 400 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-option:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-dd-option.is-active {
+  background: rgba(68, 138, 255, 0.2) !important;
+  font-weight: 600 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-org-section {
+  margin: 6px 4px 4px !important;
+  padding: 6px 6px 4px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  color: #1357C9 !important;
+  border-bottom: 1px solid rgba(68, 138, 255, 0.16) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-org-group {
+  margin: 6px 4px 2px !important;
+  padding: 4px 6px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #3476E3 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-org-option {
+  padding-left: 18px !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  margin-bottom: 8px !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #1357C9 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-head button {
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: rgba(68, 138, 255, 0.12) !important;
+  color: #1357C9 !important;
+  cursor: pointer !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  transform: none !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-weekdays,
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid {
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+  gap: 2px !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-weekdays span {
+  text-align: center !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #3476E3 !important;
+  padding: 4px 0 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid button {
+  height: 30px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #1357C9 !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transform: none !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid button:hover {
+  background: rgba(68, 138, 255, 0.12) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid button.is-today {
+  border: 1px solid rgba(68, 138, 255, 0.45) !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid button.is-selected {
+  background: rgba(68, 138, 255, 0.22) !important;
+  font-weight: 700 !important;
+}
+[data-admin-legacy][data-admin-page="user27"] .admin-cal-grid button.is-muted {
   color: #9bb8ef !important;
 }
 [data-admin-legacy][data-admin-page="cert45"] .cert-table-wrap {
@@ -4474,6 +4661,10 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 }
 
 /* attendance42 — Month control Figma SVG */
+[data-admin-page="attendance42"] .att-filters,
+[data-admin-page="attendance42"] .att-page {
+  overflow: visible !important;
+}
 [data-admin-page="attendance42"] .att-month-btn {
   display: inline-flex !important;
   align-items: center !important;
@@ -4486,6 +4677,7 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   background: transparent !important;
   box-shadow: none !important;
   border-radius: 0 !important;
+  transform: none !important;
 }
 [data-admin-page="attendance42"] .att-month-btn:hover,
 [data-admin-page="attendance42"] .att-month-btn:focus-visible {
@@ -4501,6 +4693,23 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-page="attendance42"] .att-month-btn svg > rect:first-child {
   stroke: #1357C9 !important;
   stroke-width: 1.2 !important;
+}
+[data-admin-legacy][data-admin-page="attendance42"] .att-month-menu {
+  z-index: 80 !important;
+}
+[data-admin-legacy][data-admin-page="attendance42"] .att-course-menu,
+[data-admin-legacy][data-admin-page="attendance42"] .att-org-menu {
+  z-index: 80 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .toolbar-selects,
+[data-admin-legacy][data-admin-page="cert45"] .toolbar-selects {
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 50 !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-menu,
+[data-admin-legacy][data-admin-page="cert45"] .cert-dd-menu {
+  z-index: 90 !important;
 }
 [data-admin-page="attendance42"] .att-month-wrap {
   position: relative !important;

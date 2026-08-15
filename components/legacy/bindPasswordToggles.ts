@@ -46,13 +46,19 @@ export function bindPasswordToggles(root: ParentNode): () => void {
     if (passwordInput.type !== "password" && passwordInput.type !== "text") return;
 
     event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
     const showing = passwordInput.type === "text";
     passwordInput.type = showing ? "password" : "text";
     btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
     btn.setAttribute("aria-pressed", showing ? "false" : "true");
+    // Hidden → closed/slash eye; Visible → open eye
     btn.innerHTML = showing ? CLOSED_EYE : OPEN_EYE;
   };
 
-  root.addEventListener("click", onClick);
-  return () => root.removeEventListener("click", onClick);
+  // Capture phase so we win over any leftover inline listeners
+  root.addEventListener("click", onClick, true);
+  return () => root.removeEventListener("click", onClick, true);
 }

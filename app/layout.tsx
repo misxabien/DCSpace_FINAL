@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { RoutePresence } from "@/components/motion/RoutePresence";
+import { SoftNavEnhancer } from "@/components/motion/SoftNavEnhancer";
 import { TopLoadingBarHost } from "@/components/navigation/TopLoadingBarHost";
 import "./globals.css";
 
@@ -30,6 +31,7 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <TopLoadingBarHost />
+          <SoftNavEnhancer />
           <RoutePresence>{children}</RoutePresence>
         </AuthProvider>
       </body>
