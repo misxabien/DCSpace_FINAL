@@ -87,7 +87,11 @@ export default function OrganizedPage() {
         ) : (
           <div className="event-grid event-grid--single-row">
             {submissionPreview.map((event) => (
-              <OrganizedEventCard key={`sub-${event.id}`} event={event} />
+              <OrganizedEventCard
+                key={`sub-${event.id}`}
+                event={event}
+                detailHref={`/organized/events/${event.id}`}
+              />
             ))}
           </div>
         )}

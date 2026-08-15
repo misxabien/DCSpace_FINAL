@@ -46,7 +46,12 @@ function Section({
       ) : (
         <div className="event-grid event-grid--single-row">
           {events.slice(0, 2).map((event) => (
-            <OrganizedEventCard key={event.id} event={event} showReviewNote />
+            <OrganizedEventCard
+              key={event.id}
+              event={event}
+              showReviewNote
+              detailHref={`/organized/events/${event.id}`}
+            />
           ))}
         </div>
       )}

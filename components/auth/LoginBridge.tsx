@@ -23,11 +23,21 @@ export function LoginBridge() {
     form.setAttribute("action", "#");
     form.setAttribute("method", "post");
 
+    const emailField = form.querySelector<HTMLInputElement>("#email");
+    if (emailField) {
+      emailField.required = true;
+      emailField.pattern = "[^@\\s]+@sdca\\.edu\\.ph";
+      emailField.title = "Use your @sdca.edu.ph school email";
+      if (!emailField.placeholder.includes("sdca.edu.ph")) {
+        emailField.placeholder = "name@sdca.edu.ph";
+      }
+    }
+
     const onSubmit = async (event: Event) => {
       event.preventDefault();
       const emailInput = form.querySelector<HTMLInputElement>("#email");
       const passwordInput = form.querySelector<HTMLInputElement>("#password");
-      const email = emailInput?.value ?? "";
+      const email = (emailInput?.value ?? "").trim().toLowerCase();
       const password = passwordInput?.value ?? "";
 
       let errorEl = form.querySelector<HTMLParagraphElement>(".login-error");
@@ -41,6 +51,12 @@ export function LoginBridge() {
         form.insertBefore(errorEl, submitBtn);
       }
       errorEl.textContent = "";
+
+      if (!email.endsWith("@sdca.edu.ph")) {
+        errorEl.textContent = "Please use your @sdca.edu.ph school email.";
+        emailInput?.focus();
+        return;
+      }
 
       // Role comes from the SDCA account (organizer approval), not Faculty.
       // Organizers sign in on the Student side of this same form.

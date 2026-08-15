@@ -10,12 +10,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const email = body.email?.trim() ?? "";
+  const email = body.email?.trim().toLowerCase() ?? "";
   const password = body.password ?? "";
 
   if (!email || !password) {
     return NextResponse.json(
       { error: "School email and password are required." },
+      { status: 400 }
+    );
+  }
+
+  if (!email.endsWith("@sdca.edu.ph")) {
+    return NextResponse.json(
+      { error: "Please use your @sdca.edu.ph school email." },
       { status: 400 }
     );
   }

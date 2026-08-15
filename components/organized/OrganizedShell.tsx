@@ -120,7 +120,7 @@ export function OrganizedShell({
   return (
     <AppShell>
       <Sidebar />
-      <main className={`main ${styles.page}`}>
+      <main className={`main ${styles.page}${backHref ? " main--sticky-header" : ""}`}>
         <div className={styles.top}>
           <div className={styles.titleRow}>
             {backHref ? (
