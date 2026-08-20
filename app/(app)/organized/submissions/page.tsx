@@ -68,9 +68,15 @@ export default function SubmissionsPage() {
     [events, query]
   );
 
-  const pending = filtered.filter((event) => event.status === "open");
-  const drafts = filtered.filter((event) => event.status === "draft");
-  const inactive = filtered.filter((event) => event.status === "closed");
+  const pending = filtered.filter((event) => event.reviewStatus === "pending");
+  const drafts = filtered.filter((event) => event.reviewStatus === "draft" || (!event.reviewStatus && event.status === "draft"));
+  const inactive = filtered.filter(
+    (event) =>
+      event.status === "closed" ||
+      event.reviewStatus === "rejected" ||
+      event.reviewStatus === "completed" ||
+      event.reviewStatus === "cancelled",
+  );
 
   return (
     <OrganizedShell title="Events Organized">

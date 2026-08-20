@@ -16,15 +16,8 @@ import {
   IconVenueType,
 } from "@/components/organized/EventDetailIcons";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
-import {
-  addEventGalleryPhoto,
-  getEventGalleryPhotos,
-  type EventGalleryPhoto,
-} from "@/lib/organizedEventGallery";
-import {
-  getInvitationList,
-  type InvitationListEntry,
-} from "@/lib/organizedInvitations";
+import type { EventGalleryPhoto } from "@/lib/organizedEventGallery";
+import type { InvitationListEntry } from "@/lib/organizedInvitations";
 import styles from "@/components/organized/OrganizedDetail.module.css";
 
 export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetail }) {
@@ -32,24 +25,57 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
   const [invitations, setInvitations] = useState<InvitationListEntry[]>([]);
   const [photos, setPhotos] = useState<EventGalleryPhoto[]>([]);
 
-  const loadDetailData = () => {
-    setInvitations(getInvitationList(event.id));
-    setPhotos(getEventGalleryPhotos(event.id));
+  const loadDetailData = async () => {
+    try {
+      const [inviteRes, galleryRes] = await Promise.all([
+        fetch(`/api/organized/events/${encodeURIComponent(event.id)}/invitations`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/organized/events/${encodeURIComponent(event.id)}/gallery`, {
+          cache: "no-store",
+        }),
+      ]);
+      if (inviteRes.ok) {
+        const payload = (await inviteRes.json()) as {
+          invitations?: Array<{
+            id: string;
+            userName: string;
+            course: string;
+            organization: string;
+            status: string;
+          }>;
+        };
+        setInvitations(
+          (payload.invitations || []).map((row) => ({
+            id: row.id,
+            name: row.userName,
+            course: row.course || "—",
+            organization: row.organization || "—",
+            status: row.status === "joined" ? "joined" : "pending",
+          })),
+        );
+      }
+      if (galleryRes.ok) {
+        const payload = (await galleryRes.json()) as { photos?: EventGalleryPhoto[] };
+        setPhotos(payload.photos || []);
+      }
+    } catch {
+      setInvitations([]);
+      setPhotos([]);
+    }
   };
 
   useEffect(() => {
-    loadDetailData();
+    void loadDetailData();
   }, [event.id]);
 
   useEffect(() => {
-    const onChange = () => loadDetailData();
+    const onChange = () => void loadDetailData();
     window.addEventListener("dc-invites-changed", onChange);
     window.addEventListener("dc-gallery-changed", onChange);
-    window.addEventListener("storage", onChange);
     return () => {
       window.removeEventListener("dc-invites-changed", onChange);
       window.removeEventListener("dc-gallery-changed", onChange);
-      window.removeEventListener("storage", onChange);
     };
   }, [event.id]);
 
@@ -63,18 +89,28 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
 
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
-
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result !== "string") return;
-        addEventGalleryPhoto(event.id, reader.result);
-        setPhotos(getEventGalleryPhotos(event.id));
+        void fetch(`/api/organized/events/${encodeURIComponent(event.id)}/gallery`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl: reader.result }),
+        }).then(() => {
+          window.dispatchEvent(new Event("dc-gallery-changed"));
+        });
       };
       reader.readAsDataURL(file);
     });
 
     eventChange.target.value = "";
   };
+
+  const canEdit =
+    event.reviewStatus === "pending" ||
+    event.reviewStatus === "rejected" ||
+    event.reviewStatus === "draft" ||
+    event.status === "draft";
 
   return (
     <article className={styles.page}>
@@ -139,6 +175,25 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
             <IconRequiredFile />
             <span>Required File(s): {event.requiredFiles}</span>
           </div>
+          {(event.attachments || []).map((file) => (
+            <div className={styles.listItem} key={file.url}>
+              <svg viewBox="0 0 24 24" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                <path d="M14 2v6h6" />
+              </svg>
+              <span>
+                {file.label}:{" "}
+                <a
+                  className={styles.fileLink}
+                  href={file.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {file.fileName}
+                </a>
+              </span>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -161,6 +216,11 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
         <Link href={`/organized/events/${event.id}/registrations`} className={styles.attendedBtn}>
           See who attended
         </Link>
+        {canEdit ? (
+          <Link href={`/organized/create?id=${encodeURIComponent(event.id)}`} className={styles.attendedBtn}>
+            Edit event
+          </Link>
+        ) : null}
         <div className={styles.organizerTools}>
           <button type="button" className={styles.toolBtn} aria-label="Upload event photo" onClick={onPhotoButtonClick}>
             <svg width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden="true">

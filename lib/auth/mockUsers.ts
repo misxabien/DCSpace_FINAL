@@ -1,4 +1,5 @@
 import type { Role, SessionUser } from "@/lib/auth/types";
+import { isAdminRole } from "@/lib/auth/types";
 
 type MockAccount = {
   email: string;
@@ -7,7 +8,7 @@ type MockAccount = {
   role: Role;
 };
 
-/** Demo SDCA accounts — organizers are approved student organizers. */
+/** Demo SDCA accounts shared by student + admin portals. */
 export const MOCK_ACCOUNTS: MockAccount[] = [
   {
     email: "organizer@sdca.edu.ph",
@@ -27,50 +28,52 @@ export const MOCK_ACCOUNTS: MockAccount[] = [
     name: "Sam Student",
     role: "student",
   },
+  {
+    email: "admin@sdca.edu.ph",
+    password: "password",
+    name: "Casey Admin",
+    role: "admin",
+  },
+  {
+    email: "superadmin@sdca.edu.ph",
+    password: "password",
+    name: "Riley Super Admin",
+    role: "super-admin",
+  },
 ];
 
 export const ORGANIZER_DEMO_HINT =
-  "Demo: organizer@sdca.edu.ph or student.organizer@sdca.edu.ph (password: password). Any other @sdca.edu.ph email signs in as a student.";
+  "Demo: organizer@sdca.edu.ph or student.organizer@sdca.edu.ph (password: password). Registered school accounts use your DC Space password.";
 
-function isSdcaEmail(email: string) {
-  return /^[a-z0-9._%+\-]+@sdca\.edu\.ph$/i.test(email.trim());
-}
+export const ADMIN_DEMO_HINT =
+  "Demo: admin@sdca.edu.ph (Admin) or superadmin@sdca.edu.ph (Super Admin). Password: password.";
 
 function toUser(account: MockAccount): SessionUser {
+  const isAdmin = isAdminRole(account.role);
   return {
     email: account.email,
     name: account.name,
     role: account.role,
-    isOrganizer: account.role === "organizer",
+    isOrganizer: account.role === "organizer" || account.role === "faculty",
+    isAdmin,
   };
 }
 
-/** Resolve a session user from email + password (mock auth). */
-export function authenticate(email: string, password: string): SessionUser | null {
+/** Only the explicit demo accounts — never invent a session for arbitrary emails. */
+export function authenticateKnownMockAccount(
+  email: string,
+  password: string,
+): SessionUser | null {
   const normalized = email.trim().toLowerCase();
-  if (!normalized) return null;
-
   const known = MOCK_ACCOUNTS.find((a) => a.email === normalized);
-  if (known) {
-    if (known.password !== password) return null;
-    return toUser(known);
-  }
+  if (!known || known.password !== password) return null;
+  return toUser(known);
+}
 
-  // Any other school email → student (prototype convenience)
-  if (!isSdcaEmail(normalized)) return null;
-  if (!password) return null;
-
-  const local = normalized.split("@")[0] || "student";
-  const name = local
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-
-  return {
-    email: normalized,
-    name: name || "SDCA Student",
-    role: "student",
-    isOrganizer: false,
-  };
+/**
+ * @deprecated Prefer authenticateKnownMockAccount — the old catch-all let any
+ * @sdca.edu.ph email sign in without checking MongoDB.
+ */
+export function authenticate(email: string, password: string): SessionUser | null {
+  return authenticateKnownMockAccount(email, password);
 }

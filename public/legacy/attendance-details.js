@@ -24,6 +24,10 @@
     var tbody = document.getElementById('rfid-log-body');
     if (!tbody) return;
 
+    if (!rfid.logs || rfid.logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:#94a3b8;">No attendance records yet.</td></tr>';
+      return;
+    }
     tbody.innerHTML = rfid.logs.map(function (row) {
       return (
         '<tr>' +
@@ -59,36 +63,9 @@
     setText('rfid-progress', String(rfid.progress) + '%');
     setText('rfid-page', 'Page ' + rfid.page.current + ' of ' + rfid.page.total);
 
-    var progress = Number(rfid.progress);
-    var complete = progress >= 100;
-    var noProgress = progress <= 0;
-    var incomplete = !complete && !noProgress;
-
-    var progressLabel = document.getElementById('rfid-progress');
-    if (progressLabel) {
-      progressLabel.classList.toggle('is-complete', complete);
-      progressLabel.classList.toggle('is-incomplete', incomplete);
-      progressLabel.classList.toggle('is-pending', noProgress);
-    }
-
     var progressBar = document.getElementById('rfid-progress-bar');
     if (progressBar) {
-      progressBar.style.width = Math.min(100, Math.max(0, progress)) + '%';
-      progressBar.classList.toggle('is-complete', complete);
-      progressBar.classList.toggle('is-incomplete', incomplete);
-      progressBar.classList.toggle('is-pending', noProgress);
-    }
-
-    var note = document.getElementById('rfid-note');
-    if (note) {
-      note.textContent = complete
-        ? 'Certificate Earned! You fulfilled the minimum attendance time requirement.'
-        : incomplete
-          ? 'Unfortunately, you did not meet the minimum attendance requirement needed to receive a certificate.'
-          : 'Complete the attendance requirement to receive your certificate.';
-      note.classList.toggle('is-complete', complete);
-      note.classList.toggle('is-incomplete', incomplete);
-      note.classList.toggle('is-pending', noProgress);
+      progressBar.style.width = Math.min(100, Math.max(0, rfid.progress)) + '%';
     }
 
     renderRfidLogs(rfid);

@@ -5671,6 +5671,18 @@ a.stat-tile:hover .stat-value,
   grid-column: 1 / -1;
 }
 
+.program-activity-list {
+  margin: 8px 0 0;
+  padding-left: 1.2rem;
+  color: #1e293b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.program-activity-list li + li {
+  margin-top: 4px;
+}
+
 @media (max-width: 720px) {
   .program-cards {
     grid-template-columns: 1fr;

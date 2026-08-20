@@ -4,14 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OrganizedRegistrationsView } from "@/components/organized/OrganizedRegistrationsView";
 import { OrganizedShell } from "@/components/organized/OrganizedShell";
-import {
-  getOrganizedEventById,
-  type OrganizedEventDetail,
-} from "@/lib/organizedEventDetails";
-import {
-  getEventRegistrations,
-  type EventRegistration,
-} from "@/lib/organizedRegistrations";
+import { fetchEventRegistrationsLive, fetchOrganizedEventLive } from "@/lib/organized/live";
+import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
+import type { EventRegistration } from "@/lib/organizedRegistrations";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedEventRegistrationsPage() {
@@ -22,28 +17,24 @@ export default function OrganizedEventRegistrationsPage() {
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
 
   useEffect(() => {
-    const loaded = getOrganizedEventById(id);
-    if (!loaded) {
-      router.replace("/organized/events");
-      return;
-    }
-    setEvent(loaded);
-    setRegistrations(getEventRegistrations(id));
-  }, [id, router]);
-
-  useEffect(() => {
-    const onStorage = () => {
-      const loaded = getOrganizedEventById(id);
-      if (loaded) setEvent(loaded);
-      setRegistrations(getEventRegistrations(id));
+    let cancelled = false;
+    const load = async () => {
+      const loaded = await fetchOrganizedEventLive(id);
+      if (cancelled) return;
+      if (!loaded) {
+        router.replace("/organized/events");
+        return;
+      }
+      setEvent(loaded);
+      setRegistrations(await fetchEventRegistrationsLive(id));
     };
-    window.addEventListener("dc-organized-changed", onStorage);
-    window.addEventListener("storage", onStorage);
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
     return () => {
-      window.removeEventListener("dc-organized-changed", onStorage);
-      window.removeEventListener("storage", onStorage);
+      cancelled = true;
+      window.clearInterval(timer);
     };
-  }, [id]);
+  }, [id, router]);
 
   if (!event) {
     return (

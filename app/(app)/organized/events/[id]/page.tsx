@@ -4,10 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OrganizedEventDetailView } from "@/components/organized/OrganizedEventDetailView";
 import { OrganizedShell } from "@/components/organized/OrganizedShell";
-import {
-  getOrganizedEventById,
-  type OrganizedEventDetail,
-} from "@/lib/organizedEventDetails";
+import { fetchOrganizedEventLive } from "@/lib/organized/live";
+import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedEventDetailPage() {
@@ -15,33 +13,37 @@ export default function OrganizedEventDetailPage() {
   const router = useRouter();
   const id = String(params.id ?? "");
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
+  const [missing, setMissing] = useState(false);
 
   useEffect(() => {
-    const loaded = getOrganizedEventById(id);
-    if (!loaded) {
-      router.replace("/organized/events");
-      return;
-    }
-    setEvent(loaded);
+    let cancelled = false;
+    const load = async () => {
+      const loaded = await fetchOrganizedEventLive(id);
+      if (cancelled) return;
+      if (!loaded) {
+        setMissing(true);
+        router.replace("/organized/events");
+        return;
+      }
+      setEvent(loaded);
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [id, router]);
 
-  useEffect(() => {
-    const onStorage = () => {
-      const loaded = getOrganizedEventById(id);
-      if (loaded) setEvent(loaded);
-    };
-    window.addEventListener("dc-organized-changed", onStorage);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener("dc-organized-changed", onStorage);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, [id]);
-
-  if (!event) {
+  if (missing || !event) {
     return (
+<<<<<<< HEAD
       <OrganizedShell title="Events Name" backHref="/organized/events">
         <p className={styles.empty}>Loading event…</p>
+=======
+      <OrganizedShell title="Events Name">
+        <p className={styles.empty}>{missing ? "Event not found." : "Loading event…"}</p>
+>>>>>>> 80b06b3 (Add admin backend APIs, Gemini AI, and database-driven legacy hydration.)
       </OrganizedShell>
     );
   }

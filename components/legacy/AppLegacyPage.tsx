@@ -3,14 +3,21 @@
 import type { LegacyPageData } from "@/lib/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { LegacyContent } from "@/components/legacy/useLegacyPage";
+import { StudentDataBridge } from "@/components/legacy/StudentDataBridge";
+import { useProfileHydration } from "@/components/legacy/useProfileHydration";
+import { ChangePasswordModal } from "@/components/legacy/ChangePasswordModal";
 
 export function AppLegacyPage({ data }: { data: LegacyPageData }) {
+  useProfileHydration();
+
   return (
     <AppShell>
       <Sidebar />
       <main className="main">
         <LegacyContent data={data} />
       </main>
+      <StudentDataBridge />
+      <ChangePasswordModal />
     </AppShell>
   );
 }

@@ -17,6 +17,36 @@
     if (el) el.hidden = !show;
   }
 
+  function fillSectionParagraphs(headingText, paragraphs) {
+    var sections = document.querySelectorAll('.detail-section');
+    sections.forEach(function (section) {
+      var h3 = section.querySelector('h3');
+      if (!h3 || h3.textContent !== headingText) return;
+      var nodes = Array.from(section.querySelectorAll('p'));
+      var anchor = section.querySelector('.detail-types, .detail-list');
+      paragraphs.forEach(function (text, index) {
+        var paragraph = nodes[index];
+        if (!paragraph) {
+          paragraph = document.createElement('p');
+          if (anchor) section.insertBefore(paragraph, anchor);
+          else section.appendChild(paragraph);
+        }
+        paragraph.textContent = text;
+        paragraph.hidden = false;
+      });
+      nodes.forEach(function (paragraph, index) {
+        if (index >= paragraphs.length) paragraph.hidden = true;
+      });
+    });
+  }
+
+  function splitParagraphs(value) {
+    return String(value || '')
+      .split(/\n+/)
+      .map(function (part) { return part.trim(); })
+      .filter(Boolean);
+  }
+
   function renderExploreDetails() {
     var id = getQueryParam('id') || '3';
     var event = DCEvents.getEventById(id);
@@ -46,7 +76,29 @@
     setText('detail-attendance', event.attendanceRequired);
     setText('detail-grace', event.gracePeriod);
 
-    toggleBlock('detail-files-required', event.requiresFiles);
+    fillSectionParagraphs(
+      'Event Announcements',
+      splitParagraphs(event.announcements).length
+        ? splitParagraphs(event.announcements)
+        : ['No announcements yet.']
+    );
+    fillSectionParagraphs(
+      'Event Description',
+      splitParagraphs(event.description).length
+        ? splitParagraphs(event.description)
+        : ['No description provided.']
+    );
+
+    var requiredFiles = Array.isArray(event.requiredFiles) ? event.requiredFiles : [];
+    toggleBlock('detail-files-required', event.requiresFiles || requiredFiles.length > 0);
+    if (requiredFiles.length) {
+      var filesRequiredEl = document.getElementById('detail-files-required');
+      if (filesRequiredEl) {
+        filesRequiredEl.innerHTML =
+          '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>' +
+          'Required File(s): ' + requiredFiles.join(', ');
+      }
+    }
 
     if (DCEvents.bindDetailSaveButton) {
       DCEvents.bindDetailSaveButton(event.id);
@@ -57,6 +109,24 @@
 
     var actionBtn = document.getElementById('detail-action');
     if (!actionBtn) return;
+
+    if (event.status === 'joined') {
+      actionBtn.textContent = 'Registration Successful';
+      actionBtn.className = 'detail-action detail-action--joined';
+      actionBtn.disabled = true;
+      actionBtn.hidden = false;
+      actionBtn.onclick = null;
+      return;
+    }
+
+    if (event.status === 'pending') {
+      actionBtn.textContent = 'Registration Pending';
+      actionBtn.className = 'detail-action detail-action--pending';
+      actionBtn.disabled = true;
+      actionBtn.hidden = false;
+      actionBtn.onclick = null;
+      return;
+    }
 
     actionBtn.textContent = 'Join This Event';
     actionBtn.className = 'detail-action detail-action--join';
@@ -69,9 +139,9 @@
         return;
       }
 
-      actionBtn.textContent = 'Registration Successful';
-      actionBtn.disabled = true;
-      actionBtn.className = 'detail-action detail-action--joined';
+      window.dispatchEvent(new CustomEvent('dc-join-event', {
+        detail: { eventId: String(id), eventTitle: event.name }
+      }));
     };
   }
 

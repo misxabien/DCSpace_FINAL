@@ -12,11 +12,13 @@ function FileAction({
   participantId,
   fileId,
   status,
+  eventId,
   onChange,
 }: {
   participantId: string;
   fileId: string;
   status: FileSubmissionStatus;
+  eventId?: string;
   onChange: (status: FileSubmissionStatus) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -88,6 +90,18 @@ function FileAction({
     saveFileStatus(participantId, fileId, next);
     onChange(next);
     setOpen(false);
+    if (eventId) {
+      void fetch(
+        `/api/organized/events/${encodeURIComponent(eventId)}/registrations/${encodeURIComponent(participantId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId, status: next }),
+        },
+      ).then(() => {
+        window.dispatchEvent(new Event("dc-participant-changed"));
+      });
+    }
   };
 
   const toggleOpen = () => {

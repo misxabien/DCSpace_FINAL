@@ -186,6 +186,12 @@
   stroke: none;
 }
 
+.fileLink {
+  color: var(--blue);
+  text-decoration: underline;
+  font-weight: 700;
+}
+
 .organizerBar {
   display: flex;
   align-items: center;

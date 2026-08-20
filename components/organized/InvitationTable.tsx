@@ -103,10 +103,34 @@ export function InvitationTable({
     setPage(1);
   };
 
+  const persistInvite = async (candidate: InviteCandidate, invited: boolean) => {
+    try {
+      await fetch(`/api/organized/events/${encodeURIComponent(eventId)}/invitations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: candidate.email,
+          emails: candidate.email ? [candidate.email] : [],
+          userId: candidate.id,
+          userName: candidate.name,
+          studentNumber: candidate.number,
+          course: candidate.course,
+          organization: candidate.organization,
+          audience: candidate.audience,
+          invited,
+        }),
+      });
+    } catch {
+      /* local UI still updates */
+    }
+  };
+
   const toggleInvite = (candidateId: string) => {
     const invited = !inviteState[candidateId];
+    const candidate = candidates.find((row) => row.id === candidateId);
     setCandidateInvited(eventId, candidateId, invited);
     onInviteStateChange({ ...inviteState, [candidateId]: invited });
+    if (candidate) void persistInvite(candidate, invited);
   };
 
   const inviteAll = () => {
@@ -114,6 +138,18 @@ export function InvitationTable({
     const next = { ...inviteState };
     for (const id of visibleIds) next[id] = true;
     onInviteStateChange(next);
+    const emails = filtered.map((row) => row.email).filter(Boolean);
+    if (emails.length) {
+      void fetch(`/api/organized/events/${encodeURIComponent(eventId)}/invitations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emails,
+          audience: filtered[0]?.audience,
+          invited: true,
+        }),
+      });
+    }
   };
 
   const undoAll = () => {
@@ -121,6 +157,17 @@ export function InvitationTable({
     const next = { ...inviteState };
     for (const id of visibleIds) next[id] = false;
     onInviteStateChange(next);
+    const emails = filtered.map((row) => row.email).filter(Boolean);
+    if (emails.length) {
+      void fetch(`/api/organized/events/${encodeURIComponent(eventId)}/invitations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emails,
+          invited: false,
+        }),
+      });
+    }
   };
 
   return (

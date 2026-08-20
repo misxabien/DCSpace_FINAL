@@ -42,7 +42,8 @@ export function SoftNavEnhancer() {
     };
 
     const onPointerUp = (event: PointerEvent) => {
-      const target = (event.target as HTMLElement | null)?.closest(PRESS_SELECTOR);
+      const target =
+        (event.target as HTMLElement | null)?.closest(PRESS_SELECTOR) ?? null;
       // keep press class briefly so click handler can still see it
       window.setTimeout(() => clearPress(target), PRESS_MS + 40);
     };

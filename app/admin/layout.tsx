@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AdminAuthClient } from "@/components/auth/AdminAuthClient";
 
 export const metadata: Metadata = {
   title: "DC Space | Admin",
@@ -58,6 +59,7 @@ export default function AdminLayout({
           min-width: 0 !important;
         }
       `}</style>
+      <AdminAuthClient />
       {children}
     </>
   );

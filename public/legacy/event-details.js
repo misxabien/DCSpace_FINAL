@@ -34,7 +34,37 @@
     if (el) el.hidden = !show;
   }
 
-  function renderActionButton(status) {
+  function fillSectionParagraphs(headingText, paragraphs) {
+    var sections = document.querySelectorAll('.detail-section');
+    sections.forEach(function (section) {
+      var h3 = section.querySelector('h3');
+      if (!h3 || h3.textContent !== headingText) return;
+      var nodes = Array.from(section.querySelectorAll('p'));
+      var anchor = section.querySelector('.detail-types, .detail-list');
+      paragraphs.forEach(function (text, index) {
+        var paragraph = nodes[index];
+        if (!paragraph) {
+          paragraph = document.createElement('p');
+          if (anchor) section.insertBefore(paragraph, anchor);
+          else section.appendChild(paragraph);
+        }
+        paragraph.textContent = text;
+        paragraph.hidden = false;
+      });
+      nodes.forEach(function (paragraph, index) {
+        if (index >= paragraphs.length) paragraph.hidden = true;
+      });
+    });
+  }
+
+  function splitParagraphs(value) {
+    return String(value || '')
+      .split(/\n+/)
+      .map(function (part) { return part.trim(); })
+      .filter(Boolean);
+  }
+
+  function renderActionButton(status, event) {
     var actionBtn = document.getElementById('detail-action');
     if (!actionBtn) return;
 
@@ -48,6 +78,21 @@
     actionBtn.textContent = config.text;
     actionBtn.className = 'detail-action detail-action--' + config.variant;
     actionBtn.disabled = config.disabled;
+    actionBtn.onclick = function () {
+      if (config.variant === 'register') {
+        if (event && event.requiresFiles) {
+          window.location.href = DCEvents.getEventSubmitUrl(event.id);
+          return;
+        }
+        window.dispatchEvent(new CustomEvent('dc-join-event', {
+          detail: { eventId: String(event && event.id), eventTitle: event && event.name }
+        }));
+        return;
+      }
+      if (config.variant === 'feedback') {
+        window.location.href = '/feedback/sign';
+      }
+    };
   }
 
   function renderEventDetails() {
@@ -82,6 +127,29 @@
     setText('detail-attendance', event.attendanceRequired);
     setText('detail-grace', event.gracePeriod);
 
+    fillSectionParagraphs(
+      'Event Announcements',
+      splitParagraphs(event.announcements).length
+        ? splitParagraphs(event.announcements)
+        : ['No announcements yet.']
+    );
+    fillSectionParagraphs(
+      'Event Description',
+      splitParagraphs(event.description).length
+        ? splitParagraphs(event.description)
+        : ['No description provided.']
+    );
+
+    var requiredFiles = Array.isArray(event.requiredFiles) ? event.requiredFiles : [];
+    if (requiredFiles.length) {
+      var filesRequiredEl = document.getElementById('detail-files-required');
+      if (filesRequiredEl) {
+        filesRequiredEl.innerHTML =
+          '<svg viewBox="0 0 24 24" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>' +
+          'Required File(s): ' + requiredFiles.join(', ');
+      }
+    }
+
     var statusText = STATUS_LABELS[event.status] || '';
     setText('detail-status', statusText);
     toggleBlock('detail-status-wrap', Boolean(statusText));
@@ -90,7 +158,7 @@
     toggleBlock('detail-files-rejected', event.status === 'rejected');
     toggleBlock('detail-files-required', event.requiresFiles && event.status !== 'joined' && event.status !== 'rejected');
 
-    renderActionButton(event.status);
+    renderActionButton(event.status, event);
 
     toggleBlock('detail-footer-cancelled', event.status === 'cancelled');
     toggleBlock('detail-footer-postponed', event.status === 'postponed');

@@ -5,13 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import { OrganizedParticipantView } from "@/components/organized/OrganizedParticipantView";
 import { OrganizedShell } from "@/components/organized/OrganizedShell";
 import {
-  getOrganizedEventById,
-  type OrganizedEventDetail,
-} from "@/lib/organizedEventDetails";
-import {
-  getParticipantDetail,
-  type ParticipantDetail,
-} from "@/lib/organizedRegistrations";
+  fetchEventRegistrationsLive,
+  fetchOrganizedEventLive,
+  mapLiveParticipant,
+} from "@/lib/organized/live";
+import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
+import type { ParticipantDetail } from "@/lib/organizedRegistrations";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedParticipantPage() {
@@ -22,41 +21,33 @@ export default function OrganizedParticipantPage() {
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
   const [participant, setParticipant] = useState<ParticipantDetail | null>(null);
 
-  const load = () => {
-    const loadedEvent = getOrganizedEventById(eventId);
-    if (!loadedEvent) {
-      router.replace("/organized/events");
-      return;
-    }
-
-    const loadedParticipant = getParticipantDetail(
-      eventId,
-      registrationId,
-      loadedEvent.requiredFiles
-    );
-
-    if (!loadedParticipant) {
-      router.replace(`/organized/events/${eventId}/registrations`);
-      return;
-    }
-
-    setEvent(loadedEvent);
-    setParticipant(loadedParticipant);
-  };
-
   useEffect(() => {
-    load();
-  }, [eventId, registrationId, router]);
-
-  useEffect(() => {
-    const onChange = () => load();
-    window.addEventListener("dc-participant-changed", onChange);
-    window.addEventListener("storage", onChange);
-    return () => {
-      window.removeEventListener("dc-participant-changed", onChange);
-      window.removeEventListener("storage", onChange);
+    let cancelled = false;
+    const load = async () => {
+      const loadedEvent = await fetchOrganizedEventLive(eventId);
+      if (cancelled) return;
+      if (!loadedEvent) {
+        router.replace("/organized/events");
+        return;
+      }
+      const rows = await fetchEventRegistrationsLive(eventId);
+      const row = rows.find((item) => item.id === registrationId);
+      if (!row) {
+        router.replace(`/organized/events/${eventId}/registrations`);
+        return;
+      }
+      setEvent(loadedEvent);
+      setParticipant(mapLiveParticipant(row, loadedEvent.requiredFiles));
     };
-  }, [eventId, registrationId]);
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    window.addEventListener("dc-participant-changed", load);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("dc-participant-changed", load);
+    };
+  }, [eventId, registrationId, router]);
 
   if (!event || !participant) {
     return (
