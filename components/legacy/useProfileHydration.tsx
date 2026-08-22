@@ -56,6 +56,42 @@ function displayLabel(value: string, map: Record<string, string>) {
   return map[key] || key;
 }
 
+/** Split legacy "officer:Vice President" into role + position. */
+function parseOrganizationRole(raw: string | undefined | null) {
+  const value = String(raw || "").trim();
+  if (!value || value === "None") {
+    return { roleKey: "", roleLabel: "None", position: "" };
+  }
+
+  const colon = value.indexOf(":");
+  const roleKey = (colon >= 0 ? value.slice(0, colon) : value).trim().toLowerCase();
+  const position = colon >= 0 ? value.slice(colon + 1).trim() : "";
+
+  const ROLE_LABELS: Record<string, string> = {
+    officer: "Officer",
+    member: "Member",
+    president: "President",
+    "vice-president": "Vice President",
+    secretary: "Secretary",
+    treasurer: "Treasurer",
+    organizer: "Organizer",
+  };
+
+  const roleLabel =
+    ROLE_LABELS[roleKey] ||
+    roleKey.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) ||
+    "None";
+
+  return { roleKey, roleLabel, position };
+}
+
+/** Persist only the role key — never "officer:position". */
+function normalizeOrganizationRoleForSave(raw: string) {
+  const value = String(raw || "").trim();
+  if (!value || value === "None") return "";
+  return parseOrganizationRole(value).roleKey;
+}
+
 function setInputValue(id: string, value: string) {
   const input = document.getElementById(id) as HTMLInputElement | null;
   if (input) {
@@ -104,8 +140,10 @@ function applyProfileToDom(profile: UserProfile) {
   setInputValue("profile-course", displayLabel(profile.course || "", COURSE_LABELS));
   setInputValue("profile-department", displayLabel(profile.school || "", SCHOOL_LABELS));
   setInputValue("profile-organization", profile.organizationPart || "None");
-  setInputValue("profile-org-role", profile.organizationRole || "None");
-  setInputValue("profile-org-position", profile.organizationRole || "");
+  const org = parseOrganizationRole(profile.organizationRole);
+  setInputValue("profile-org-role", org.roleLabel);
+  // Position is separate — never copy the role string into this field.
+  setInputValue("profile-org-position", org.position);
   setInputValue("profile-rfid", profile.rfidNumber || "");
   setInputValue(
     "profile-account-type",
@@ -128,8 +166,8 @@ function applyProfileToDom(profile: UserProfile) {
         course: displayLabel(profile.course || "", COURSE_LABELS),
         department: displayLabel(profile.school || "", SCHOOL_LABELS),
         organization: profile.organizationPart || "None",
-        orgRole: profile.organizationRole || "None",
-        orgPosition: profile.organizationRole || "",
+        orgRole: org.roleLabel,
+        orgPosition: org.position,
         rfidNumber: profile.rfidNumber || "",
         accountType: profile.role?.toLowerCase() === "faculty" ? "Faculty" : "Student",
       }),
@@ -168,9 +206,11 @@ export function useProfileHydration() {
 
     async function refreshFromServer() {
       try {
-        const result = await fetchProfile(session!.token);
+        const result = await fetchProfile(session?.token);
         if (cancelled) return;
-        saveAuthSession(session!.token, result.profile);
+        if (session?.token && result.profile) {
+          saveAuthSession(session.token, result.profile);
+        }
         syncProfileToLegacyStorage(result.profile);
         applyProfileToDom(result.profile);
       } catch {
@@ -198,9 +238,6 @@ export function useProfileHydration() {
 
       window.setTimeout(async () => {
         const current = readAuthSession();
-        if (!current?.token) {
-          return;
-        }
 
         const name =
           (document.getElementById("profile-name") as HTMLInputElement | null)?.value || "";
@@ -211,24 +248,25 @@ export function useProfileHydration() {
           (document.getElementById("profile-department") as HTMLInputElement | null)?.value || "";
         const organizationPart =
           (document.getElementById("profile-organization") as HTMLInputElement | null)?.value || "";
-        const organizationRole =
-          (document.getElementById("profile-org-role") as HTMLInputElement | null)?.value ||
-          (document.getElementById("profile-org-position") as HTMLInputElement | null)?.value ||
-          "";
+        const organizationRoleRaw =
+          (document.getElementById("profile-org-role") as HTMLInputElement | null)?.value || "";
+        const organizationRole = normalizeOrganizationRoleForSave(organizationRoleRaw);
         const rfidNumber =
           (document.getElementById("profile-rfid") as HTMLInputElement | null)?.value || "";
 
         try {
-          const result = await updateProfile(current.token, {
+          const result = await updateProfile(current?.token, {
             firstName,
             lastName,
             course,
             school,
             organizationPart: organizationPart === "None" ? "" : organizationPart,
-            organizationRole: organizationRole === "None" ? "" : organizationRole,
+            organizationRole,
             rfidNumber,
           });
-          saveAuthSession(current.token, result.profile);
+          if (current?.token) {
+            saveAuthSession(current.token, result.profile);
+          }
           syncProfileToLegacyStorage(result.profile);
           applyProfileToDom(result.profile);
         } catch {
@@ -247,18 +285,16 @@ export function useProfileHydration() {
       }
 
       const current = readAuthSession();
-      if (!current?.token) {
-        showPhotoHint("Please sign in again to save your photo.", true);
-        return;
-      }
 
       try {
         showPhotoHint("Saving profile photo…");
         const photoUrl = await prepareProfilePhotoForStorage(file);
         applyAvatarToDom(photoUrl);
         applyProfilePhotoLocally(photoUrl);
-        const result = await updateProfile(current.token, { photoUrl });
-        saveAuthSession(current.token, result.profile);
+        const result = await updateProfile(current?.token, { photoUrl });
+        if (current?.token) {
+          saveAuthSession(current.token, result.profile);
+        }
         syncProfileToLegacyStorage(result.profile);
         applyProfileToDom(result.profile);
         showPhotoHint("Profile photo saved to your account.");
@@ -280,18 +316,16 @@ export function useProfileHydration() {
       }
 
       const current = readAuthSession();
-      if (!current?.token) {
-        showPhotoHint("Please sign in again to save your background photo.", true);
-        return;
-      }
 
       try {
         showPhotoHint("Saving background photo…");
         const bannerUrl = await prepareCoverImageForStorage(file);
         applyBannerToDom(bannerUrl);
         applyCoverImageLocally(bannerUrl);
-        const result = await updateProfile(current.token, { bannerUrl });
-        saveAuthSession(current.token, result.profile);
+        const result = await updateProfile(current?.token, { bannerUrl });
+        if (current?.token) {
+          saveAuthSession(current.token, result.profile);
+        }
         syncProfileToLegacyStorage(result.profile);
         applyProfileToDom(result.profile);
         showPhotoHint("Background photo saved to your account.");

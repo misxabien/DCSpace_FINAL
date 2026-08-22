@@ -8,6 +8,7 @@ import {
   getOrganizedEventById,
   type OrganizedEventDetail,
 } from "@/lib/organizedEventDetails";
+import { fetchOrganizedEventLive } from "@/lib/organized/live";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedEventInvitationsPage() {
@@ -17,26 +18,32 @@ export default function OrganizedEventInvitationsPage() {
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
 
   useEffect(() => {
-    const loaded = getOrganizedEventById(id);
-    if (!loaded) {
-      router.replace("/organized/events");
-      return;
-    }
-    setEvent(loaded);
-  }, [id, router]);
+    let cancelled = false;
 
-  useEffect(() => {
-    const onStorage = () => {
-      const loaded = getOrganizedEventById(id);
-      if (loaded) setEvent(loaded);
-    };
-    window.addEventListener("dc-organized-changed", onStorage);
-    window.addEventListener("storage", onStorage);
+    async function load() {
+      try {
+        const live = await fetchOrganizedEventLive(id);
+        if (cancelled) return;
+        if (live) {
+          setEvent(live);
+          return;
+        }
+      } catch {
+        /* fall back */
+      }
+      const local = getOrganizedEventById(id);
+      if (!local) {
+        router.replace("/organized/events");
+        return;
+      }
+      if (!cancelled) setEvent(local);
+    }
+
+    void load();
     return () => {
-      window.removeEventListener("dc-organized-changed", onStorage);
-      window.removeEventListener("storage", onStorage);
+      cancelled = true;
     };
-  }, [id]);
+  }, [id, router]);
 
   if (!event) {
     return (

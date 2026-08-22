@@ -200,12 +200,8 @@ export function useAuthFormBridge() {
           }
 
           const organizationRoleSelect = String(data.get("organizationRole") || "").trim();
-          const organizationPosition = String(data.get("organizationPosition") || "").trim();
-          const organizationRole = organizationRoleSelect
-            ? organizationPosition && organizationRoleSelect === "officer"
-              ? `${organizationRoleSelect}:${organizationPosition}`
-              : organizationRoleSelect
-            : organizationPosition;
+          // Store role only (e.g. "officer") — never append organization position.
+          const organizationRole = organizationRoleSelect || "";
 
           writeRegistrationDraft({
             course: String(data.get("course") || "").trim(),
@@ -264,8 +260,7 @@ export function useAuthFormBridge() {
           const result = await sendRegistrationVerificationEmail(email);
           clearError();
           window.alert(
-            result.message ||
-              "Verification code sent. Check your school email, or the terminal running npm run dev.",
+            `${result.message || "Verification code sent."}\n\nUse the newest 6-digit code from your school email (older emails will not work).`,
           );
           go("/verify");
           return;
@@ -279,6 +274,27 @@ export function useAuthFormBridge() {
             showError("Enter the 6-digit verification code from your email (or server terminal).");
             return;
           }
+          const draft = readRegistrationDraft();
+          if (!draft.email) {
+            showError("Registration details are incomplete. Please start again from Create Account.");
+            return;
+          }
+
+          submitting = true;
+          setSubmitting(formEl, true);
+          const check = await fetch("/api/user/auth/check-verification", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: draft.email, verificationCode }),
+          });
+          const checkPayload = await check.json().catch(() => ({}));
+          if (!check.ok) {
+            throw new Error(
+              checkPayload.error ||
+                "Invalid or outdated verification code. Request a new code and use the latest email.",
+            );
+          }
+
           writeRegistrationDraft({ verificationCode });
           go("/agreement");
           return;

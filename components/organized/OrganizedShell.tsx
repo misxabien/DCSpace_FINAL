@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isEventSaved, toggleSavedEvent } from "@/lib/savedEvents";
+import { useProfileHydration } from "@/components/legacy/useProfileHydration";
 import styles from "@/components/organized/Organized.module.css";
 
 export type OrganizedEvent = {
@@ -18,6 +19,8 @@ export type OrganizedEvent = {
   submissions: number;
   /** Footer note under the card details */
   reviewNote?: string;
+  /** Original Mongo status used by submissions filters */
+  reviewStatus?: string;
 };
 
 const STORAGE_KEY = "dc_organized_events_v6";
@@ -26,15 +29,17 @@ export function loadOrganizedEvents(): OrganizedEvent[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultEvents();
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as OrganizedEvent[];
-    return parsed.map((event) => ({
-      ...event,
-      venue: event.venue || "Event Venue",
-      time: event.time || "Event Time",
-    }));
+    return parsed
+      .filter((event) => /^[a-f0-9]{24}$/i.test(String(event.id)))
+      .map((event) => ({
+        ...event,
+        venue: event.venue || "Event Venue",
+        time: event.time || "Event Time",
+      }));
   } catch {
-    return defaultEvents();
+    return [];
   }
 }
 
@@ -43,84 +48,39 @@ export function saveOrganizedEvents(events: OrganizedEvent[]) {
   window.dispatchEvent(new Event("dc-organized-changed"));
 }
 
-function defaultEvents(): OrganizedEvent[] {
-  return [
-    {
-      id: "17",
-      title: "Invited Gala Night",
-      date: "2026-07-29",
-      venue: "Hotel Ballroom",
-      time: "7:00 PM - 10:00 PM",
-      status: "open",
-      submissions: 12,
-      reviewNote: "Admin has requested changes",
-    },
-    {
-      id: "9",
-      title: "AI Innovation Summit",
-      date: "2026-08-05",
-      venue: "Tech Hub",
-      time: "9:00 AM - 5:00 PM",
-      status: "open",
-      submissions: 8,
-      reviewNote: "Admin has requested changes",
-    },
-    {
-      id: "12",
-      title: "Startup Pitch Night",
-      date: "2026-08-02",
-      venue: "Auditorium B",
-      time: "6:00 PM - 9:00 PM",
-      status: "draft",
-      submissions: 0,
-    },
-    {
-      id: "15",
-      title: "Charity Fundraiser",
-      date: "2026-08-16",
-      venue: "Campus Grounds",
-      time: "11:00 AM - 4:00 PM",
-      status: "draft",
-      submissions: 0,
-    },
-    {
-      id: "2",
-      title: "Leadership Workshop",
-      date: "2026-08-15",
-      venue: "Room 204",
-      time: "1:00 PM - 4:00 PM",
-      status: "closed",
-      submissions: 5,
-      reviewNote: "Rejected",
-    },
-    {
-      id: "8",
-      title: "Math Olympiad Finals",
-      date: "2026-08-18",
-      venue: "Room 105",
-      time: "1:00 PM - 3:00 PM",
-      status: "closed",
-      submissions: 3,
-      reviewNote: "Rejected",
-    },
-  ];
-}
-
 export function OrganizedShell({
   title = "Organize an Event!",
+  backHref,
   children,
 }: {
   title?: string;
+  backHref?: string;
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
+  useProfileHydration();
 
   return (
     <AppShell>
       <Sidebar />
-      <main className={`main ${styles.page}`}>
+      <main className={`main ${styles.page}${backHref ? " main--sticky-header" : ""}`}>
         <div className={styles.top}>
-          <h1 className={styles.greeting}>{title}</h1>
+          <div className={styles.titleRow}>
+            {backHref ? (
+              <Link href={backHref} className={styles.backBtn} aria-label="Go back">
+                <svg width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden="true">
+                  <circle cx="40" cy="40" r="40" fill="#FFFBF6" />
+                  <path
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                    d="M48.3839 24.1161C48.872 24.6043 48.872 25.3957 48.3839 25.8839L34.2678 40L48.3839 54.1161C48.872 54.6043 48.872 55.3957 48.3839 55.8839C47.8957 56.372 47.1043 56.372 46.6161 55.8839L31.6161 40.8839C31.128 40.3957 31.128 39.6043 31.6161 39.1161L46.6161 24.1161C47.1043 23.628 47.8957 23.628 48.3839 24.1161Z"
+                    fill="#448AFF"
+                  />
+                </svg>
+              </Link>
+            ) : null}
+            <h1 className={styles.greeting}>{title}</h1>
+          </div>
           <div className={styles.tools}>
             <span className={`main__user-name ${styles.userName}`}>
               {user?.name || "Your Name"}
@@ -162,11 +122,31 @@ export function useOrganizedEvents() {
   const [events, setEvents] = useState<OrganizedEvent[]>([]);
 
   useEffect(() => {
-    const sync = () => setEvents(loadOrganizedEvents());
-    sync();
+    let cancelled = false;
+
+    const sync = async () => {
+      try {
+        const { fetchOrganizedEventsLive } = await import("@/lib/organized/live");
+        const live = await fetchOrganizedEventsLive();
+        if (cancelled) return;
+        setEvents(live);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(live));
+        } catch {
+          /* ignore quota */
+        }
+      } catch {
+        if (!cancelled) setEvents(loadOrganizedEvents());
+      }
+    };
+
+    void sync();
+    const timer = window.setInterval(() => void sync(), 10000);
     window.addEventListener("dc-organized-changed", sync);
     window.addEventListener("storage", sync);
     return () => {
+      cancelled = true;
+      window.clearInterval(timer);
       window.removeEventListener("dc-organized-changed", sync);
       window.removeEventListener("storage", sync);
     };

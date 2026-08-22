@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { LegacyContent } from "@/components/legacy/useLegacyPage";
+import { StudentDataBridge } from "@/components/legacy/StudentDataBridge";
 import { useProfileHydration } from "@/components/legacy/useProfileHydration";
 import { useAuth } from "@/components/auth/AuthProvider";
 import legacyHome from "@/content/legacy/09-home.json";
@@ -38,6 +39,7 @@ export default function HomePage() {
         <LegacyContent data={home} />
         <SyncUserName />
       </main>
+      <StudentDataBridge />
     </AppShell>
   );
 }

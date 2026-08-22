@@ -1,5 +1,9 @@
 import type { SessionUser } from "@/lib/auth/types";
-import { SESSION_COOKIE } from "@/lib/auth/types";
+import {
+  SESSION_COOKIE,
+  isAdminRole,
+  normalizeSessionRole,
+} from "@/lib/auth/types";
 
 function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -37,13 +41,22 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
   if (!value) return null;
   try {
     const json = new TextDecoder().decode(fromBase64Url(value));
-    const parsed = JSON.parse(json) as SessionUser;
+    const parsed = JSON.parse(json) as Partial<SessionUser> & { role?: string };
     if (!parsed?.email || !parsed?.role) return null;
+
+    const role = normalizeSessionRole(parsed.role);
+    const isAdmin = isAdminRole(role);
+    const isOrganizer =
+      Boolean(parsed.isOrganizer) ||
+      role === "organizer" ||
+      role === "faculty";
+
     return {
       email: parsed.email,
-      name: parsed.name || "Student",
-      role: parsed.role === "organizer" ? "organizer" : "student",
-      isOrganizer: parsed.role === "organizer",
+      name: parsed.name || (isAdmin ? "Admin" : "Student"),
+      role,
+      isOrganizer: isOrganizer && !isAdmin,
+      isAdmin,
     };
   } catch {
     return null;

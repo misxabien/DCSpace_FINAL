@@ -1,29 +1,60 @@
 import { NextResponse } from "next/server";
-import { authenticateKnownMockAccount } from "@/lib/auth/mockUsers";
 import { encodeSession, sessionCookieOptions } from "@/lib/auth/session";
-import type { SessionUser } from "@/lib/auth/types";
-import { isOrganizerProfile } from "@/lib/organize-access";
+import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { verifyPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
+import {
+  MONGO_QUICK_TIMEOUT_MS,
+  withTimeout,
+} from "@/lib/user-server/with-timeout";
 
-function toSessionUser(input: {
-  email: string;
-  name: string;
-  isOrganizer: boolean;
-}): SessionUser {
-  return {
-    email: input.email,
-    name: input.name,
-    role: input.isOrganizer ? "organizer" : "student",
-    isOrganizer: input.isOrganizer,
-  };
+type LoginBody = {
+  email?: string;
+  password?: string;
+  /** "admin" = admin console login; omit/default = student/organizer portal */
+  portal?: "admin" | "user";
+  /** When portal is admin, optionally require exact role from selection screen */
+  expectedRole?: "admin" | "super-admin";
+};
+
+function applyPortalRules(
+  sessionUser: ReturnType<typeof toSessionUser>,
+  portal: "admin" | "user",
+  expectedRole?: "admin" | "super-admin",
+) {
+  if (portal === "admin") {
+    if (!sessionUser.isAdmin) {
+      return NextResponse.json(
+        { error: "This account is not authorized for the admin console." },
+        { status: 403 },
+      );
+    }
+    if (expectedRole === "super-admin" && sessionUser.role !== "super-admin") {
+      return NextResponse.json(
+        { error: "Sign in with a Super Admin account." },
+        { status: 403 },
+      );
+    }
+    return null;
+  }
+
+  if (sessionUser.isAdmin) {
+    return NextResponse.json(
+      {
+        error: "Admin accounts must sign in through the Administrator Portal.",
+        redirectTo: "/admin",
+      },
+      { status: 403 },
+    );
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
-  let body: { email?: string; password?: string };
+  let body: LoginBody;
   try {
     body = await request.json();
   } catch {
@@ -32,6 +63,8 @@ export async function POST(request: Request) {
 
   const email = body.email?.trim().toLowerCase() ?? "";
   const password = body.password ?? "";
+  const portal = body.portal === "admin" ? "admin" : "user";
+  const expectedRole = body.expectedRole;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -47,10 +80,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // 1) Real MongoDB accounts first (source of truth for registered users)
+  // 1) MongoDB first (source of truth when available)
   try {
-    const db = await getUserDb();
-    const user = await db.collection("users").findOne({ email });
+    const db = await withTimeout(
+      getUserDb(),
+      MONGO_QUICK_TIMEOUT_MS,
+      "MongoDB connect",
+    );
+    const user = await withTimeout(
+      db.collection("users").findOne({ email }),
+      MONGO_QUICK_TIMEOUT_MS,
+      "MongoDB user lookup",
+    );
     if (user) {
       if (!verifyPassword(password, String(user.passwordHash || ""))) {
         return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
@@ -74,23 +115,42 @@ export async function POST(request: Request) {
         },
       );
 
-      const isOrganizer = isOrganizerProfile({
+      const sessionUser = toSessionUser({
+        email: sanitized.email,
+        name:
+          `${sanitized.firstName || ""} ${sanitized.lastName || ""}`.trim() ||
+          sanitized.email,
         role: sanitized.role,
         organizationRole: sanitized.organizationRole,
       });
 
-      const sessionUser = toSessionUser({
-        email: sanitized.email,
-        name:
-          `${sanitized.firstName || ""} ${sanitized.lastName || ""}`.trim() || sanitized.email,
-        isOrganizer,
-      });
+      const denied = applyPortalRules(sessionUser, portal, expectedRole);
+      if (denied) return denied;
 
       const token = signAuthToken({
         sub: String(user._id),
         email: sanitized.email,
-        role: sanitized.role || "student",
+        role: sanitized.role || sessionUser.role,
       });
+
+      try {
+        await db.collection("users").updateOne(
+          { _id: user._id },
+          { $set: { lastLoginAt: new Date().toISOString() } },
+        );
+      } catch {
+        /* non-blocking */
+      }
+
+      void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
+        logUserActivity({
+          type: "user_login",
+          actorEmail: sanitized.email,
+          actorName: sessionUser.name,
+          actorRole: sanitized.role || sessionUser.role,
+          meta: { portal },
+        }),
+      );
 
       const response = NextResponse.json({
         user: sessionUser,
@@ -106,18 +166,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     console.error("[DC Space] Mongo login lookup failed:", details);
-    // Fall through to demo accounts if DB is temporarily unavailable.
-  }
-
-  // 2) Demo/mock organizer accounts from main (exact emails only)
-  const mockUser = authenticateKnownMockAccount(email, password);
-  if (mockUser) {
-    const response = NextResponse.json({ user: mockUser });
-    response.cookies.set({
-      ...sessionCookieOptions(),
-      value: encodeSession(mockUser),
-    });
-    return response;
   }
 
   return NextResponse.json(

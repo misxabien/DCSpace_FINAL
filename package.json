@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "convert:legacy": "node scripts/convert-legacy.mjs"
+    "convert:legacy": "node scripts/convert-legacy.mjs",
+    "seed:admins": "node scripts/seed-admins.mjs"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.3",

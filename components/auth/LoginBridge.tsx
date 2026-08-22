@@ -2,12 +2,7 @@
 
 import { useEffect } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
-
-function lockLoginForm(form: HTMLFormElement) {
-  form.setAttribute("action", "javascript:void(0)");
-  form.setAttribute("method", "post");
-  form.setAttribute("onsubmit", "return false;");
-}
+import { isAdminRole } from "@/lib/auth/types";
 
 function ensureErrorEl(form: HTMLFormElement) {
   let errorEl = form.querySelector<HTMLParagraphElement>(".login-error");
@@ -23,6 +18,10 @@ function ensureErrorEl(form: HTMLFormElement) {
   return errorEl;
 }
 
+/**
+ * Student/organizer login — same UI, wired to shared /api/auth/login.
+ * Document-level listeners survive legacy HTML remounts.
+ */
 export function LoginBridge() {
   const { login } = useAuth();
 
@@ -31,7 +30,10 @@ export function LoginBridge() {
 
     const runLogin = async (form: HTMLFormElement) => {
       if (submitting) return;
-      lockLoginForm(form);
+      if (!form.closest(".signin-card")) return;
+
+      form.setAttribute("action", "#");
+      form.setAttribute("method", "post");
 
       const emailInput = form.querySelector<HTMLInputElement>("#email");
       const passwordInput = form.querySelector<HTMLInputElement>("#password");
@@ -40,40 +42,42 @@ export function LoginBridge() {
       const errorEl = ensureErrorEl(form);
       errorEl.textContent = "";
 
-      if (!email || !password) {
-        errorEl.textContent = "Please enter your school email and password.";
+      const isSdcaEmail = /^[A-Za-z0-9._%+\-]+@sdca\.edu\.ph$/i.test(email);
+      if (!isSdcaEmail) {
+        errorEl.textContent = "Use your school email ending in @sdca.edu.ph";
+        emailInput?.focus();
+        return;
+      }
+      if (!password) {
+        errorEl.textContent = "Please enter your password.";
         return;
       }
 
-      const button = form.querySelector<HTMLButtonElement>(".btn-signin");
-      const originalLabel = button?.textContent || "SIGN IN";
       submitting = true;
-      if (button) {
-        button.disabled = true;
-        button.textContent = "Please wait…";
-      }
-
       try {
-        // Role comes from the SDCA account (organizer approval), not Faculty.
-        // Organizers sign in on the Student side of this same form.
-        const result = await login(email, password);
+        const result = await login(email, password, { portal: "user" });
         if (!result.ok) {
           errorEl.textContent = result.error || "Unable to sign in.";
+          if (result.redirectTo) {
+            window.setTimeout(() => {
+              window.location.assign(result.redirectTo!);
+            }, 1000);
+          }
           return;
         }
 
-        // Approved organizers open Events Organized UI; students open Home.
-        const destination = result.user?.isOrganizer ? "/organized" : "/home";
+        let destination = "/home";
+        if (result.user?.isAdmin || isAdminRole(result.user?.role)) {
+          destination = "/admin/home12";
+        } else if (result.user?.isOrganizer) {
+          destination = "/organized";
+        }
         window.location.assign(destination);
       } catch (error) {
         errorEl.textContent =
           error instanceof Error ? error.message : "Unable to sign in.";
       } finally {
         submitting = false;
-        if (button) {
-          button.disabled = false;
-          button.textContent = originalLabel;
-        }
       }
     };
 
@@ -97,23 +101,12 @@ export function LoginBridge() {
       void runLogin(form);
     };
 
-    // Document-level listeners survive legacy innerHTML mounts/re-renders.
     document.addEventListener("submit", onSubmit, true);
     document.addEventListener("click", onClick, true);
-
-    const lockExisting = () => {
-      document.querySelectorAll<HTMLFormElement>(".signin-card form").forEach(lockLoginForm);
-    };
-    lockExisting();
-    const timer = window.setInterval(lockExisting, 300);
-    const observer = new MutationObserver(lockExisting);
-    observer.observe(document.body, { childList: true, subtree: true });
 
     return () => {
       document.removeEventListener("submit", onSubmit, true);
       document.removeEventListener("click", onClick, true);
-      window.clearInterval(timer);
-      observer.disconnect();
     };
   }, [login]);
 

@@ -1,6 +1,7 @@
 const authStorageKey = "dcspace_auth";
 const registrationDraftKey = "dcspace_registration_draft";
-const authRequestTimeoutMs = 60_000;
+// Verification email can take a few seconds for Gmail; keep under previous 60s hang.
+const authRequestTimeoutMs = 45_000;
 
 export type UserProfile = {
   id: string;
@@ -127,17 +128,28 @@ export async function loginUser(email: string, password: string) {
   });
 }
 
-export async function fetchProfile(token: string) {
+function profileRequestInit(
+  method: "GET" | "PATCH" | "POST",
+  token?: string,
+  body?: unknown,
+): RequestInit {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return {
+    method,
+    headers,
+    credentials: "include",
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  };
+}
+
+export async function fetchProfile(token?: string) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), authRequestTimeoutMs);
 
   try {
     const response = await fetch("/api/user/profile", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      ...profileRequestInit("GET", token),
       signal: controller.signal,
     });
 
@@ -158,7 +170,7 @@ export async function fetchProfile(token: string) {
 }
 
 export async function updateProfile(
-  token: string,
+  token: string | undefined,
   payload: Partial<
     Pick<
       UserProfile,
@@ -179,12 +191,7 @@ export async function updateProfile(
 
   try {
     const response = await fetch("/api/user/profile", {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+      ...profileRequestInit("PATCH", token, payload),
       signal: controller.signal,
     });
 
@@ -205,7 +212,7 @@ export async function updateProfile(
 }
 
 export async function changePassword(
-  token: string,
+  token: string | undefined,
   payload: {
     currentPassword: string;
     newPassword: string;
@@ -217,12 +224,7 @@ export async function changePassword(
 
   try {
     const response = await fetch("/api/user/profile/change-password", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
+      ...profileRequestInit("POST", token, payload),
       signal: controller.signal,
     });
 

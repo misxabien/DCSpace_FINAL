@@ -8,6 +8,7 @@ import {
   getOrganizedEventById,
   type OrganizedEventDetail,
 } from "@/lib/organizedEventDetails";
+import { fetchOrganizedEventLive } from "@/lib/organized/live";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedEventDetailPage() {
@@ -17,16 +18,44 @@ export default function OrganizedEventDetailPage() {
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
 
   useEffect(() => {
-    const loaded = getOrganizedEventById(id);
-    if (!loaded) {
-      router.replace("/organized/events");
-      return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const live = await fetchOrganizedEventLive(id);
+        if (cancelled) return;
+        if (live) {
+          setEvent(live);
+          return;
+        }
+      } catch {
+        /* fall back to local cache */
+      }
+      const local = getOrganizedEventById(id);
+      if (!local) {
+        router.replace("/organized/events");
+        return;
+      }
+      if (!cancelled) setEvent(local);
     }
-    setEvent(loaded);
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [id, router]);
 
   useEffect(() => {
-    const onStorage = () => {
+    const onStorage = async () => {
+      try {
+        const live = await fetchOrganizedEventLive(id);
+        if (live) {
+          setEvent(live);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
       const loaded = getOrganizedEventById(id);
       if (loaded) setEvent(loaded);
     };

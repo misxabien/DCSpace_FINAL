@@ -12,6 +12,10 @@ import {
   getParticipantDetail,
   type ParticipantDetail,
 } from "@/lib/organizedRegistrations";
+import {
+  fetchOrganizedEventLive,
+  fetchParticipantDetailLive,
+} from "@/lib/organized/live";
 import styles from "@/components/organized/Organized.module.css";
 
 export default function OrganizedParticipantPage() {
@@ -22,41 +26,54 @@ export default function OrganizedParticipantPage() {
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
   const [participant, setParticipant] = useState<ParticipantDetail | null>(null);
 
-  const load = () => {
-    const loadedEvent = getOrganizedEventById(eventId);
-    if (!loadedEvent) {
-      router.replace("/organized/events");
-      return;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const liveEvent = await fetchOrganizedEventLive(eventId);
+        if (cancelled) return;
+        if (liveEvent) {
+          const liveParticipant = await fetchParticipantDetailLive(
+            eventId,
+            registrationId,
+            liveEvent.requiredFiles,
+          );
+          if (liveParticipant) {
+            setEvent(liveEvent);
+            setParticipant(liveParticipant);
+            return;
+          }
+        }
+      } catch {
+        /* fall back */
+      }
+
+      const loadedEvent = getOrganizedEventById(eventId);
+      if (!loadedEvent) {
+        router.replace("/organized/events");
+        return;
+      }
+      const loadedParticipant = getParticipantDetail(
+        eventId,
+        registrationId,
+        loadedEvent.requiredFiles,
+      );
+      if (!loadedParticipant) {
+        router.replace(`/organized/events/${encodeURIComponent(eventId)}/registrations`);
+        return;
+      }
+      if (!cancelled) {
+        setEvent(loadedEvent);
+        setParticipant(loadedParticipant);
+      }
     }
 
-    const loadedParticipant = getParticipantDetail(
-      eventId,
-      registrationId,
-      loadedEvent.requiredFiles
-    );
-
-    if (!loadedParticipant) {
-      router.replace(`/organized/events/${eventId}/registrations`);
-      return;
-    }
-
-    setEvent(loadedEvent);
-    setParticipant(loadedParticipant);
-  };
-
-  useEffect(() => {
-    load();
-  }, [eventId, registrationId, router]);
-
-  useEffect(() => {
-    const onChange = () => load();
-    window.addEventListener("dc-participant-changed", onChange);
-    window.addEventListener("storage", onChange);
+    void load();
     return () => {
-      window.removeEventListener("dc-participant-changed", onChange);
-      window.removeEventListener("storage", onChange);
+      cancelled = true;
     };
-  }, [eventId, registrationId]);
+  }, [eventId, registrationId, router]);
 
   if (!event || !participant) {
     return (

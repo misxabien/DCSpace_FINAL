@@ -91,14 +91,10 @@ export function ChangePasswordModal() {
     }
 
     const session = readAuthSession();
-    if (!session?.token) {
-      setError("Please sign in again to change your password.");
-      return;
-    }
 
     setSubmitting(true);
     try {
-      const result = await changePassword(session.token, {
+      const result = await changePassword(session?.token, {
         currentPassword,
         newPassword,
         confirmPassword,

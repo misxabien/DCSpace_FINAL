@@ -2,6 +2,7 @@ export type InviteAudience = "student" | "faculty";
 
 export type InviteCandidate = {
   id: string;
+  email?: string;
   audience: InviteAudience;
   number: string;
   name: string;

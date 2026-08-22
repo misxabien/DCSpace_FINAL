@@ -5,9 +5,9 @@ import {
   INVITE_FILTER_OPTIONS,
   setAllInvited,
   setCandidateInvited,
-  type InviteAudience,
   type InviteCandidate,
 } from "@/lib/organizedInvitations";
+import { toggleEventInvitationLive } from "@/lib/organized/live";
 import styles from "@/components/organized/OrganizedInvitations.module.css";
 
 const PAGE_SIZE = 10;
@@ -103,13 +103,46 @@ export function InvitationTable({
     setPage(1);
   };
 
-  const toggleInvite = (candidateId: string) => {
-    const invited = !inviteState[candidateId];
-    setCandidateInvited(eventId, candidateId, invited);
-    onInviteStateChange({ ...inviteState, [candidateId]: invited });
+  const toggleInvite = (candidate: InviteCandidate) => {
+    const invited = !inviteState[candidate.id];
+    const applyLocal = () => {
+      setCandidateInvited(eventId, candidate.id, invited);
+      onInviteStateChange({ ...inviteState, [candidate.id]: invited });
+    };
+
+    if (!candidate.email) {
+      applyLocal();
+      return;
+    }
+
+    void toggleEventInvitationLive(eventId, candidate, invited)
+      .then(() => {
+        applyLocal();
+        window.dispatchEvent(new Event("dc-invites-changed"));
+      })
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Failed to update invitation.");
+      });
   };
 
   const inviteAll = () => {
+    const toInvite = visibleIds.filter((id) => !inviteState[id]);
+    const rows = candidates.filter((row) => toInvite.includes(row.id));
+    const liveRows = rows.filter((row) => row.email);
+    if (liveRows.length) {
+      void Promise.all(liveRows.map((row) => toggleEventInvitationLive(eventId, row, true)))
+        .then(() => {
+          setAllInvited(eventId, visibleIds, true);
+          const next = { ...inviteState };
+          for (const id of visibleIds) next[id] = true;
+          onInviteStateChange(next);
+          window.dispatchEvent(new Event("dc-invites-changed"));
+        })
+        .catch((error) => {
+          window.alert(error instanceof Error ? error.message : "Failed to send invitations.");
+        });
+      return;
+    }
     setAllInvited(eventId, visibleIds, true);
     const next = { ...inviteState };
     for (const id of visibleIds) next[id] = true;
@@ -117,6 +150,23 @@ export function InvitationTable({
   };
 
   const undoAll = () => {
+    const toUndo = visibleIds.filter((id) => inviteState[id]);
+    const rows = candidates.filter((row) => toUndo.includes(row.id));
+    const liveRows = rows.filter((row) => row.email);
+    if (liveRows.length) {
+      void Promise.all(liveRows.map((row) => toggleEventInvitationLive(eventId, row, false)))
+        .then(() => {
+          setAllInvited(eventId, visibleIds, false);
+          const next = { ...inviteState };
+          for (const id of visibleIds) next[id] = false;
+          onInviteStateChange(next);
+          window.dispatchEvent(new Event("dc-invites-changed"));
+        })
+        .catch((error) => {
+          window.alert(error instanceof Error ? error.message : "Failed to undo invitations.");
+        });
+      return;
+    }
     setAllInvited(eventId, visibleIds, false);
     const next = { ...inviteState };
     for (const id of visibleIds) next[id] = false;
@@ -219,7 +269,7 @@ export function InvitationTable({
                         className={styles.inviteBtn}
                         aria-label={invited ? `Undo invite for ${row.name}` : `Send invite to ${row.name}`}
                         aria-pressed={invited}
-                        onClick={() => toggleInvite(row.id)}
+                        onClick={() => toggleInvite(row)}
                       >
                         <InviteEnvelopeIcon invited={invited} />
                       </button>
@@ -292,4 +342,4 @@ export function InvitationTable({
   );
 }
 
-export type { InviteAudience };
+export type { InviteAudience } from "@/lib/organizedInvitations";

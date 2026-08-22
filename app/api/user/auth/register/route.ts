@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
+import { encodeSession, sessionCookieOptions } from "@/lib/auth/session";
+import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { validateRegistrationBody } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
@@ -77,18 +79,46 @@ export async function POST(request: Request) {
 
     const insertResult = await users.insertOne(newUser);
     const savedUser = { ...newUser, _id: insertResult.insertedId as ObjectId };
+    const profile = sanitizeUser(savedUser);
     const token = signAuthToken({
       sub: savedUser._id.toString(),
       email: savedUser.email,
       role: savedUser.role,
     });
 
-    return withCors(
+    const sessionUser = toSessionUser({
+      email: profile.email,
+      name: profile.fullName || profile.email,
+      role: profile.role,
+      organizationRole: profile.organizationRole,
+    });
+
+    void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
+      logUserActivity({
+        type: "user_registered",
+        actorEmail: profile.email,
+        actorName: profile.fullName,
+        actorRole: profile.role,
+        organization: profile.organizationPart,
+        meta: { studentNumber: profile.studentNumber },
+      }),
+    );
+
+    const response = withCors(
       NextResponse.json(
-        { message: "Account created successfully.", token, user: sanitizeUser(savedUser) },
+        {
+          message: "Account created successfully.",
+          token,
+          user: profile,
+        },
         { status: 201 },
       ),
     );
+    response.cookies.set({
+      ...sessionCookieOptions(),
+      value: encodeSession(sessionUser),
+    });
+    return response;
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return withCors(

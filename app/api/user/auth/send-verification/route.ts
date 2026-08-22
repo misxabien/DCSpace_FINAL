@@ -4,6 +4,10 @@ import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { issueRegistrationVerificationCode } from "@/lib/user-server/verification";
+import {
+  MONGO_QUICK_TIMEOUT_MS,
+  withTimeout,
+} from "@/lib/user-server/with-timeout";
 
 export const maxDuration = 60;
 
@@ -31,17 +35,31 @@ export async function POST(request: Request) {
       );
     }
 
+    // Never block email delivery on a slow/unreachable Mongo — fail the lookup quickly.
     let db: Db | null = null;
     try {
-      db = await getUserDb();
-      const existingUser = await db.collection("users").findOne({ email });
+      db = await withTimeout(
+        getUserDb(),
+        MONGO_QUICK_TIMEOUT_MS,
+        "MongoDB connect",
+      );
+      const existingUser = await withTimeout(
+        db.collection("users").findOne({ email }),
+        MONGO_QUICK_TIMEOUT_MS,
+        "MongoDB user lookup",
+      );
       if (existingUser) {
         return withCors(
-          NextResponse.json({ error: "An account with this email already exists." }, { status: 409 }),
+          NextResponse.json(
+            { error: "An account with this email already exists." },
+            { status: 409 },
+          ),
         );
       }
-    } catch {
+    } catch (error) {
       db = null;
+      const details = error instanceof Error ? error.message : "Unknown error";
+      console.warn("[DC Space] Mongo unavailable during send-verification:", details);
     }
 
     const result = await issueRegistrationVerificationCode(email, { db });
@@ -54,7 +72,9 @@ export async function POST(request: Request) {
             : "Verification code sent. Please check your school email inbox (and spam folder).",
           email: result.email,
           expiresAt: result.expiresAt,
-          ...(result.devMode && result.code ? { debugHint: "Code printed in server terminal." } : {}),
+          ...(result.devMode && result.code
+            ? { debugHint: "Code printed in server terminal." }
+            : {}),
         },
         { status: 200 },
       ),
@@ -62,10 +82,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const isEmailConfig =
-      /email is not set up|mail server|smtp|email server timed out|could not reach the email server/i.test(
+      /email is not set up|mail server|smtp|email server timed out|could not reach the email server|gmail/i.test(
         message,
       );
-    const isDatabase = /mongo|Missing MONGODB/i.test(message);
+    const isDatabase = /mongo|Missing MONGODB|Atlas/i.test(message);
 
     if (isEmailConfig) {
       return withCors(NextResponse.json({ error: message, details: message }, { status: 503 }));
@@ -74,7 +94,9 @@ export async function POST(request: Request) {
       return withCors(
         NextResponse.json(
           {
-            error: "Could not connect to the database. Check MONGODB_URI in .env.",
+            error: message.includes("Atlas")
+              ? message
+              : "Could not connect to the database. Check MONGODB_URI in .env.",
             details: message,
           },
           { status: 500 },

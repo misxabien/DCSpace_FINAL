@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
+import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { hashPassword, verifyPassword } from "@/lib/user-server/password";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 
@@ -9,9 +10,29 @@ export async function OPTIONS() {
   return optionsResponse();
 }
 
+async function requirePasswordUser(request: Request) {
+  const jwtAuth = await requireUserAuth(request);
+  if (!("error" in jwtAuth)) return jwtAuth;
+
+  const actor = await requireSessionActor(request);
+  if ("error" in actor) {
+    return jwtAuth;
+  }
+
+  const db = await getUserDb();
+  const user =
+    actor.userId && ObjectId.isValid(actor.userId)
+      ? await db.collection("users").findOne({ _id: new ObjectId(actor.userId) })
+      : await db.collection("users").findOne({ email: actor.email });
+  if (!user) {
+    return { error: "User not found.", status: 404 } as const;
+  }
+  return { user: user as { _id: ObjectId; passwordHash?: string } };
+}
+
 export async function POST(request: Request) {
   try {
-    const authResult = await requireUserAuth(request);
+    const authResult = await requirePasswordUser(request);
     if ("error" in authResult) {
       return withCors(NextResponse.json({ error: authResult.error }, { status: authResult.status }));
     }

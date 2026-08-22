@@ -2,14 +2,34 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
+import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 
 function pickString(value: unknown) {
   return typeof value === "string" ? value.trim() : undefined;
 }
 
+async function requireProfileUser(request: Request) {
+  const jwtAuth = await requireUserAuth(request);
+  if (!("error" in jwtAuth)) return jwtAuth;
+
+  const actor = await requireSessionActor(request);
+  if ("error" in actor) {
+    return jwtAuth;
+  }
+
+  const db = await getUserDb();
+  const user = actor.userId && ObjectId.isValid(actor.userId)
+    ? await db.collection("users").findOne({ _id: new ObjectId(actor.userId) })
+    : await db.collection("users").findOne({ email: actor.email });
+  if (!user) {
+    return { error: "User not found.", status: 404 } as const;
+  }
+  return { user: user as Parameters<typeof sanitizeUser>[0] };
+}
+
 export async function GET(request: Request) {
-  const authResult = await requireUserAuth(request);
+  const authResult = await requireProfileUser(request);
 
   if ("error" in authResult) {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status });
@@ -20,7 +40,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const authResult = await requireUserAuth(request);
+    const authResult = await requireProfileUser(request);
 
     if ("error" in authResult) {
       return NextResponse.json({ error: authResult.error }, { status: authResult.status });
@@ -29,8 +49,14 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const updates: Record<string, string> = {};
 
-    const firstName = pickString(body?.firstName);
-    const lastName = pickString(body?.lastName);
+    const fullName = pickString(body?.fullName);
+    let firstName = pickString(body?.firstName);
+    let lastName = pickString(body?.lastName);
+    if (fullName && !firstName && !lastName) {
+      const parts = fullName.split(/\s+/).filter(Boolean);
+      firstName = parts[0] || "";
+      lastName = parts.slice(1).join(" ");
+    }
     const photoUrl = pickString(body?.photoUrl);
     const bannerUrl = pickString(body?.bannerUrl);
     const course = pickString(body?.course);

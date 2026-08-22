@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   formatEventDateParts,
   loadOrganizedEvents,
@@ -23,6 +23,22 @@ const STEPS = [
 ] as const;
 
 type Visibility = "everyone" | "organizers";
+
+function readFileAsBase64(file: File) {
+  return new Promise<{ name: string; mimeType: string; base64: string }>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      resolve({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        base64: result.includes(",") ? result.split(",")[1] || "" : result,
+      });
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 const COURSE_OPTIONS = [
   "BSA",
@@ -178,18 +194,26 @@ function ProgressMeter({ currentStep }: { currentStep: number }) {
 
 export function CreateEventView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editingId = searchParams.get("id") || "";
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const programInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [showAiBanner, setShowAiBanner] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+  const [aiError, setAiError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const [eventName, setEventName] = useState("");
   const [eventType, setEventType] = useState("");
   const [description, setDescription] = useState("");
   const [bannerName, setBannerName] = useState("");
   const [bannerPreview, setBannerPreview] = useState("");
+  const [bannerBase64, setBannerBase64] = useState("");
+  const [bannerMime, setBannerMime] = useState("");
   const [status, setStatus] = useState<OrganizedEvent["status"] | "">("");
   const [registrationDeadline, setRegistrationDeadline] = useState("");
 
@@ -202,7 +226,6 @@ export function CreateEventView() {
 
   const [announcements, setAnnouncements] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("everyone");
-  const [programFileName, setProgramFileName] = useState("");
   const [activityDraft, setActivityDraft] = useState("");
   const [activities, setActivities] = useState<string[]>([]);
 
@@ -220,12 +243,116 @@ export function CreateEventView() {
   const conceptPaperRef = useRef<HTMLInputElement>(null);
   const certificateRef = useRef<HTMLInputElement>(null);
   const [conceptPaperName, setConceptPaperName] = useState("");
+  const [conceptPaperBase64, setConceptPaperBase64] = useState("");
+  const [conceptPaperMimeType, setConceptPaperMimeType] = useState("");
+  const [hasExistingConceptPaper, setHasExistingConceptPaper] = useState(false);
   const [certificateName, setCertificateName] = useState("");
+  const [certificateTemplateBase64, setCertificateTemplateBase64] = useState("");
+  const [certificateTemplateMimeType, setCertificateTemplateMimeType] = useState("");
   const [eCertificateEnabled, setECertificateEnabled] = useState(false);
+  const [hasExistingCertificate, setHasExistingCertificate] = useState(false);
+  const [programFileName, setProgramFileName] = useState("");
+  const [programFileBase64, setProgramFileBase64] = useState("");
+  const [programFileMimeType, setProgramFileMimeType] = useState("");
+  const [hasExistingProgramFile, setHasExistingProgramFile] = useState(false);
   const [filesRequired, setFilesRequired] = useState<"yes" | "no">("yes");
   const [requiredFileDraft, setRequiredFileDraft] = useState("");
   const [requiredFiles, setRequiredFiles] = useState<string[]>([]);
   const [photoSharing, setPhotoSharing] = useState<"yes" | "organizers">("yes");
+
+  useEffect(() => {
+    if (!editingId) return;
+    let cancelled = false;
+    const load = async () => {
+      const res = await fetch(`/api/events/${encodeURIComponent(editingId)}`, { cache: "no-store" });
+      if (!res.ok || cancelled) return;
+      const payload = (await res.json()) as {
+        event?: {
+          title?: string;
+          description?: string;
+          category?: string;
+          location?: string;
+          startsAt?: string;
+          endsAt?: string;
+          attendanceRequired?: string;
+          gracePeriod?: string;
+          venueType?: string;
+          announcements?: string;
+          allowedCourses?: string[];
+          requiredFiles?: string[];
+          speakers?: string[];
+          collaboratingDepartments?: string[];
+          programActivities?: string[];
+          posterImage?: string;
+          conceptPaperName?: string;
+          hasConceptPaper?: boolean;
+          certificateTemplateName?: string;
+          hasCertificateTemplate?: boolean;
+          programFileName?: string;
+          hasProgramFile?: boolean;
+          programFileVisibility?: "everyone" | "organizers";
+        };
+      };
+      const event = payload.event;
+      if (!event || cancelled) return;
+      setEventName(event.title || "");
+      setEventType(event.category || "");
+      setDescription(event.description || "");
+      setVenue(event.location || "");
+      setVenueType(event.venueType || "");
+      setAnnouncements(event.announcements || "");
+      setMinAttendance(event.attendanceRequired || "");
+      setGracePeriod(event.gracePeriod || "");
+      setAttendTags(Array.isArray(event.allowedCourses) ? event.allowedCourses : []);
+      setRequiredFiles(Array.isArray(event.requiredFiles) ? event.requiredFiles : []);
+      setFilesRequired(event.requiredFiles && event.requiredFiles.length ? "yes" : "no");
+      setSpeakers(Array.isArray(event.speakers) ? event.speakers : []);
+      setHasSpeakers(event.speakers && event.speakers.length ? "yes" : "no");
+      setCollabTags(Array.isArray(event.collaboratingDepartments) ? event.collaboratingDepartments : []);
+      setCollaboration(
+        event.collaboratingDepartments && event.collaboratingDepartments.length ? "yes" : "no",
+      );
+      setActivities(Array.isArray(event.programActivities) ? event.programActivities : []);
+      if (event.conceptPaperName || event.hasConceptPaper) {
+        setConceptPaperName(event.conceptPaperName || "Uploaded concept paper");
+        setHasExistingConceptPaper(Boolean(event.hasConceptPaper));
+      }
+      if (event.certificateTemplateName || event.hasCertificateTemplate) {
+        setCertificateName(event.certificateTemplateName || "Uploaded e-certificate");
+        setECertificateEnabled(true);
+        setHasExistingCertificate(Boolean(event.hasCertificateTemplate));
+      }
+      if (event.programFileName || event.hasProgramFile) {
+        setProgramFileName(event.programFileName || "Uploaded program flow");
+        setHasExistingProgramFile(Boolean(event.hasProgramFile));
+      }
+      if (event.programFileVisibility === "organizers" || event.programFileVisibility === "everyone") {
+        setVisibility(event.programFileVisibility);
+      }
+      if (event.startsAt) {
+        const start = new Date(event.startsAt);
+        if (!Number.isNaN(start.getTime())) {
+          setStartDate(start.toISOString().slice(0, 10));
+          setStartTime(start.toISOString().slice(11, 16));
+        }
+      }
+      if (event.endsAt) {
+        const end = new Date(event.endsAt);
+        if (!Number.isNaN(end.getTime())) {
+          setEndDate(end.toISOString().slice(0, 10));
+          setEndTime(end.toISOString().slice(11, 16));
+        }
+      }
+      if (event.posterImage) {
+        setBannerPreview(event.posterImage);
+        setBannerBase64(event.posterImage.includes(",") ? event.posterImage.split(",")[1] : event.posterImage);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [editingId]);
 
   const removeTag = (tag: string, list: string[], setList: (next: string[]) => void) => {
     setList(list.filter((item) => item !== tag));
@@ -264,8 +391,12 @@ export function CreateEventView() {
   };
 
   const validateRequirements = () => {
-    if (!conceptPaperName) return "Approved Concept Paper is required.";
-    if (eCertificateEnabled && !certificateName) return "E-Certificate Template is required.";
+    if (!conceptPaperBase64 && !hasExistingConceptPaper) {
+      return "Approved Concept Paper is required.";
+    }
+    if (eCertificateEnabled && !certificateTemplateBase64 && !hasExistingCertificate) {
+      return "E-Certificate Template is required.";
+    }
     if (filesRequired === "yes" && requiredFiles.length === 0 && !requiredFileDraft.trim()) {
       return "Add at least one required file name.";
     }
@@ -279,9 +410,68 @@ export function CreateEventView() {
     setActivityDraft("");
   };
 
-  const saveEvent = () => {
+  const suggestProgramFlow = async () => {
+    if (!eventName.trim()) {
+      setAiError("Enter an event name first so AI can suggest a program flow.");
+      return;
+    }
+    setAiLoading(true);
+    setAiError("");
+    setAiNote("");
+    try {
+      const res = await fetch("/api/ai/program-flow", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: eventName.trim(),
+          eventType,
+          venue,
+          venueType,
+          startDate,
+          endDate,
+          startTime,
+          endTime,
+          courses: attendTags,
+          description,
+          announcements,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error || payload.details || "Could not generate suggestions.");
+      }
+      const next = Array.isArray(payload.activities)
+        ? payload.activities.map((item: unknown) => String(item).trim()).filter(Boolean)
+        : [];
+      if (!next.length) throw new Error("No activities were returned.");
+      setActivities((current) => {
+        const seen = new Set(current.map((item) => item.toLowerCase()));
+        const merged = [...current];
+        next.forEach((item: string) => {
+          if (!seen.has(item.toLowerCase())) {
+            seen.add(item.toLowerCase());
+            merged.push(item);
+          }
+        });
+        return merged;
+      });
+      setAiNote(String(payload.notes || "Suggestions added to the program flow."));
+      document.getElementById("event-program-flow")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "Could not generate suggestions.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const saveEvent = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError("");
+
     const next: OrganizedEvent = {
-      id: `evt-${Date.now()}`,
+      id: editingId || `evt-${Date.now()}`,
       title: eventName.trim(),
       date: startDate,
       venue: venue.trim() || "Event Venue",
@@ -294,9 +484,87 @@ export function CreateEventView() {
       reviewNote: "Pending for approval",
     };
 
-    const events = loadOrganizedEvents();
-    saveOrganizedEvents([next, ...events]);
-    router.push("/organized");
+    const payload: Record<string, unknown> = {
+      title: next.title,
+      description: description.trim(),
+      category: eventType.trim() || "organization",
+      location: next.venue,
+      startsAt: startDate ? `${startDate}T${startTime || "00:00"}` : "",
+      endsAt: endDate ? `${endDate}T${endTime || "23:59"}` : "",
+      attendanceRequired: minAttendance.trim(),
+      gracePeriod: gracePeriod.trim(),
+      venueType: venueType.trim(),
+      announcements: announcements.trim(),
+      allowedCourses: attendTags,
+      speakers,
+      collaboratingDepartments: collaboration === "yes" ? collabTags : [],
+      audienceSchools: collaboration === "yes" ? collabTags : [],
+      programActivities: activities,
+      requiredFiles: filesRequired === "yes" ? requiredFiles : [],
+      posterImageBase64: bannerBase64.startsWith("data:")
+        ? bannerBase64
+        : bannerBase64
+          ? `data:${bannerMime || "image/jpeg"};base64,${bannerBase64}`
+          : "",
+      posterImageMimeType: bannerMime,
+      programFileVisibility: visibility,
+      status: "pending" as const,
+    };
+
+    if (conceptPaperBase64) {
+      payload.conceptPaperName = conceptPaperName;
+      payload.conceptPaperMimeType = conceptPaperMimeType;
+      payload.conceptPaperBase64 = conceptPaperBase64;
+    }
+
+    if (eCertificateEnabled) {
+      if (certificateTemplateBase64) {
+        payload.certificateTemplateName = certificateName;
+        payload.certificateTemplateMimeType = certificateTemplateMimeType;
+        payload.certificateTemplateBase64 = certificateTemplateBase64;
+      }
+    } else {
+      payload.certificateTemplateName = "";
+      payload.certificateTemplateMimeType = "";
+      payload.certificateTemplateBase64 = "";
+    }
+
+    if (programFileBase64) {
+      payload.programFileName = programFileName;
+      payload.programFileMimeType = programFileMimeType;
+      payload.programFileBase64 = programFileBase64;
+    }
+
+    const endpoint = editingId ? `/api/events/${encodeURIComponent(editingId)}` : "/api/events";
+    try {
+      const res = await fetch(endpoint, {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        event?: { id?: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save event to the server.");
+      }
+
+      const savedId = String(data.event?.id || editingId || next.id);
+      const savedEvent = { ...next, id: savedId };
+      const events = loadOrganizedEvents();
+      saveOrganizedEvents(
+        editingId
+          ? events.map((item) => (item.id === editingId ? { ...item, ...savedEvent } : item))
+          : [savedEvent, ...events.filter((item) => item.id !== savedEvent.id)],
+      );
+      window.dispatchEvent(new Event("dc-organized-changed"));
+      router.push("/organized");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to save event.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const reviewTime =
@@ -369,7 +637,7 @@ export function CreateEventView() {
       return;
     }
 
-    saveEvent();
+    void saveEvent();
   };
 
   return (
@@ -460,6 +728,13 @@ export function CreateEventView() {
                           setBannerName(file.name);
                           if (file.type.startsWith("image/")) {
                             setBannerPreview(URL.createObjectURL(file));
+                            setBannerMime(file.type);
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              if (typeof reader.result !== "string") return;
+                              setBannerBase64(reader.result);
+                            };
+                            reader.readAsDataURL(file);
                           }
                         }
                         e.target.value = "";
@@ -627,7 +902,7 @@ export function CreateEventView() {
                     />
                   </div>
 
-                  <div>
+                  <div id="event-program-flow">
                     <div className={styles.programHead}>
                       <div>
                         <span className={styles.fieldLabel}>Event Program Flow*</span>
@@ -678,7 +953,14 @@ export function CreateEventView() {
                         className={styles.hiddenFile}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) setProgramFileName(file.name);
+                          if (file) {
+                            setProgramFileName(file.name);
+                            void readFileAsBase64(file).then((payload) => {
+                              setProgramFileName(payload.name);
+                              setProgramFileMimeType(payload.mimeType);
+                              setProgramFileBase64(payload.base64);
+                            });
+                          }
                           e.target.value = "";
                         }}
                       />
@@ -706,6 +988,30 @@ export function CreateEventView() {
                       </div>
                     </div>
 
+                    {showAiBanner ? (
+                      <div className={styles.aiBanner}>
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M12 2l1.4 4.2L18 8l-4.6 1.8L12 14l-1.4-4.2L6 8l4.6-1.8L12 2zm7 9l.8 2.4L22 14l-2.2.8L19 17l-.8-2.2L16 14l2.2-.8L19 11zM5 13l.9 2.7L9 17l-3.1.9L5 21l-.9-3.1L1 17l3.1-.9L5 13z" />
+                        </svg>
+                        <button
+                          type="button"
+                          className={styles.aiSuggestBtn}
+                          onClick={() => void suggestProgramFlow()}
+                          disabled={aiLoading}
+                        >
+                          {aiLoading ? "Generating program flow with Gemini…" : "Generate program flow with Gemini"}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.aiClose}
+                          aria-label="Dismiss AI suggestions"
+                          onClick={() => setShowAiBanner(false)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : null}
+
                     {activities.length > 0 ? (
                       <ul className={styles.activityList}>
                         {activities.map((activity) => (
@@ -724,24 +1030,13 @@ export function CreateEventView() {
                           </li>
                         ))}
                       </ul>
-                    ) : null}
-
-                    {showAiBanner ? (
-                      <div className={styles.aiBanner}>
-                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                          <path d="M12 2l1.4 4.2L18 8l-4.6 1.8L12 14l-1.4-4.2L6 8l4.6-1.8L12 2zm7 9l.8 2.4L22 14l-2.2.8L19 17l-.8-2.2L16 14l2.2-.8L19 11zM5 13l.9 2.7L9 17l-3.1.9L5 21l-.9-3.1L1 17l3.1-.9L5 13z" />
-                        </svg>
-                        <span>AI Program Flow Suggestions</span>
-                        <button
-                          type="button"
-                          className={styles.aiClose}
-                          aria-label="Dismiss AI suggestions"
-                          onClick={() => setShowAiBanner(false)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ) : null}
+                    ) : (
+                      <p className={styles.aiHint}>
+                        No activities yet. Enter an event name at the top, then click Generate program flow with Gemini.
+                      </p>
+                    )}
+                    {aiNote ? <p className={styles.aiHint}>{aiNote}</p> : null}
+                    {aiError ? <p className={styles.aiError}>{aiError}</p> : null}
                   </div>
                 </div>
               </div>
@@ -999,7 +1294,14 @@ export function CreateEventView() {
                         className={styles.hiddenFile}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) setConceptPaperName(file.name);
+                          if (file) {
+                            setConceptPaperName(file.name);
+                            void readFileAsBase64(file).then((payload) => {
+                              setConceptPaperName(payload.name);
+                              setConceptPaperMimeType(payload.mimeType);
+                              setConceptPaperBase64(payload.base64);
+                            });
+                          }
                           e.target.value = "";
                         }}
                       />
@@ -1042,12 +1344,19 @@ export function CreateEventView() {
                         ref={certificateRef}
                         id="certificate-file"
                         type="file"
-                        accept="image/*,.pdf"
+                        accept=".pdf,application/pdf"
                         className={styles.hiddenFile}
                         disabled={!eCertificateEnabled}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) setCertificateName(file.name);
+                          if (file) {
+                            setCertificateName(file.name);
+                            void readFileAsBase64(file).then((payload) => {
+                              setCertificateName(payload.name);
+                              setCertificateTemplateMimeType(payload.mimeType);
+                              setCertificateTemplateBase64(payload.base64);
+                            });
+                          }
                           e.target.value = "";
                         }}
                       />
