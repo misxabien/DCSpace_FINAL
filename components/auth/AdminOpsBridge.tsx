@@ -46,6 +46,7 @@ type AdminUser = {
   organizationRole?: string;
   studentNumber?: string;
   rfidNumber?: string;
+  photoUrl?: string;
 };
 
 async function fetchJson<T>(url: string): Promise<T | null> {
@@ -314,15 +315,63 @@ async function hydrateAdminProfile() {
   const data = await fetchJson<{ profile: AdminUser }>(`/api/user/profile`);
   if (!data?.profile) return;
   const profile = data.profile;
+  const fullName =
+    profile.fullName?.trim() ||
+    `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
+    profile.email;
+
   const identity = document.querySelector(".profile-identity");
   const title = identity?.querySelector("h1");
   const studentNo = identity?.querySelector(".student-no");
   const email = identity?.querySelector(".email");
-  if (title) title.textContent = profile.fullName;
+  if (title) title.textContent = fullName;
   if (studentNo) studentNo.textContent = `STUDENT NUMBER: ${profile.studentNumber || "—"}`;
   if (email) email.textContent = profile.email;
   const role = document.getElementById("profile-account-role");
   if (role) role.textContent = (profile.role || "admin").replace(/-/g, " ");
+
+  const metaItem = document.querySelector(".profile-meta-item");
+  if (metaItem) {
+    const paragraphs = metaItem.querySelectorAll("p");
+    if (paragraphs[0]) paragraphs[0].textContent = profile.course || "—";
+    if (paragraphs[1]) paragraphs[1].textContent = profile.school || "—";
+  }
+
+  const approvedBy = document.getElementById("profile-approved-by-value");
+  const approvedLabel = document.getElementById("profile-approved-by-label");
+  if (profile.role === "super-admin") {
+    if (approvedBy) approvedBy.textContent = "—";
+    if (approvedLabel) approvedLabel.hidden = true;
+    if (approvedBy) approvedBy.hidden = true;
+  } else {
+    if (approvedLabel) approvedLabel.hidden = false;
+    if (approvedBy) {
+      approvedBy.hidden = false;
+      approvedBy.textContent = "Super Admin";
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>(".user-card, #user-menu-toggle").forEach((card) => {
+    const strong = card.querySelector(".user-meta strong");
+    const span = card.querySelector(".user-meta span");
+    if (strong) strong.textContent = fullName;
+    if (span) span.textContent = profile.email;
+    const avatar = card.querySelector<HTMLElement>(".user-avatar");
+    if (avatar && profile.photoUrl) {
+      avatar.style.backgroundImage = `url("${profile.photoUrl}")`;
+      avatar.style.backgroundSize = "cover";
+      avatar.style.backgroundPosition = "center";
+      avatar.classList.add("has-photo");
+    }
+  });
+
+  const profileAvatar = document.getElementById("profile-avatar");
+  if (profileAvatar instanceof HTMLElement && profile.photoUrl) {
+    profileAvatar.style.backgroundImage = `url("${profile.photoUrl}")`;
+    profileAvatar.style.backgroundSize = "cover";
+    profileAvatar.style.backgroundPosition = "center";
+    profileAvatar.classList.add("is-photo");
+  }
 
   const dash = await fetchJson<{
     activities: Array<{ dateLabel: string; type: string; targetTitle: string; actorEmail: string }>;

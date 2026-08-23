@@ -3,7 +3,7 @@
 const HIDDEN_CLASS = "dc-legacy-hidden";
 const EMPTY_CLASS = "dc-events-empty";
 
-const HIDE_STYLE_ID = "dc-legacy-hide-style";
+const HIDE_STYLE_ID = "dc-legacy-hide-style-v3";
 
 export function ensureLegacyHideStyles() {
   if (typeof document === "undefined") return;
@@ -11,8 +11,23 @@ export function ensureLegacyHideStyles() {
   const style = document.createElement("style");
   style.id = HIDE_STYLE_ID;
   style.textContent = `
-.${HIDDEN_CLASS} { display: none !important; }
-.${EMPTY_CLASS} {
+.${HIDDEN_CLASS},
+a.event-item.${HIDDEN_CLASS},
+a.event-item[hidden],
+.event-item.${HIDDEN_CLASS},
+.event-item[hidden],
+article.event-card.${HIDDEN_CLASS},
+article.event-card[hidden],
+.card-row article.event-card.${HIDDEN_CLASS},
+.card-row article.event-card[hidden],
+a.att-event-card.${HIDDEN_CLASS},
+a.att-event-card[hidden],
+table tbody tr.${HIDDEN_CLASS},
+table tbody tr[hidden] {
+  display: none !important;
+}
+.${EMPTY_CLASS},
+.${EMPTY_CLASS}.dc-card-row-empty {
   width: 100%;
   min-height: 220px;
   display: flex;
@@ -20,16 +35,19 @@ export function ensureLegacyHideStyles() {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 36px 24px;
-  margin: 8px 0 12px;
+  padding: 28px 16px;
+  margin: 0;
   text-align: center;
-  background: #fff;
-  border: 1px solid rgba(68, 138, 255, 0.14);
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(19, 87, 201, 0.04), 0 4px 14px rgba(68, 138, 255, 0.07);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   color: #b7aa89;
 }
-.${EMPTY_CLASS}.${HIDDEN_CLASS} { display: none !important; }
+.${EMPTY_CLASS}.${HIDDEN_CLASS},
+.${EMPTY_CLASS}[hidden] {
+  display: none !important;
+}
 .${EMPTY_CLASS}__icon {
   width: 120px;
   height: 120px;
@@ -197,10 +215,10 @@ export function setEventsEmptyState(
   const panels = Array.from(host.querySelectorAll<HTMLElement>(".events-panel"));
   const targets = panels.length ? panels : [host as HTMLElement];
 
-  const title = copy?.title || "No events scheduled for today.";
+  const title = copy?.title || "No events to show.";
   const text =
     copy?.text ||
-    "You currently have no events happening today. Check back later or join a new event to get started.";
+    "Events from the database will appear here when they match this view.";
 
   targets.forEach((panel) => {
     let note = panel.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}`);
@@ -223,4 +241,36 @@ export function setEventsEmptyState(
     if (textEl) textEl.textContent = text;
     setLegacyHidden(note, !empty);
   });
+}
+
+/** Empty state for dashboard card rows (Events Requiring Attention / Today's Events). */
+export function setCardRowEmptyState(
+  row: Element | null,
+  empty: boolean,
+  copy?: { title?: string; text?: string },
+) {
+  if (!row) return;
+  ensureLegacyHideStyles();
+
+  const title = copy?.title || "No events to show.";
+  const text = copy?.text || "Live events from the database will appear here.";
+
+  let note = row.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-card-row-empty`);
+  if (!note) {
+    note = document.createElement("div");
+    note.className = `${EMPTY_CLASS} dc-card-row-empty`;
+    note.setAttribute("role", "status");
+    note.innerHTML = `
+      <img class="${EMPTY_CLASS}__icon" src="/no-event.svg" width="96" height="96" alt="" aria-hidden="true" />
+      <h3 class="${EMPTY_CLASS}__title"></h3>
+      <p class="${EMPTY_CLASS}__text"></p>
+    `;
+    row.appendChild(note);
+  }
+
+  const titleEl = note.querySelector(`.${EMPTY_CLASS}__title`);
+  const textEl = note.querySelector(`.${EMPTY_CLASS}__text`);
+  if (titleEl) titleEl.textContent = title;
+  if (textEl) textEl.textContent = text;
+  setLegacyHidden(note, !empty);
 }

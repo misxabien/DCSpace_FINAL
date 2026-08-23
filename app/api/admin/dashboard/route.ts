@@ -42,6 +42,7 @@ function emptyDashboard(details?: string) {
       activeUsers: 0,
     },
     attention: [],
+    todayEvents: [],
     events: { pending: [], approved: [] },
     users: [],
     activities: [],
@@ -53,6 +54,34 @@ function emptyDashboard(details?: string) {
 
 function daysAgoIso(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isEventToday(startsAt?: string, endsAt?: string) {
+  if (!startsAt) return false;
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return false;
+  const end = endsAt ? new Date(endsAt) : start;
+  if (Number.isNaN(end.getTime())) return false;
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date();
+  dayEnd.setHours(23, 59, 59, 999);
+  return start <= dayEnd && end >= dayStart;
+}
+
+function formatTimeRemaining(endsAt?: string, startsAt?: string) {
+  const now = Date.now();
+  let endMs = endsAt ? new Date(endsAt).getTime() : Number.NaN;
+  if (!Number.isFinite(endMs) && startsAt) {
+    endMs = new Date(startsAt).getTime() + 2 * 60 * 60 * 1000;
+  }
+  if (!Number.isFinite(endMs)) return "Schedule TBA";
+  const diff = endMs - now;
+  if (diff <= 0) return "Ended";
+  const hrs = Math.floor(diff / 3_600_000);
+  const mins = Math.floor((diff % 3_600_000) / 60_000);
+  if (hrs <= 0) return `${mins} MIN${mins === 1 ? "" : "S"}`;
+  return `${hrs} HR${hrs === 1 ? "" : "S"} ${mins} MIN${mins === 1 ? "" : "S"}`;
 }
 
 function formatDate(value?: string) {
@@ -104,6 +133,7 @@ export async function GET(request: Request) {
       attentionEvents,
       recentSubmitted,
       recentApproved,
+      scheduledEvents,
       recentActivities,
       attendanceCount,
       feedbackCount,
@@ -149,6 +179,11 @@ export async function GET(request: Request) {
         .find({ status: { $in: ["approved", "live", "completed"] } })
         .sort({ updatedAt: -1 })
         .limit(20)
+        .toArray(),
+      eventsCol
+        .find({ status: { $in: ["approved", "live"] } })
+        .sort({ startsAt: 1 })
+        .limit(40)
         .toArray(),
       activitiesCol.find({}).sort({ createdAt: -1 }).limit(40).toArray(),
       attendanceCol.countDocuments({}),
@@ -209,6 +244,22 @@ export async function GET(request: Request) {
       return { ...e, reason };
     });
 
+    const todayEvents = scheduledEvents
+      .filter((doc) =>
+        isEventToday(
+          String((doc as SpaceEvent).startsAt || ""),
+          String((doc as SpaceEvent).endsAt || ""),
+        ),
+      )
+      .slice(0, 6)
+      .map((doc) => {
+        const e = mapEvent(doc as SpaceEvent & { _id: ObjectId });
+        return {
+          ...e,
+          timeRemaining: formatTimeRemaining(e.endsAt, e.startsAt),
+        };
+      });
+
     const activityRows = (recentActivities as ActivityDoc[]).map((a) => ({
       type: a.type,
       actorEmail: a.actorEmail || "",
@@ -238,6 +289,7 @@ export async function GET(request: Request) {
         activeUsers: recentLogins,
       },
       attention,
+      todayEvents,
       events: {
         pending: recentSubmitted.map((d) =>
           mapEvent(d as SpaceEvent & { _id: ObjectId }),

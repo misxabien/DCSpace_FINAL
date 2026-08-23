@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   hideLegacyDemoContent,
   patchChildren,
+  setCardRowEmptyState,
   setEventsEmptyState,
   patchTableRows,
   setStatByLabel,
@@ -33,6 +34,16 @@ type DashboardPayload = {
     dateLabel?: string;
     location?: string;
     organizerName?: string;
+  }>;
+  todayEvents?: Array<{
+    id: string;
+    title: string;
+    status: string;
+    dateLabel?: string;
+    location?: string;
+    startsAt?: string;
+    endsAt?: string;
+    timeRemaining?: string;
   }>;
   events: {
     pending: Array<{
@@ -137,11 +148,47 @@ function hydrateHome(root: Element, data: DashboardPayload) {
   setStatByLabel(root, "Attendance Rate", `${data.stats.attendanceRate}%`);
   setStatByLabel(root, "Feedback Received", data.stats.feedbackReceived);
 
-  patchChildren(root.querySelector(".card-row"), "article.event-card", data.attention.slice(0, 3), (card, item) => {
+  const cardRows = Array.from(root.querySelectorAll(".card-row"));
+  const attentionRow = cardRows[0] || null;
+  const todayRow = cardRows[1] || null;
+
+  const openEvent = (id: string, status: string) => {
+    window.location.href = `/admin/edetails14?id=${encodeURIComponent(id)}&status=${encodeURIComponent(
+      status === "pending" ? "validated" : status,
+    )}`;
+  };
+
+  patchChildren(attentionRow, "article.event-card", data.attention.slice(0, 3), (card, item) => {
     const title = card.querySelector("h4");
-    const reason = card.querySelector(".meta-value");
+    const label = card.querySelector(".meta-label");
+    const value = card.querySelector(".meta-value");
     if (title) title.textContent = item.title;
-    if (reason) reason.textContent = item.reason;
+    if (label) label.textContent = "Reason";
+    if (value) value.textContent = item.reason;
+    card.setAttribute("data-event-id", item.id);
+    card.style.cursor = "pointer";
+    card.onclick = () => openEvent(item.id, item.status);
+  });
+  setCardRowEmptyState(attentionRow, data.attention.length === 0, {
+    title: "No events requiring attention.",
+    text: "Pending, postponed, or rejected events will appear here when they need review.",
+  });
+
+  const todayEvents = data.todayEvents || [];
+  patchChildren(todayRow, "article.event-card", todayEvents.slice(0, 3), (card, item) => {
+    const title = card.querySelector("h4");
+    const label = card.querySelector(".meta-label");
+    const value = card.querySelector(".meta-value");
+    if (title) title.textContent = item.title;
+    if (label) label.textContent = "Time Remaining";
+    if (value) value.textContent = item.timeRemaining || "Schedule TBA";
+    card.setAttribute("data-event-id", item.id);
+    card.style.cursor = "pointer";
+    card.onclick = () => openEvent(item.id, item.status);
+  });
+  setCardRowEmptyState(todayRow, todayEvents.length === 0, {
+    title: "No events scheduled for today.",
+    text: "Approved and live events happening today will appear here.",
   });
 
   const patchEventTable = (
@@ -180,6 +227,25 @@ function hydrateHome(root: Element, data: DashboardPayload) {
 
   patchEventTable("submitted", data.events.pending, "submitted");
   patchEventTable("approved", data.events.approved, "approved");
+
+  const submittedPanel = root.querySelector('[data-panel="submitted"]');
+  const approvedPanel = root.querySelector('[data-panel="approved"]');
+  setCardRowEmptyState(
+    submittedPanel?.querySelector(".table-wrap") || submittedPanel,
+    data.events.pending.length === 0,
+    {
+      title: "No newly submitted events.",
+      text: "Organizer submissions will appear in this table.",
+    },
+  );
+  setCardRowEmptyState(
+    approvedPanel?.querySelector(".table-wrap") || approvedPanel,
+    data.events.approved.length === 0,
+    {
+      title: "No newly approved events.",
+      text: "Recently approved events will appear in this table.",
+    },
+  );
 
   patchTableRows(root.querySelector('[data-panel="attendance"] table'), data.attendance, (tr, row) => {
     const cells = tr.querySelectorAll("td");
@@ -282,12 +348,47 @@ function hydrateEvents(
     startsAt?: string;
   };
 
-  const emptyCopy = {
-    title: "No events scheduled for today.",
-    text: "You currently have no events happening today. Check back later or join a new event to get started.",
+  const emptyByTab = {
+    pending: {
+      title: "No events pending approval.",
+      text: "When organizers submit events for review, they will appear here for validation.",
+    },
+    approved: {
+      title: "No approved events yet.",
+      text: "Events you approve will show up in this list for scheduling and follow-up.",
+    },
+    approvedByYou: {
+      title: "You haven't approved any events yet.",
+      text: "Events you personally approve will appear in this section.",
+    },
+    ongoing: {
+      title: "No ongoing events right now.",
+      text: "Live events currently in progress will appear here.",
+    },
+    completed: {
+      title: "No completed events yet.",
+      text: "Finished events will appear here once they are marked complete.",
+    },
+    rejected: {
+      title: "No rejected events.",
+      text: "Events that are rejected during review will appear in this list.",
+    },
+    postponed: {
+      title: "No postponed events.",
+      text: "Events that have been postponed will appear in this list.",
+    },
+    cancelled: {
+      title: "No cancelled events.",
+      text: "Events that have been cancelled will appear in this list.",
+    },
   };
 
-  const fillList = (listId: string, events: ListEvent[], hrefFor: (event: ListEvent) => string) => {
+  const fillList = (
+    listId: string,
+    events: ListEvent[],
+    hrefFor: (event: ListEvent) => string,
+    copy: { title: string; text: string },
+  ) => {
     const list = root.querySelector(`#${listId}`);
     if (!list) return;
     patchChildren(list, "a.event-item", events, (el, event) => {
@@ -301,13 +402,14 @@ function hydrateEvents(
       }
       if (paragraphs[1]) paragraphs[1].textContent = event.location || "Venue TBA";
     });
-    setEventsEmptyState(list, events.length === 0, emptyCopy);
+    setEventsEmptyState(list, events.length === 0, copy);
   };
 
   const fillPanel = (
     panel: Element | null,
     events: ListEvent[],
     detailPath: string,
+    copy: { title: string; text: string },
   ) => {
     if (!panel) return;
     patchChildren(panel, "a.event-item", events, (el, event) => {
@@ -319,7 +421,7 @@ function hydrateEvents(
       if (paragraphs[0]) paragraphs[0].textContent = event.dateLabel || "Date TBA";
       if (paragraphs[1]) paragraphs[1].textContent = event.location || "Venue TBA";
     });
-    setEventsEmptyState(panel, events.length === 0, emptyCopy);
+    setEventsEmptyState(panel, events.length === 0, copy);
   };
 
   const mapped =
@@ -340,31 +442,60 @@ function hydrateEvents(
       : data.events.pending;
   const approvedEvents =
     liveEvents !== null
-      ? mapped.filter((event) =>
-          ["approved", "live", "completed"].includes(event.status),
-        )
-      : data.events.approved;
+      ? mapped.filter((event) => event.status === "approved")
+      : data.events.approved.filter((event) => event.status === "approved");
 
-  fillList("pending-list", pendingEvents, (event) =>
-    `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=validated`,
+  fillList(
+    "pending-list",
+    pendingEvents,
+    (event) => `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=validated`,
+    emptyByTab.pending,
   );
-  fillList("approved-list", approvedEvents, (event) =>
-    `/admin/aed15?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`,
+  fillList(
+    "approved-list",
+    approvedEvents,
+    (event) =>
+      `/admin/aed15?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`,
+    emptyByTab.approved,
   );
 
-  // If URL asks for approved tab, unhide the approved list (legacy HTML ships it hidden).
+  // Differentiate empty copy under "Approved Events" vs "Approved Events By You".
+  const approvedList = root.querySelector("#approved-list");
+  if (approvedList) {
+    approvedList.querySelectorAll<HTMLElement>(".events-panel").forEach((panel) => {
+      const heading =
+        panel
+          .closest(".events-block")
+          ?.previousElementSibling?.querySelector(".heading-text")
+          ?.textContent?.trim()
+          .toLowerCase() || "";
+      const copy = heading.includes("by you") ? emptyByTab.approvedByYou : emptyByTab.approved;
+      setEventsEmptyState(panel, approvedEvents.length === 0, copy);
+    });
+  }
+
+  // Sync list visibility + tab selection from ?tab=
   try {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab === "approved") {
-      const approvedList = root.querySelector<HTMLElement>("#approved-list");
-      const pendingList = root.querySelector<HTMLElement>("#pending-list");
-      if (approvedList) approvedList.hidden = false;
-      if (pendingList) pendingList.hidden = true;
-      root.querySelectorAll<HTMLElement>("[data-events-tab]").forEach((btn) => {
-        const active = btn.getAttribute("data-events-tab") === "approved";
-        btn.classList.toggle("is-active", active);
-        btn.setAttribute("aria-selected", active ? "true" : "false");
-      });
+    const approvedHost = root.querySelector<HTMLElement>("#approved-list");
+    const pendingHost = root.querySelector<HTMLElement>("#pending-list");
+    const showApproved = tab === "approved";
+    if (approvedHost) approvedHost.hidden = !showApproved;
+    if (pendingHost) pendingHost.hidden = showApproved;
+
+    root.querySelectorAll<HTMLElement>(".event-tabs [data-status], [data-events-tab]").forEach((btn) => {
+      const key =
+        btn.getAttribute("data-status") || btn.getAttribute("data-events-tab") || "";
+      const active = showApproved ? key === "approved" : key === "pending";
+      btn.classList.toggle("active", active);
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+
+    const subtitle = document.getElementById("page-subtitle");
+    if (subtitle) {
+      subtitle.hidden = false;
+      subtitle.textContent = showApproved ? "Approved Events" : "Pending Approval";
     }
   } catch {
     /* ignore */
@@ -377,6 +508,7 @@ function hydrateEvents(
       panels[0] || null,
       mapped.filter((event) => event.status === "completed"),
       "/admin/cc19",
+      emptyByTab.completed,
     );
   }
   if (pageId === "ongoing16") {
@@ -384,6 +516,7 @@ function hydrateEvents(
       panels[0] || null,
       mapped.filter((event) => event.status === "live"),
       "/admin/live16",
+      emptyByTab.ongoing,
     );
   }
   if (pageId === "inactive20") {
@@ -391,16 +524,19 @@ function hydrateEvents(
       panels[0] || null,
       mapped.filter((event) => event.status === "rejected"),
       "/admin/rejected21",
+      emptyByTab.rejected,
     );
     fillPanel(
       panels[1] || null,
       mapped.filter((event) => event.status === "postponed"),
       "/admin/postponed22",
+      emptyByTab.postponed,
     );
     fillPanel(
       panels[2] || null,
       mapped.filter((event) => event.status === "cancelled"),
       "/admin/c23",
+      emptyByTab.cancelled,
     );
   }
 }

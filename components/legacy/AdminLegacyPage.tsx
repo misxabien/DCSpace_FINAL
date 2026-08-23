@@ -1704,6 +1704,29 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   letter-spacing: -0.02em !important;
 }
 
+/* Hide template/demo event rows (beats .event-item { display: grid !important }) */
+[data-admin-legacy] a.event-item.dc-legacy-hidden,
+[data-admin-legacy] a.event-item[hidden],
+[data-admin-legacy] .event-item.dc-legacy-hidden,
+[data-admin-legacy] .event-item[hidden],
+[data-admin-legacy] article.event-card.dc-legacy-hidden,
+[data-admin-legacy] article.event-card[hidden],
+[data-admin-legacy] .card-row article.event-card.dc-legacy-hidden,
+[data-admin-legacy] .card-row article.event-card[hidden],
+[data-admin-legacy] table tbody tr.dc-legacy-hidden,
+[data-admin-legacy] table tbody tr[hidden] {
+  display: none !important;
+}
+
+/* Empty event panels: no nested card around the calendar empty state */
+[data-admin-legacy] .events-panel > .dc-events-empty {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
 /* Event card header — Figma: large blue Event Name */
 [data-admin-legacy] #event-info-card .detail-top-main h3,
 [data-admin-legacy] .detail-top-main h3,
