@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authenticateKnownMockAccount } from "@/lib/auth/mockUsers";
 import { encodeSession, sessionCookieOptions } from "@/lib/auth/session";
 import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
@@ -73,19 +74,7 @@ export async function POST(request: Request) {
     );
   }
 
-<<<<<<< HEAD
-  if (!email.endsWith("@sdca.edu.ph")) {
-    return NextResponse.json(
-      { error: "Please use your @sdca.edu.ph school email." },
-      { status: 400 }
-    );
-  }
-
-  const user = authenticate(email, password);
-  if (!user) {
-=======
   if (!isSchoolEmail(email) && !email.endsWith("@sdca.edu")) {
->>>>>>> 80b06b3 (Add admin backend APIs, Gemini AI, and database-driven legacy hydration.)
     return NextResponse.json(
       { error: "Invalid credentials. Use an @sdca.edu.ph school email." },
       { status: 401 },
@@ -178,6 +167,20 @@ export async function POST(request: Request) {
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     console.error("[DC Space] Mongo login lookup failed:", details);
+  }
+
+  // Local/demo fallback when Mongo is unavailable or the account is not seeded yet
+  const mockUser = authenticateKnownMockAccount(email, password);
+  if (mockUser) {
+    const denied = applyPortalRules(mockUser, portal, expectedRole);
+    if (denied) return denied;
+
+    const response = NextResponse.json({ user: mockUser });
+    response.cookies.set({
+      ...sessionCookieOptions(),
+      value: encodeSession(mockUser),
+    });
+    return response;
   }
 
   return NextResponse.json(

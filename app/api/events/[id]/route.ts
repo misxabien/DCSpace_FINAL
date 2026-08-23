@@ -287,6 +287,24 @@ export async function PATCH(request: Request, context: RouteContext) {
           );
         }
       }
+
+      // Feature #8: auto-generate PDF report when event is marked completed.
+      // Failures are logged only — status update already succeeded.
+      if (body.status === "completed") {
+        void import("@/lib/admin/event-report")
+          .then(({ generateAndStoreEventReport }) =>
+            generateAndStoreEventReport({
+              eventId: event.id,
+              generatedByEmail: actorEmail,
+              trigger: "status_completed",
+              db,
+            }),
+          )
+          .catch((error) => {
+            const details = error instanceof Error ? error.message : "Unknown error";
+            console.error("[DC Space] Auto event report failed:", details);
+          });
+      }
     }
 
     return NextResponse.json({ event });

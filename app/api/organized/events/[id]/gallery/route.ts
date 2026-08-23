@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
+import {
+  insertEventGalleryPhoto,
+  listEventGalleryPhotos,
+} from "@/lib/events/event-gallery";
 import { eventsCollection } from "@/lib/events/types";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
@@ -28,19 +32,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const docs = await owned.db
-      .collection("event_gallery")
-      .find({ eventId: id })
-      .sort({ createdAt: -1 })
-      .limit(80)
-      .toArray();
-    return NextResponse.json({
-      photos: docs.map((doc) => ({
-        id: String(doc._id),
-        dataUrl: String(doc.dataUrl || ""),
-        uploadedAt: String(doc.createdAt || ""),
-      })),
+    const photos = await listEventGalleryPhotos(owned.db, id, {
+      includeArchived: false,
+      limit: 80,
     });
+    return NextResponse.json({ photos });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to load gallery.", details }, { status: 500 });
@@ -71,23 +67,13 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const now = new Date().toISOString();
-    const result = await owned.db.collection("event_gallery").insertOne({
+    const photo = await insertEventGalleryPhoto(owned.db, {
       eventId: id,
       dataUrl,
       uploadedByEmail: actor.email,
-      createdAt: now,
+      source: "organizer",
     });
-    return NextResponse.json(
-      {
-        photo: {
-          id: String(result.insertedId),
-          dataUrl,
-          uploadedAt: now,
-        },
-      },
-      { status: 201 },
-    );
+    return NextResponse.json({ photo }, { status: 201 });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to save photo.", details }, { status: 500 });

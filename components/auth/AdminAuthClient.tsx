@@ -6,6 +6,7 @@ import { AdminDataBridge } from "@/components/auth/AdminDataBridge";
 import { AdminEventActionsBridge } from "@/components/auth/AdminEventActionsBridge";
 import { AdminOpsBridge } from "@/components/auth/AdminOpsBridge";
 import { AdminAiBridge } from "@/components/auth/AdminAiBridge";
+import { AdminEventPhotosBridge } from "@/components/auth/AdminEventPhotosBridge";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 function AdminBridges() {
@@ -17,6 +18,7 @@ function AdminBridges() {
         <AdminEventActionsBridge />
         <AdminOpsBridge />
         <AdminAiBridge />
+        <AdminEventPhotosBridge />
       </Suspense>
     </>
   );

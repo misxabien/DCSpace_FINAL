@@ -554,6 +554,103 @@ function wireSmartReport() {
   }
 }
 
+type StoredEventReport = {
+  id?: string;
+  generatedAt?: string;
+  trigger?: string;
+  hasPdf?: boolean;
+  fileName?: string;
+};
+
+function formatReportWhen(value?: string) {
+  if (!value) return "Not generated yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function applyEventReportCard(report: StoredEventReport | null, eventId: string) {
+  const statusEl = document.getElementById("event-report-status");
+  const triggerEl = document.getElementById("event-report-trigger");
+  const download = document.getElementById("event-report-download") as HTMLAnchorElement | null;
+  if (statusEl) {
+    statusEl.textContent = report?.hasPdf
+      ? `Ready · ${formatReportWhen(report.generatedAt)}`
+      : "Not generated yet";
+  }
+  if (triggerEl) {
+    triggerEl.textContent = report?.trigger
+      ? report.trigger === "status_completed"
+        ? "Auto (event completed)"
+        : "Manual regenerate"
+      : "—";
+  }
+  if (download) {
+    if (report?.hasPdf && eventId) {
+      download.href = `/api/admin/events/${encodeURIComponent(eventId)}/report/download`;
+      download.style.pointerEvents = "";
+      download.style.opacity = "1";
+      download.setAttribute("download", report.fileName || "event-report.pdf");
+    } else {
+      download.href = "#";
+      download.style.pointerEvents = "none";
+      download.style.opacity = ".45";
+      download.removeAttribute("download");
+    }
+  }
+}
+
+/** Feature #8: wire Event Report card on live16 without touching AI metric panels. */
+async function wireEventReportCard(eventId: string) {
+  const card = document.getElementById("event-report-card");
+  if (!card || !eventId) return;
+
+  try {
+    const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}/report`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (res.ok) {
+      const payload = (await res.json()) as { report?: StoredEventReport | null };
+      applyEventReportCard(payload.report || null, eventId);
+    }
+  } catch {
+    /* keep static labels */
+  }
+
+  const generateBtn = document.getElementById("event-report-generate") as HTMLButtonElement | null;
+  if (generateBtn && generateBtn.dataset.dcReportWired !== "1") {
+    generateBtn.dataset.dcReportWired = "1";
+    generateBtn.addEventListener("click", async () => {
+      const original = generateBtn.textContent || "Generate Report";
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Generating…";
+      try {
+        const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}/report`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload.error || payload.details || "Failed to generate report.");
+        }
+        applyEventReportCard((payload.report as StoredEventReport) || null, eventId);
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Failed to generate report.");
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = original;
+      }
+    });
+  }
+}
+
 /** Fills existing admin AI panels from Gemini without changing legacy layout. */
 export function AdminAiBridge() {
   const pathname = usePathname();
@@ -578,6 +675,9 @@ export function AdminAiBridge() {
           await hydrateEventPage(root, eventId);
         } else if (EVENT_DETAIL_PAGES.has(pageId)) {
           applyEventInsights(root, unavailableInsights());
+        }
+        if (pageId === "live16" && eventId) {
+          await wireEventReportCard(eventId);
         }
         if (pageId === "info30") {
           const userId = searchParams.get("id") || "";

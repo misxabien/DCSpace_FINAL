@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   hideLegacyDemoContent,
   patchChildren,
+  setEventsEmptyState,
   patchTableRows,
   setStatByLabel,
 } from "@/lib/legacy-dom-patch";
@@ -170,7 +171,9 @@ function hydrateHome(root: Element, data: DashboardPayload) {
       if (cells[5]) cells[5].textContent = row.status.toUpperCase();
       const link = tr.querySelector<HTMLAnchorElement>("a.view-btn");
       if (link && row.id) {
-        link.href = `/admin/edetails14?id=${encodeURIComponent(row.id)}&status=${encodeURIComponent(row.status)}`;
+        link.href = `/admin/edetails14?id=${encodeURIComponent(row.id)}&status=${encodeURIComponent(
+          row.status === "pending" ? "validated" : row.status,
+        )}`;
       }
     });
   };
@@ -259,14 +262,15 @@ function hydrateEvents(
   root: Element,
   data: DashboardPayload,
   pageId: string,
-  allEvents?: Array<{
+  /** null = /api/events fetch failed; array (incl. empty) = live Mongo list */
+  liveEvents: Array<{
     id: string;
     title: string;
     status: string;
     location?: string;
     dateLabel?: string;
     startsAt?: string;
-  }>,
+  }> | null = null,
 ) {
   type ListEvent = {
     id: string;
@@ -276,6 +280,11 @@ function hydrateEvents(
     status: string;
     location: string;
     startsAt?: string;
+  };
+
+  const emptyCopy = {
+    title: "No events scheduled for today.",
+    text: "You currently have no events happening today. Check back later or join a new event to get started.",
   };
 
   const fillList = (listId: string, events: ListEvent[], hrefFor: (event: ListEvent) => string) => {
@@ -292,18 +301,16 @@ function hydrateEvents(
       }
       if (paragraphs[1]) paragraphs[1].textContent = event.location || "Venue TBA";
     });
+    setEventsEmptyState(list, events.length === 0, emptyCopy);
   };
 
-  const fillLooseList = (
-    href: string,
+  const fillPanel = (
+    panel: Element | null,
     events: ListEvent[],
     detailPath: string,
   ) => {
-    const items = Array.from(root.querySelectorAll<HTMLAnchorElement>(`a.event-item[href="${href}"]`));
-    if (!items.length) return;
-    const host = items[0]?.parentElement;
-    if (!host) return;
-    patchChildren(host, `a.event-item[href="${href}"]`, events, (el, event) => {
+    if (!panel) return;
+    patchChildren(panel, "a.event-item", events, (el, event) => {
       const link = el as HTMLAnchorElement;
       link.href = `${detailPath}?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`;
       const title = el.querySelector("h3");
@@ -312,10 +319,11 @@ function hydrateEvents(
       if (paragraphs[0]) paragraphs[0].textContent = event.dateLabel || "Date TBA";
       if (paragraphs[1]) paragraphs[1].textContent = event.location || "Venue TBA";
     });
+    setEventsEmptyState(panel, events.length === 0, emptyCopy);
   };
 
   const mapped =
-    allEvents?.map((event) => ({
+    liveEvents?.map((event) => ({
       id: event.id,
       title: event.title,
       dateLabel: event.dateLabel || event.startsAt || "Date TBA",
@@ -324,40 +332,73 @@ function hydrateEvents(
       startsAt: event.startsAt,
     })) || [];
 
-  fillList("pending-list", data.events.pending, (event) =>
-    `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`,
+  // When /api/events succeeded, use that list even if a status bucket is empty
+  // (do not fall back to dashboard demo rows). Dashboard only used if fetch failed.
+  const pendingEvents =
+    liveEvents !== null
+      ? mapped.filter((event) => event.status === "pending")
+      : data.events.pending;
+  const approvedEvents =
+    liveEvents !== null
+      ? mapped.filter((event) =>
+          ["approved", "live", "completed"].includes(event.status),
+        )
+      : data.events.approved;
+
+  fillList("pending-list", pendingEvents, (event) =>
+    `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=validated`,
   );
-  fillList("approved-list", data.events.approved, (event) =>
+  fillList("approved-list", approvedEvents, (event) =>
     `/admin/aed15?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`,
   );
 
+  // If URL asks for approved tab, unhide the approved list (legacy HTML ships it hidden).
+  try {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "approved") {
+      const approvedList = root.querySelector<HTMLElement>("#approved-list");
+      const pendingList = root.querySelector<HTMLElement>("#pending-list");
+      if (approvedList) approvedList.hidden = false;
+      if (pendingList) pendingList.hidden = true;
+      root.querySelectorAll<HTMLElement>("[data-events-tab]").forEach((btn) => {
+        const active = btn.getAttribute("data-events-tab") === "approved";
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const panels = Array.from(root.querySelectorAll(".events-panel"));
+
   if (pageId === "complete18") {
-    fillLooseList(
-      "/admin/cc19",
+    fillPanel(
+      panels[0] || null,
       mapped.filter((event) => event.status === "completed"),
       "/admin/cc19",
     );
   }
   if (pageId === "ongoing16") {
-    fillLooseList(
-      "/admin/live16",
+    fillPanel(
+      panels[0] || null,
       mapped.filter((event) => event.status === "live"),
       "/admin/live16",
     );
   }
   if (pageId === "inactive20") {
-    fillLooseList(
-      "/admin/rejected21",
+    fillPanel(
+      panels[0] || null,
       mapped.filter((event) => event.status === "rejected"),
       "/admin/rejected21",
     );
-    fillLooseList(
-      "/admin/postponed22",
+    fillPanel(
+      panels[1] || null,
       mapped.filter((event) => event.status === "postponed"),
       "/admin/postponed22",
     );
-    fillLooseList(
-      "/admin/c23",
+    fillPanel(
+      panels[2] || null,
       mapped.filter((event) => event.status === "cancelled"),
       "/admin/c23",
     );
@@ -537,6 +578,8 @@ export function AdminDataBridge() {
       "event13",
       "aed15",
       "live16",
+      "edetails14",
+      "rr24",
       "rejected21",
       "postponed22",
       "complete18",
@@ -620,29 +663,31 @@ export function AdminDataBridge() {
           pageId === "event13" ||
           pageId === "aed15" ||
           pageId === "live16" ||
+          pageId === "edetails14" ||
+          pageId === "rr24" ||
           pageId === "rejected21" ||
           pageId === "postponed22" ||
           pageId === "complete18" ||
           pageId === "ongoing16" ||
           pageId === "inactive20"
         ) {
-          let allEvents: Array<{
+          let liveEvents: Array<{
             id: string;
             title: string;
             status: string;
             location?: string;
             startsAt?: string;
-          }> = [];
+          }> | null = null;
           try {
             const eventsRes = await fetch("/api/events?limit=200", { cache: "no-store" });
             if (eventsRes.ok) {
-              const payload = (await eventsRes.json()) as { events?: typeof allEvents };
-              allEvents = payload.events || [];
+              const payload = (await eventsRes.json()) as { events?: NonNullable<typeof liveEvents> };
+              liveEvents = payload.events || [];
             }
           } catch {
-            /* dashboard lists still apply */
+            /* dashboard lists still apply when live fetch fails */
           }
-          hydrateEvents(root, data, pageId, allEvents);
+          hydrateEvents(root, data, pageId, liveEvents);
         }
         if (pageId === "attendance42" || pageId === "deets43" || pageId === "eattend33" || pageId === "vattend34") {
           hydrateAttendance(root, data);

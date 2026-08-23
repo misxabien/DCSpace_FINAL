@@ -95,7 +95,30 @@ function redirectForStatus(id: string, status: string) {
   if (status === "postponed") return `/admin/postponed22${qs}`;
   if (status === "rejected") return `/admin/rejected21${qs}`;
   if (status === "cancelled") return `/admin/c23${qs}`;
-  return `/admin/edetails14${qs}`;
+  // Pending review uses validated view so Approve/Reject/Revisions buttons are visible.
+  return `/admin/edetails14?id=${encodeURIComponent(id)}&status=validated`;
+}
+
+/** After Approve / Reject / Request Revisions, land on the matching admin page. */
+function redirectForReviewAction(
+  id: string,
+  action: "approve" | "reject" | "revisions",
+  status: string,
+) {
+  const qs = `?id=${encodeURIComponent(id)}&status=${encodeURIComponent(status)}`;
+  if (action === "approve") {
+    // Approved Events detail
+    return `/admin/aed15${qs}`;
+  }
+  if (action === "revisions") {
+    // Request Revision page (event stays pending)
+    return `/admin/rr24${qs}`;
+  }
+  if (action === "reject") {
+    // Inactive / rejected event detail
+    return `/admin/rejected21${qs}`;
+  }
+  return redirectForStatus(id, status);
 }
 
 function escapeHtml(value: string) {
@@ -227,14 +250,25 @@ function fillProgramFlow(root: ParentNode, event: LiveEvent) {
 }
 
 function fillEventDetails(root: ParentNode, event: LiveEvent) {
+  // Wipe Figma/demo field values first so leftovers never stay on screen.
+  root.querySelectorAll(".field-box .value").forEach((el) => {
+    el.textContent = "—";
+  });
+  root.querySelectorAll(".announce-card .meta-value, .program-cards .meta-value").forEach((el) => {
+    if (!(el.textContent || "").includes("No activities")) {
+      el.textContent = "—";
+    }
+  });
+
   const title = root.querySelector("#event-info-card h3, .figma-detail-top h3, .detail-top-main h3");
   if (title) title.textContent = event.title || "Event";
 
   const desc = root.querySelector("#event-info-card .desc, .detail-top-main .desc");
   if (desc) desc.textContent = event.description || "No description provided.";
 
-  const setField = (label: string, value: string) => {
-    root.querySelectorAll(".field-box").forEach((box) => {
+  const setField = (label: string, value: string, scope?: ParentNode) => {
+    const searchRoot = scope || root;
+    searchRoot.querySelectorAll(".field-box").forEach((box) => {
       const lab = box.querySelector(".label");
       if (!lab) return;
       if ((lab.textContent || "").trim().toLowerCase() !== label.toLowerCase()) return;
@@ -260,15 +294,55 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   setField("ORGANIZATION", event.department || event.organizerName || "—");
   setField("DURATION", event.attendanceRequired || "—");
   setField("MINIMUM ATTENDANCE", event.attendanceRequired || "—");
+  setField("GRACE PERIOD", "—");
   setField("ANNOUNCEMENTS", event.announcements || "—");
-  setField("Name", event.organizerName || "—");
-  setField("Email", event.organizerEmail || "—");
+
+  const submittedBy =
+    root.querySelector(".submitted-by-card, [aria-label='Submitted by']")?.closest("section") ||
+    root.querySelector(".detail-card.submitted-by-card") ||
+    null;
+  if (submittedBy) {
+    setField("Name", event.organizerName || "—", submittedBy);
+    setField("Email", event.organizerEmail || "—", submittedBy);
+    setField("Course", "—", submittedBy);
+    setField("School", "—", submittedBy);
+    setField("Organization", event.department || "—", submittedBy);
+    setField("Organization Role", "—", submittedBy);
+    setField("Organization Position", "—", submittedBy);
+  } else {
+    setField("Name", event.organizerName || "—");
+    setField("Email", event.organizerEmail || "—");
+  }
+
   const approvedByLink = root.querySelector<HTMLElement>(".approved-by-link, .approved-by");
   if (approvedByLink) {
     approvedByLink.textContent = event.reviewedByEmail
       ? `Approved by: ${event.reviewedByEmail}`
       : "Approved by: —";
   }
+
+  const adminNote = root.querySelector(".admin-note, .notes-panel .note-body, [data-admin-note]");
+  if (adminNote && event.reviewNote) {
+    adminNote.textContent = event.reviewNote;
+  }
+
+  // Clear static Interest Metrics / demo copy that isn't live-hydrated here.
+  root.querySelectorAll(".interest-metrics .metric-value, .approved-extras .metric-value").forEach((el) => {
+    el.textContent = "—";
+  });
+
+  // Validation card: show live venue / pending-or-approved status for pending page.
+  const valStatus = document.getElementById("val-status");
+  const valVenue = document.getElementById("val-venue");
+  const valCapacity = document.getElementById("val-capacity");
+  const valConflicts = document.getElementById("val-conflicts");
+  if (valStatus) {
+    valStatus.textContent =
+      event.status === "pending" ? "Pending" : (event.status || "—").replace(/^\w/, (c) => c.toUpperCase());
+  }
+  if (valVenue) valVenue.textContent = event.location || "—";
+  if (valCapacity) valCapacity.textContent = "—";
+  if (valConflicts) valConflicts.textContent = "—";
 
   fillEventFiles(root, event);
   fillProgramFlow(root, event);
@@ -283,6 +357,51 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
     actions.setAttribute("data-reservation-status", event.status);
     actions.setAttribute("data-event-id", event.id);
     ensureStatusButtons(actions, event.status);
+    showPendingReviewActions(event.status);
+    showApprovedActionGroup(event.status);
+  }
+}
+
+/** Make Approve/Reject/Revisions visible for Mongo pending events on edetails14. */
+function showPendingReviewActions(status: string) {
+  if (status !== "pending") return;
+
+  document.body.classList.remove("is-pending-view", "is-approved-view");
+  document.body.classList.add("is-validated-view");
+
+  const group = document.querySelector(
+    "#detail-actions .action-group",
+  ) as HTMLElement | null;
+  if (group) {
+    group.style.display = "flex";
+  }
+
+  const subtitle = document.getElementById("page-subtitle");
+  if (subtitle) {
+    subtitle.hidden = false;
+    subtitle.textContent = "Pending Approval";
+  }
+
+  // Keep URL in sync with the view mode that shows action buttons.
+  try {
+    const url = new URL(window.location.href);
+    if (url.pathname.includes("/admin/edetails14") && url.searchParams.get("status") === "pending") {
+      url.searchParams.set("status", "validated");
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Show Set Live / Postpone / Cancel on approved (and similar) detail pages. */
+function showApprovedActionGroup(status: string) {
+  if (!["approved", "live", "postponed"].includes(status)) return;
+  const group = document.querySelector(
+    "#detail-actions .action-group",
+  ) as HTMLElement | null;
+  if (group) {
+    group.style.display = "flex";
   }
 }
 
@@ -356,7 +475,16 @@ export function AdminEventActionsBridge() {
         const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
         if (!res.ok) return;
         const data = (await res.json()) as { event?: LiveEvent };
-        if (data.event && !cancelled) fillEventDetails(root(), data.event);
+        if (data.event && !cancelled) {
+          fillEventDetails(root(), data.event);
+          // Re-apply after legacy scripts that toggle is-pending-view from ?status=
+          window.setTimeout(() => {
+            if (!cancelled) showPendingReviewActions(data.event!.status);
+          }, 120);
+          window.setTimeout(() => {
+            if (!cancelled) showPendingReviewActions(data.event!.status);
+          }, 400);
+        }
       } catch {
         /* keep static */
       }
@@ -384,9 +512,12 @@ export function AdminEventActionsBridge() {
       const nextFromDataset = btn.dataset.nextStatus || "";
       const isApprove = btn.classList.contains("approve") && !nextFromDataset;
       const isReject = btn.classList.contains("reject");
-      const status = nextFromDataset || (isApprove ? "approved" : isReject ? "rejected" : "pending");
+      const isRevisions = btn.classList.contains("revisions");
+      const status =
+        nextFromDataset ||
+        (isApprove ? "approved" : isReject ? "rejected" : "pending");
       let reviewNote = "";
-      if (isReject || btn.classList.contains("revisions") || status === "cancelled") {
+      if (isReject || isRevisions || status === "cancelled") {
         reviewNote =
           window.prompt(
             isReject
@@ -404,8 +535,22 @@ export function AdminEventActionsBridge() {
       try {
         const updated = await patchEvent(id, { status, reviewNote });
         fillEventDetails(root(), updated);
-        window.alert(`Event is now ${updated.status}.`);
-        window.location.assign(redirectForStatus(id, updated.status));
+        const reviewAction = isApprove
+          ? "approve"
+          : isReject
+            ? "reject"
+            : isRevisions
+              ? "revisions"
+              : null;
+        const nextUrl = reviewAction
+          ? redirectForReviewAction(id, reviewAction, updated.status)
+          : redirectForStatus(id, updated.status);
+        window.alert(
+          isRevisions
+            ? "Revision requested. Event remains pending."
+            : `Event is now ${updated.status}.`,
+        );
+        window.location.assign(nextUrl);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Update failed.");
       } finally {

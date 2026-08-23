@@ -1,7 +1,8 @@
 /** Map leftover Figma query values onto live event statuses. */
 export function normalizeEventStatusParam(status: string) {
   const value = status.trim().toLowerCase();
-  if (value === "validated") return "approved";
+  // UI-only mode on edetails14 (eRoomReserve Validated view) = pending review
+  if (value === "validated") return "pending";
   if (value === "ongoing") return "live";
   if (value === "complete") return "completed";
   return value;

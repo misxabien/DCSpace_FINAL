@@ -37,13 +37,10 @@ export default function OrganizedEventDetailPage() {
 
   if (missing || !event) {
     return (
-<<<<<<< HEAD
       <OrganizedShell title="Events Name" backHref="/organized/events">
-        <p className={styles.empty}>Loading event…</p>
-=======
-      <OrganizedShell title="Events Name">
-        <p className={styles.empty}>{missing ? "Event not found." : "Loading event…"}</p>
->>>>>>> 80b06b3 (Add admin backend APIs, Gemini AI, and database-driven legacy hydration.)
+        <p className={styles.empty}>
+          {missing ? "Event not found." : "Loading event…"}
+        </p>
       </OrganizedShell>
     );
   }

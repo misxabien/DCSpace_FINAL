@@ -763,7 +763,9 @@ async function hydrateVorg36() {
   // "View Event" link
   const viewLink = document.getElementById("vorg-view-event") as HTMLAnchorElement | null;
   if (viewLink) {
-    viewLink.href = `/admin/edetails14?id=${encodeURIComponent(ev.id)}&status=${encodeURIComponent(ev.status)}`;
+    viewLink.href = `/admin/edetails14?id=${encodeURIComponent(ev.id)}&status=${encodeURIComponent(
+      ev.status === "pending" ? "validated" : ev.status,
+    )}`;
   }
 }
 
@@ -855,6 +857,7 @@ async function hydrateAdministration(root: Element) {
     dash.stats.feedbackReceived,
     dash.stats.feedbackReceived,
   ];
+  const kpis = Array.from(root.querySelectorAll(".adm-kpi"));
   kpis.forEach((kpi, i) => {
     const val = kpi.querySelector(".adm-kpi-value");
     if (val && kpiValues[i] != null) val.textContent = String(kpiValues[i]);
