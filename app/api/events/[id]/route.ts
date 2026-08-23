@@ -8,7 +8,7 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb } from "@/lib/db/get-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 const REVIEW_STATUSES: EventStatus[] = [
@@ -38,7 +38,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
@@ -120,7 +120,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const existing = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!existing) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });

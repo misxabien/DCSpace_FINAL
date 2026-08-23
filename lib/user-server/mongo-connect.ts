@@ -13,13 +13,14 @@ const clientOptions: MongoClientOptions = {
 
 export function getMongoConfig() {
   const uri = process.env.MONGODB_URI?.trim();
-  const dbName = process.env.MONGODB_DB_NAME?.trim();
+  const userDbName = process.env.MONGODB_DB_NAME?.trim();
+  const adminDbName = process.env.MONGODB_ADMIN_DB_NAME?.trim() || "dcspace_admin";
 
-  if (!uri || !dbName) {
+  if (!uri || !userDbName) {
     throw new Error("Missing MONGODB_URI or MONGODB_DB_NAME in environment variables.");
   }
 
-  return { uri, dbName };
+  return { uri, userDbName, adminDbName };
 }
 
 function shouldTryFallback(error: unknown) {
@@ -95,12 +96,24 @@ async function buildSrvResolvedFallbackUri(uri: string): Promise<string | null> 
   }
 }
 
-export async function connectUserMongo(): Promise<{ db: Db; client: MongoClient }> {
-  const { uri, dbName } = getMongoConfig();
+export async function connectMongo(): Promise<{
+  client: MongoClient;
+  userDb: Db;
+  adminDb: Db;
+}> {
+  const { uri, userDbName, adminDbName } = getMongoConfig();
+
+  const connect = async (connectionUri: string) => {
+    const client = await tryConnect(connectionUri);
+    return {
+      client,
+      userDb: client.db(userDbName),
+      adminDb: client.db(adminDbName),
+    };
+  };
 
   try {
-    const client = await tryConnect(uri);
-    return { client, db: client.db(dbName) };
+    return await connect(uri);
   } catch (primaryError) {
     if (!shouldTryFallback(primaryError)) {
       throw atlasFriendlyError(primaryError);
@@ -112,10 +125,15 @@ export async function connectUserMongo(): Promise<{ db: Db; client: MongoClient 
     }
 
     try {
-      const client = await tryConnect(fallbackUri);
-      return { client, db: client.db(dbName) };
+      return await connect(fallbackUri);
     } catch (fallbackError) {
       throw atlasFriendlyError(fallbackError);
     }
   }
+}
+
+/** @deprecated Use connectMongo() — kept for scripts that expect a single db handle. */
+export async function connectUserMongo(): Promise<{ db: Db; client: MongoClient }> {
+  const { client, userDb } = await connectMongo();
+  return { client, db: userDb };
 }

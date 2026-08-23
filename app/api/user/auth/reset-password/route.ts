@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { hashPassword } from "@/lib/user-server/password";
 import { consumePasswordResetCode } from "@/lib/user-server/verification";
 
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     const db = await getUserDb();
-    const result = await db.collection("users").updateOne(
+    const result = await usersCollection(db).updateOne(
       { email },
       { $set: { passwordHash: hashPassword(newPassword), updatedAt: new Date().toISOString() } },
     );

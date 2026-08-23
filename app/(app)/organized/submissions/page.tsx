@@ -8,6 +8,7 @@ import {
   useOrganizedEvents,
   type OrganizedEvent,
 } from "@/components/organized/OrganizedShell";
+import { EmptyState } from "@/components/ui/EmptyState";
 import styles from "@/components/organized/Organized.module.css";
 
 function matchesQuery(event: OrganizedEvent, query: string) {
@@ -42,7 +43,11 @@ function Section({
       </div>
 
       {events.length === 0 ? (
-        <p className={styles.empty}>No events in this section.</p>
+        <EmptyState
+          compact
+          title="No events in this section."
+          description="When matching submissions are available, they will appear here."
+        />
       ) : (
         <div className="event-grid event-grid--single-row">
           {events.slice(0, 2).map((event) => (
@@ -55,7 +60,7 @@ function Section({
 }
 
 export default function SubmissionsPage() {
-  const events = useOrganizedEvents();
+  const { events, error } = useOrganizedEvents();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(
@@ -89,6 +94,14 @@ export default function SubmissionsPage() {
           </div>
         </div>
       </div>
+
+      {error ? (
+        <EmptyState
+          compact
+          title="Couldn’t load submissions."
+          description={`${error} Try signing out and back in, then refresh this page.`}
+        />
+      ) : null}
 
       <Section
         id="pending-heading"

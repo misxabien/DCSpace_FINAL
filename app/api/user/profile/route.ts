@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
@@ -20,8 +21,8 @@ async function requireProfileUser(request: Request) {
 
   const db = await getUserDb();
   const user = actor.userId && ObjectId.isValid(actor.userId)
-    ? await db.collection("users").findOne({ _id: new ObjectId(actor.userId) })
-    : await db.collection("users").findOne({ email: actor.email });
+    ? await usersCollection(db).findOne({ _id: new ObjectId(actor.userId) })
+    : await usersCollection(db).findOne({ email: actor.email });
   if (!user) {
     return { error: "User not found.", status: 404 } as const;
   }
@@ -96,8 +97,8 @@ export async function PATCH(request: Request) {
     updates.updatedAt = new Date().toISOString();
 
     const db = await getUserDb();
-    await db.collection("users").updateOne({ _id: new ObjectId(authResult.user._id) }, { $set: updates });
-    const savedUser = await db.collection("users").findOne({ _id: new ObjectId(authResult.user._id) });
+    await usersCollection(db).updateOne({ _id: new ObjectId(authResult.user._id) }, { $set: updates });
+    const savedUser = await usersCollection(db).findOne({ _id: new ObjectId(authResult.user._id) });
 
     if (!savedUser) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });

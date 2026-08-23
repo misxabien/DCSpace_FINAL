@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { savedEventsCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
-
-function savedCollection(db: Awaited<ReturnType<typeof getUserDb>>) {
-  return db.collection("saved_events");
-}
 
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -27,7 +24,7 @@ export async function GET(request: Request) {
     if (!email) {
       return NextResponse.json({ eventIds: [] });
     }
-    const doc = await savedCollection(db).findOne({ email });
+    const doc = await savedEventsCollection(db).findOne({ email });
     return NextResponse.json({
       eventIds: Array.isArray(doc?.eventIds) ? doc.eventIds.map(String) : [],
     });
@@ -55,7 +52,7 @@ export async function PUT(request: Request) {
 
   try {
     const db = await getUserDb();
-    const col = savedCollection(db);
+    const col = savedEventsCollection(db);
     const existing = await col.findOne({ email: actor.email });
     let ids: string[] = Array.isArray(existing?.eventIds)
       ? existing!.eventIds.map(String)

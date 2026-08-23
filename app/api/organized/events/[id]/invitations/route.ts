@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { invitationsCollection, notifyUser } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 async function requireOrganizer(eventId: string, email: string, userId?: string) {
-  const db = await getUserDb();
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
   if (!ObjectId.isValid(eventId)) return { error: "Invalid event id.", status: 400 } as const;
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
   if (!event) return { error: "Event not found.", status: 404 } as const;
   const owns = event.organizerEmail === email || (userId && event.organizerId === userId);
   if (!owns) return { error: "Forbidden.", status: 403 } as const;
-  return { db, event };
+  return { userDb, event };
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -29,7 +31,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const docs = await invitationsCollection(owned.db)
+    const docs = await invitationsCollection(owned.userDb)
       .find({ eventId: id })
       .sort({ createdAt: -1 })
       .limit(400)
@@ -102,15 +104,15 @@ export async function POST(request: Request, context: RouteContext) {
     const created = [];
     for (const email of emails) {
       if (body.invited === false) {
-        await invitationsCollection(owned.db).deleteMany({ eventId: id, email });
+        await invitationsCollection(owned.userDb).deleteMany({ eventId: id, email });
         continue;
       }
-      const existing = await invitationsCollection(owned.db).findOne({ eventId: id, email });
+      const existing = await invitationsCollection(owned.userDb).findOne({ eventId: id, email });
       if (existing) {
         created.push({ id: String(existing._id), email, status: existing.status });
         continue;
       }
-      const user = await owned.db.collection("users").findOne({ email });
+      const user = await usersCollection(owned.userDb).findOne({ email });
       const doc = {
         eventId: id,
         eventTitle: String(owned.event.title || ""),
@@ -128,7 +130,7 @@ export async function POST(request: Request, context: RouteContext) {
         invitedByEmail: actor.email,
         createdAt: now,
       };
-      const result = await invitationsCollection(owned.db).insertOne(doc);
+      const result = await invitationsCollection(owned.userDb).insertOne(doc);
       created.push({ id: String(result.insertedId), ...doc });
       await notifyUser({
         email,

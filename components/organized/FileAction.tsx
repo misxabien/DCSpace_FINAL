@@ -2,18 +2,17 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  saveFileStatus,
-  type FileSubmissionStatus,
-} from "@/lib/organizedRegistrations";
+import type { FileSubmissionStatus } from "@/lib/organizedRegistrations";
 import styles from "@/components/organized/OrganizedParticipant.module.css";
 
 function FileAction({
+  eventId,
   participantId,
   fileId,
   status,
   onChange,
 }: {
+  eventId: string;
   participantId: string;
   fileId: string;
   status: FileSubmissionStatus;
@@ -85,9 +84,28 @@ function FileAction({
   }, [open]);
 
   const setStatus = (next: FileSubmissionStatus) => {
-    saveFileStatus(participantId, fileId, next);
-    onChange(next);
-    setOpen(false);
+    void fetch(
+      `/api/organized/events/${encodeURIComponent(eventId)}/registrations/${encodeURIComponent(participantId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, status: next }),
+      },
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(
+            (payload as { error?: string }).error || "Failed to update file status.",
+          );
+        }
+        onChange(next);
+        window.dispatchEvent(new Event("dc-participant-changed"));
+      })
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Failed to update file status.");
+      })
+      .finally(() => setOpen(false));
   };
 
   const toggleOpen = () => {

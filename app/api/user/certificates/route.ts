@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  certificatesCollection,
   logUserActivity,
 } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { attendanceCollection, certificatesCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { eventsCollection } from "@/lib/events/types";
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const email = searchParams.get("email");
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
       filter.email = email.trim().toLowerCase();
     }
 
-    const docs = await certificatesCollection(db)
+    const docs = await certificatesCollection(userDb)
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(200)
@@ -85,13 +85,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
     const { ObjectId } = await import("mongodb");
     if (!ObjectId.isValid(eventId)) {
       return NextResponse.json({ error: "Invalid event id." }, { status: 400 });
     }
 
-    const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+    const event = await eventsCollection(await getAdminDb()).findOne({ _id: new ObjectId(eventId) });
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -105,8 +105,7 @@ export async function POST(request: Request) {
         userName: String(body.name || email),
       });
     } else {
-      const attendees = await db
-        .collection("attendance_records")
+      const attendees = await attendanceCollection(userDb)
         .find({ eventId })
         .toArray();
       const seen = new Set<string>();
@@ -129,7 +128,7 @@ export async function POST(request: Request) {
 
     const created = [];
     for (const target of targets) {
-      const existing = await certificatesCollection(db).findOne({
+      const existing = await certificatesCollection(userDb).findOne({
         eventId,
         email: target.email,
       });
@@ -138,7 +137,7 @@ export async function POST(request: Request) {
       }
       created.push(
         await createCertificateDoc({
-          db,
+          db: userDb,
           event: {
             id: eventId,
             title: String(event.title || ""),

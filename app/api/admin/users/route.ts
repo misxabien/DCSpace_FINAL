@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 
 /** List school users (students/faculty/admins) for the admin console. */
@@ -31,8 +32,7 @@ export async function GET(request: Request) {
     }
 
     const db = await getUserDb();
-    const docs = await db
-      .collection("users")
+    const docs = await usersCollection(db)
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
   try {
     const { hashPassword } = await import("@/lib/user-server/password");
     const db = await getUserDb();
-    const existing = await db.collection("users").findOne({
+    const existing = await usersCollection(db).findOne({
       $or: [{ email }, { studentNumber }],
     });
     if (existing) {
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
       updatedAt: now,
       createdByEmail: auth.session.email,
     };
-    const result = await db.collection("users").insertOne(doc);
+    const result = await usersCollection(db).insertOne(doc);
     return NextResponse.json(
       {
         user: sanitizeUser({ ...doc, _id: result.insertedId } as Parameters<typeof sanitizeUser>[0]),

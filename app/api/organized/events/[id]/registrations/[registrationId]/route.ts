@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
@@ -32,8 +32,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const event = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    const userDb = await getUserDb();
+    const adminDb = await getAdminDb();
+    const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(id) });
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -42,7 +43,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    await registrationsCollection(db).updateOne(
+    await registrationsCollection(userDb).updateOne(
       { _id: new ObjectId(registrationId), eventId: id },
       { $set: { "files.$[file].status": status, updatedAt: new Date().toISOString() } },
       { arrayFilters: [{ "file.id": fileId }] },

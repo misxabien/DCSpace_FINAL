@@ -357,6 +357,32 @@
   color: var(--text);
 }
 
+.activityItem span {
+  line-height: 1.35;
+}
+
+.programDownloadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  background: #1e88e5;
+  color: #fff;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.programDownloadBtn:hover {
+  background: #1565c0;
+}
+
 .activityRemove {
   border: none;
   background: transparent;

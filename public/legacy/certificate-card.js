@@ -36,13 +36,50 @@
     return article;
   }
 
-  function fillCertificateContainer(container, filter) {
+  function injectEmptyStateStyles() {
+    if (document.getElementById('dc-empty-state-styles')) return;
+    var style = document.createElement('style');
+    style.id = 'dc-empty-state-styles';
+    style.textContent =
+      '.dc-empty-state{grid-column:1/-1;width:100%;min-height:min(360px,calc(100vh - 300px));display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:40px 24px 48px;text-align:center;color:#b7aa89;}' +
+      '.dc-empty-state--compact{min-height:240px;padding:28px 16px 36px;}' +
+      '.dc-empty-state__icon{width:140px;height:140px;margin:0 auto 16px;display:block;}' +
+      '.dc-empty-state--compact .dc-empty-state__icon{width:110px;height:110px;}' +
+      '.dc-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
+      '.dc-empty-state__description{max-width:640px;margin:0 auto;color:#b7aa89;font-size:clamp(0.95rem,1.4vw,1.05rem);font-weight:500;line-height:1.45;}';
+    document.head.appendChild(style);
+  }
+
+  function createEmptyState(title, description) {
+    injectEmptyStateStyles();
+    var emptyState = document.createElement('div');
+    emptyState.className = 'dc-empty-state dc-empty-state--compact';
+    emptyState.setAttribute('role', 'status');
+    emptyState.innerHTML =
+      '<img class="dc-empty-state__icon" src="/no-event.svg" width="160" height="160" alt="" aria-hidden="true" />' +
+      '<h3 class="dc-empty-state__title">' + escapeHtml(title) + '</h3>' +
+      '<p class="dc-empty-state__description">' + escapeHtml(description) + '</p>';
+    return emptyState;
+  }
+
+  function fillCertificateContainer(container, filter, limit) {
     var root = typeof container === 'string' ? document.getElementById(container) : container;
     if (!root || !DCCertificates) return;
 
-    var certs = DCCertificates.getCertificatesByCategory(filter.category, filter.limit);
+    var category = typeof filter === 'string' ? filter : (filter && filter.category) || '';
+    var max = typeof filter === 'string' ? limit : (filter && filter.limit);
+    var certs = DCCertificates.getCertificatesByCategory(category, max);
 
     root.innerHTML = '';
+    if (!certs.length) {
+      root.appendChild(
+        createEmptyState(
+          'No certificates yet.',
+          'Certificates you earn from completed events will appear here.'
+        )
+      );
+      return;
+    }
     certs.forEach(function (cert) {
       root.appendChild(createCertificateCard(cert));
     });

@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { eventGalleryCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 async function requireOrganizer(eventId: string, email: string, userId?: string) {
-  const db = await getUserDb();
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
   if (!ObjectId.isValid(eventId)) return { error: "Invalid event id.", status: 400 } as const;
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
   if (!event) return { error: "Event not found.", status: 404 } as const;
   const owns = event.organizerEmail === email || (userId && event.organizerId === userId);
   if (!owns) return { error: "Forbidden.", status: 403 } as const;
-  return { db, event };
+  return { userDb, event };
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -28,8 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const docs = await owned.db
-      .collection("event_gallery")
+    const docs = await eventGalleryCollection(owned.userDb)
       .find({ eventId: id })
       .sort({ createdAt: -1 })
       .limit(80)
@@ -72,7 +73,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const now = new Date().toISOString();
-    const result = await owned.db.collection("event_gallery").insertOne({
+    const result = await eventGalleryCollection(owned.userDb).insertOne({
       eventId: id,
       dataUrl,
       uploadedByEmail: actor.email,

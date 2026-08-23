@@ -4,14 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OrganizedParticipantView } from "@/components/organized/OrganizedParticipantView";
 import { OrganizedShell } from "@/components/organized/OrganizedShell";
-import {
-  getOrganizedEventById,
-  type OrganizedEventDetail,
-} from "@/lib/organizedEventDetails";
-import {
-  getParticipantDetail,
-  type ParticipantDetail,
-} from "@/lib/organizedRegistrations";
+import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
+import type { ParticipantDetail } from "@/lib/organizedRegistrations";
 import {
   fetchOrganizedEventLive,
   fetchParticipantDetailLive,
@@ -25,6 +19,7 @@ export default function OrganizedParticipantPage() {
   const registrationId = String(params.registrationId ?? "");
   const [event, setEvent] = useState<OrganizedEventDetail | null>(null);
   const [participant, setParticipant] = useState<ParticipantDetail | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -33,39 +28,26 @@ export default function OrganizedParticipantPage() {
       try {
         const liveEvent = await fetchOrganizedEventLive(eventId);
         if (cancelled) return;
-        if (liveEvent) {
-          const liveParticipant = await fetchParticipantDetailLive(
-            eventId,
-            registrationId,
-            liveEvent.requiredFiles,
-          );
-          if (liveParticipant) {
-            setEvent(liveEvent);
-            setParticipant(liveParticipant);
-            return;
-          }
+        if (!liveEvent) {
+          router.replace("/organized/events");
+          return;
         }
-      } catch {
-        /* fall back */
-      }
-
-      const loadedEvent = getOrganizedEventById(eventId);
-      if (!loadedEvent) {
-        router.replace("/organized/events");
-        return;
-      }
-      const loadedParticipant = getParticipantDetail(
-        eventId,
-        registrationId,
-        loadedEvent.requiredFiles,
-      );
-      if (!loadedParticipant) {
-        router.replace(`/organized/events/${encodeURIComponent(eventId)}/registrations`);
-        return;
-      }
-      if (!cancelled) {
-        setEvent(loadedEvent);
-        setParticipant(loadedParticipant);
+        const liveParticipant = await fetchParticipantDetailLive(
+          eventId,
+          registrationId,
+          liveEvent.requiredFiles,
+        );
+        if (!liveParticipant) {
+          router.replace(`/organized/events/${encodeURIComponent(eventId)}/registrations`);
+          return;
+        }
+        setEvent(liveEvent);
+        setParticipant(liveParticipant);
+        setError("");
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load participant.");
+        }
       }
     }
 
@@ -77,14 +59,14 @@ export default function OrganizedParticipantPage() {
 
   if (!event || !participant) {
     return (
-      <OrganizedShell title="Events Name">
-        <p className={styles.empty}>Loading participant…</p>
+      <OrganizedShell title="Events Name" backHref={`/organized/events/${encodeURIComponent(eventId)}/registrations`}>
+        <p className={styles.empty}>{error || "Loading participant…"}</p>
       </OrganizedShell>
     );
   }
 
   return (
-    <OrganizedShell title={event.title}>
+    <OrganizedShell title={event.title} backHref={`/organized/events/${encodeURIComponent(eventId)}/registrations`}>
       <OrganizedParticipantView event={event} participant={participant} />
     </OrganizedShell>
   );

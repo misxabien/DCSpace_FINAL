@@ -5,6 +5,7 @@ import { decodeSession, encodeSession, sessionCookieOptions } from "@/lib/auth/s
 import { SESSION_COOKIE, isAdminRole } from "@/lib/auth/types";
 import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 
 export async function GET() {
   const jar = await cookies();
@@ -15,7 +16,7 @@ export async function GET() {
 
   try {
     const db = await getUserDb();
-    const doc = await db.collection("users").findOne({
+    const doc = await usersCollection(db).findOne({
       email: cookieUser.email.trim().toLowerCase(),
     });
     if (!doc) {
@@ -39,7 +40,8 @@ export async function GET() {
     if (
       live.role !== cookieUser.role ||
       live.name !== cookieUser.name ||
-      live.isAdmin !== cookieUser.isAdmin
+      live.isAdmin !== cookieUser.isAdmin ||
+      live.isOrganizer !== cookieUser.isOrganizer
     ) {
       response.cookies.set({
         ...sessionCookieOptions(),

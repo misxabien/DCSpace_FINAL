@@ -12,7 +12,7 @@ import {
   type SpaceEvent,
 } from "@/lib/events/types";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb } from "@/lib/db/get-db";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 
 const WRITABLE_STATUSES: EventStatus[] = [
@@ -83,7 +83,7 @@ export async function GET(request: Request) {
       ];
     }
 
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const docs = await eventsCollection(db)
       .find(filter)
       .sort({ updatedAt: -1 })
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const result = await eventsCollection(db).insertOne(doc);
     const event = sanitizeEvent({ ...doc, _id: result.insertedId });
 

@@ -4,11 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { OrganizedEventHeader } from "@/components/organized/OrganizedEventHeader";
 import { InvitationTable } from "@/components/organized/InvitationTable";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
-import {
-  getInviteCandidates,
-  getInviteState,
-  type InviteCandidate,
-} from "@/lib/organizedInvitations";
+import type { InviteCandidate } from "@/lib/organizedInvitations";
 import {
   fetchEventInvitationsLive,
   fetchInviteCandidatesLive,
@@ -62,17 +58,12 @@ export function OrganizedInvitationsView({ event }: { event: OrganizedEventDetai
       setStudents(studentRows);
       setFaculty(facultyRows);
       applyInvitationState(studentRows, facultyRows, invitations);
-      return;
     } catch {
-      /* fall back to prototype data */
+      setStudents([]);
+      setFaculty([]);
+      setStudentInviteState({});
+      setFacultyInviteState({});
     }
-
-    const studentRows = getInviteCandidates(event.id, "student");
-    const facultyRows = getInviteCandidates(event.id, "faculty");
-    setStudents(studentRows);
-    setFaculty(facultyRows);
-    setStudentInviteState(getInviteState(event.id, "student"));
-    setFacultyInviteState(getInviteState(event.id, "faculty"));
   }, [applyInvitationState, event.id]);
 
   useEffect(() => {

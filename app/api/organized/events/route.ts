@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection, sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
@@ -12,10 +12,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
-    const docs = await eventsCollection(db)
+    const userDb = await getUserDb();
+    const adminDb = await getAdminDb();
+    const email = actor.email.trim().toLowerCase();
+    const docs = await eventsCollection(adminDb)
       .find({
-        $or: [{ organizerEmail: actor.email }, { organizerId: actor.userId || "__none__" }],
+        $or: [
+          { organizerEmail: email },
+          { organizerId: actor.userId || "__none__" },
+        ],
       })
       .sort({ updatedAt: -1 })
       .limit(200)
@@ -23,7 +28,7 @@ export async function GET(request: Request) {
 
     const eventIds = docs.map((doc) => String(doc._id));
     const counts = eventIds.length
-      ? await registrationsCollection(db)
+      ? await registrationsCollection(userDb)
           .aggregate([{ $match: { eventId: { $in: eventIds } } }, { $group: { _id: "$eventId", count: { $sum: 1 } } }])
           .toArray()
       : [];

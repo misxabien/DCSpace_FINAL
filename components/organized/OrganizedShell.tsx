@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isEventSaved, toggleSavedEvent } from "@/lib/savedEvents";
+import { SavedEventsBridge } from "@/components/legacy/SavedEventsBridge";
 import { useProfileHydration } from "@/components/legacy/useProfileHydration";
 import styles from "@/components/organized/Organized.module.css";
 
@@ -21,6 +22,8 @@ export type OrganizedEvent = {
   reviewNote?: string;
   /** Original Mongo status used by submissions filters */
   reviewStatus?: string;
+  /** Event banner/poster for list cards */
+  imageUrl?: string;
 };
 
 const STORAGE_KEY = "dc_organized_events_v6";
@@ -114,12 +117,14 @@ export function OrganizedShell({
         </div>
         {children}
       </main>
+      <SavedEventsBridge />
     </AppShell>
   );
 }
 
 export function useOrganizedEvents() {
   const [events, setEvents] = useState<OrganizedEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,13 +135,14 @@ export function useOrganizedEvents() {
         const live = await fetchOrganizedEventsLive();
         if (cancelled) return;
         setEvents(live);
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(live));
-        } catch {
-          /* ignore quota */
+        setError(null);
+      } catch (err) {
+        if (!cancelled) {
+          setEvents([]);
+          setError(
+            err instanceof Error ? err.message : "Failed to load organized events.",
+          );
         }
-      } catch {
-        if (!cancelled) setEvents(loadOrganizedEvents());
       }
     };
 
@@ -152,7 +158,7 @@ export function useOrganizedEvents() {
     };
   }, []);
 
-  return events;
+  return { events, error };
 }
 
 export function formatEventDateParts(isoDate: string) {
@@ -222,6 +228,14 @@ export function OrganizedEventCard({
       onKeyDown={onCardKeyDown}
     >
       <div className={`event-card__media ${styles.listCardMedia}`}>
+        {event.imageUrl ? (
+          <img
+            className={styles.listCardImage}
+            src={event.imageUrl}
+            alt=""
+            loading="lazy"
+          />
+        ) : null}
         <button
           type="button"
           className={`event-card__bookmark ${styles.listBookmark}${saved ? " is-saved" : ""}`}

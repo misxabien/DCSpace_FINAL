@@ -16,7 +16,7 @@
     },
     {
       "type": "inline",
-      "value": "(function () {\r\n      function render() {\r\n        DCEvents.fillSavedContainer('saved-grid', { timing: 'past', detailContext: 'explore' });\r\n        document.getElementById('saved-empty').hidden = document.getElementById('saved-grid').children.length > 0;\r\n      }\r\n      render();\r\n      window.addEventListener('dc-saved-changed', render);\r\n    })();"
+      "value": "(function () {\r\n      function render() {\r\n        var grid = document.getElementById('saved-grid');\r\n        if (!grid) return;\r\n        DCEvents.fillSavedContainer('saved-grid', { timing: 'past', detailContext: 'explore' });\r\n        var empty = document.getElementById('saved-empty');\r\n        if (empty) empty.hidden = grid.children.length > 0;\r\n      }\r\n      render();\r\n      window.addEventListener('dc-saved-changed', render);\r\n    })();"
     }
   ]
 }

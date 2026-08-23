@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { logUserActivity, attendanceCollection } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { certificatesCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { eventsCollection } from "@/lib/events/types";
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const email = searchParams.get("email");
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
       filter.email = email.trim().toLowerCase();
     }
 
-    const docs = await attendanceCollection(db)
+    const docs = await attendanceCollection(userDb)
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(200)
@@ -114,8 +115,8 @@ export async function POST(request: Request) {
   };
 
   try {
-    const db = await getUserDb();
-    const events = eventsCollection(db);
+    const userDb = await getUserDb();
+    const events = eventsCollection(await getAdminDb());
     const event =
       ObjectId.isValid(eventId)
         ? await events.findOne({ _id: new ObjectId(eventId) })
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
       String(baseDoc.eventTitle || "") || String(event?.title || "");
 
     if (action === "in") {
-      const lastRecord = (await attendanceCollection(db)
+      const lastRecord = (await attendanceCollection(userDb)
         .find({
           eventId,
           email: actor.email,
@@ -157,7 +158,7 @@ export async function POST(request: Request) {
       | undefined;
 
     if (action === "out") {
-      const lastTapIn = (await attendanceCollection(db)
+      const lastTapIn = (await attendanceCollection(userDb)
         .find({
           eventId,
           email: actor.email,
@@ -179,13 +180,13 @@ export async function POST(request: Request) {
         doc.qualifiedForCertificate = qualifiedForCertificate;
 
         if (qualifiedForCertificate && event?.certificateTemplateBase64) {
-          const existingCert = await db.collection("certificates").findOne({
+          const existingCert = await certificatesCollection(userDb).findOne({
             eventId,
             email: actor.email,
           });
           if (!existingCert) {
             const createdCert = await createCertificateDoc({
-              db,
+              db: userDb,
               event: {
                 id: eventId,
                 title: String(event.title || eventTitle || "Event"),
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const result = await attendanceCollection(db).insertOne(doc);
+    const result = await attendanceCollection(userDb).insertOne(doc);
     await logUserActivity({
       type: "attendance_recorded",
       actorEmail: actor.email,

@@ -1,5 +1,11 @@
 import type { Db } from "mongodb";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getUserDb } from "@/lib/db/get-db";
+import {
+  notificationsCollection,
+  registrationsCollection,
+  invitationsCollection,
+  usersCollection,
+} from "@/lib/db/user-collections";
 
 export type NotificationDoc = {
   email: string;
@@ -13,17 +19,7 @@ export type NotificationDoc = {
   createdAt: string;
 };
 
-export function registrationsCollection(db: Db) {
-  return db.collection("event_registrations");
-}
-
-export function invitationsCollection(db: Db) {
-  return db.collection("event_invitations");
-}
-
-export function notificationsCollection(db: Db) {
-  return db.collection<NotificationDoc>("notifications");
-}
+export { registrationsCollection, invitationsCollection, notificationsCollection };
 
 export async function notifyUser(input: Omit<NotificationDoc, "read" | "createdAt"> & {
   read?: boolean;
@@ -50,8 +46,7 @@ export async function notifyAdmins(
 ) {
   try {
     const db = await getUserDb();
-    const admins = await db
-      .collection("users")
+    const admins = await usersCollection(db)
       .find({ role: { $in: ["admin", "super-admin"] } })
       .project({ email: 1 })
       .toArray();

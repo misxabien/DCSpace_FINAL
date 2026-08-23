@@ -1,4 +1,4 @@
-import type { Db, ObjectId } from "mongodb";
+import type { ObjectId } from "mongodb";
 
 export type EventStatus =
   | "draft"
@@ -8,6 +8,13 @@ export type EventStatus =
   | "postponed"
   | "live"
   | "completed"
+  | "cancelled";
+
+export type IroomReservationStatus =
+  | "none"
+  | "pending"
+  | "approved"
+  | "rejected"
   | "cancelled";
 
 export type SpaceEvent = {
@@ -50,6 +57,12 @@ export type SpaceEvent = {
   submittedByPortal?: "user" | "admin";
   reviewedByEmail?: string;
   reviewNote?: string;
+  iroomReservationId?: string;
+  iroomStatus?: IroomReservationStatus;
+  iroomRoomId?: string;
+  iroomRoomName?: string;
+  iroomRejectionReason?: string;
+  iroomSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -59,22 +72,62 @@ export function asStringList(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean);
 }
 
-export function eventsCollection(db: Db) {
-  return db.collection<SpaceEvent>("events");
+export { eventsCollection } from "@/lib/db/admin-collections";
+
+function normalizeClock(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "00:00";
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "00:00";
+  return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+}
+
+/** Legacy admin docs used `date` + `startTime` instead of `startsAt`. */
+function deriveStartsAt(doc: {
+  startsAt?: string;
+  date?: string;
+  startTime?: string;
+}): string {
+  if (doc.startsAt) return String(doc.startsAt);
+  const day = String(doc.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+  return `${day}T${normalizeClock(String(doc.startTime || "00:00"))}`;
+}
+
+function deriveEndsAt(doc: {
+  endsAt?: string;
+  date?: string;
+  endTime?: string;
+}, startsAt: string): string {
+  if (doc.endsAt) return String(doc.endsAt);
+  const day =
+    String(doc.date || "").trim() ||
+    (startsAt.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] ||
+    "";
+  if (!day || !doc.endTime) return "";
+  return `${day}T${normalizeClock(String(doc.endTime))}`;
 }
 
 export function sanitizeEvent(
-  doc: SpaceEvent & { _id: ObjectId },
+  doc: SpaceEvent & { _id: ObjectId } & {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    venue?: string;
+  },
   options?: { includeMedia?: boolean },
 ) {
+  const startsAt = String(doc.startsAt || "").trim() || deriveStartsAt(doc);
+  const endsAt = String(doc.endsAt || "").trim() || deriveEndsAt(doc, startsAt);
+
   return {
     id: doc._id.toString(),
     title: doc.title,
     description: doc.description || "",
     category: doc.category || "",
-    location: doc.location || "",
-    startsAt: doc.startsAt || "",
-    endsAt: doc.endsAt || "",
+    location: doc.location || doc.venue || "",
+    startsAt,
+    endsAt,
     attendanceRequired: doc.attendanceRequired || "",
     attendanceRequiredMinutes: Number(doc.attendanceRequiredMinutes || 0),
     gracePeriod: doc.gracePeriod || "",
@@ -121,6 +174,12 @@ export function sanitizeEvent(
     submittedByPortal: doc.submittedByPortal || "user",
     reviewedByEmail: doc.reviewedByEmail || "",
     reviewNote: doc.reviewNote || "",
+    iroomReservationId: doc.iroomReservationId || "",
+    iroomStatus: doc.iroomStatus || "none",
+    iroomRoomId: doc.iroomRoomId || "",
+    iroomRoomName: doc.iroomRoomName || "",
+    iroomRejectionReason: doc.iroomRejectionReason || "",
+    iroomSyncedAt: doc.iroomSyncedAt || "",
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

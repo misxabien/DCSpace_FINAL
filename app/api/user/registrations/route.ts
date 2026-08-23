@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { logUserActivity } from "@/lib/user-server/activity";
 import {
   invitationsCollection,
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const email = searchParams.get("email");
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     } else if (actor && !("error" in actor)) {
       filter.email = actor.email;
     }
-    const docs = await registrationsCollection(db)
+    const docs = await registrationsCollection(userDb)
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(200)
@@ -81,14 +82,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
+    const adminDb = await getAdminDb();
     const event = ObjectId.isValid(eventId)
-      ? await eventsCollection(db).findOne({ _id: new ObjectId(eventId) })
+      ? await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) })
       : null;
     const eventTitle =
       String(body.eventTitle || "").trim() || String(event?.title || "Event");
 
-    const existing = await registrationsCollection(db).findOne({
+    const existing = await registrationsCollection(userDb).findOne({
       eventId,
       email: actor.email,
     });
@@ -105,7 +107,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
-    const user = await db.collection("users").findOne({ email: actor.email });
+    const user = await usersCollection(userDb).findOne({ email: actor.email });
     const files = Array.isArray((body as { files?: unknown }).files)
       ? ((body as { files?: Array<Record<string, unknown>> }).files || [])
           .slice(0, 5)
@@ -134,9 +136,9 @@ export async function POST(request: Request) {
       files,
       createdAt: now,
     };
-    const result = await registrationsCollection(db).insertOne(doc);
+    const result = await registrationsCollection(userDb).insertOne(doc);
 
-    await invitationsCollection(db).updateMany(
+    await invitationsCollection(userDb).updateMany(
       { eventId, email: actor.email },
       { $set: { status: "joined", updatedAt: now } },
     );

@@ -22,6 +22,7 @@ export type SanitizedEvent = {
   status?: string;
   organizerName?: string;
   posterImage?: string;
+  hasPoster?: boolean;
   reviewNote?: string;
   conceptPaperName?: string;
   certificateTemplateName?: string;
@@ -75,34 +76,79 @@ export function formatEventTimeRange(startsAt?: string, endsAt?: string): string
 }
 
 export function eventDateFromStartsAt(startsAt?: string): string {
-  const start = startsAt ? new Date(startsAt) : null;
-  if (start && !Number.isNaN(start.getTime())) {
+  const start = parseEventStart(startsAt);
+  if (start) {
     return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
   }
   return new Date().toISOString().slice(0, 10);
 }
 
-export function bucketCategory(e: SanitizedEvent): string {
-  const status = e.status || "";
-  if (status === "live") return "today";
-  if (status === "completed") return "joined-past";
+/** Parse event start into a local Date (supports ISO and YYYY-MM-DD). */
+export function parseEventStart(startsAt?: string): Date | null {
+  const raw = String(startsAt || "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const day = new Date(`${raw}T12:00:00`);
+    return Number.isNaN(day.getTime()) ? null : day;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
-  const start = e.startsAt ? new Date(e.startsAt) : null;
-  if (start && !Number.isNaN(start.getTime())) {
+/** Calendar bucket for approved/live/completed events. */
+export function eventTimingBucket(
+  startsAt?: string,
+  status?: string,
+): "today" | "upcoming" | "past" {
+  if (status === "completed") return "past";
+  if (status === "live") {
+    const start = parseEventStart(startsAt);
+    if (!start) return "today";
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const day = new Date(start);
     day.setHours(0, 0, 0, 0);
-    if (day.getTime() === today.getTime()) return "today";
-    if (day.getTime() > today.getTime()) return "academic";
-    return "joined-past";
+    if (day.getTime() < today.getTime()) return "past";
+    if (day.getTime() > today.getTime()) return "upcoming";
+    return "today";
   }
 
+  const start = parseEventStart(startsAt);
+  if (!start) return "upcoming";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(start);
+  day.setHours(0, 0, 0, 0);
+  if (day.getTime() === today.getTime()) return "today";
+  if (day.getTime() > today.getTime()) return "upcoming";
+  return "past";
+}
+
+export function timingToJoinedCategory(
+  timing: "today" | "upcoming" | "past",
+): "joined-today" | "joined-upcoming" | "joined-past" {
+  if (timing === "today") return "joined-today";
+  if (timing === "upcoming") return "joined-upcoming";
+  return "joined-past";
+}
+
+/** Explore theme category from organizer-chosen type (not date). */
+export function thematicCategory(e: SanitizedEvent): string {
   const cat = (e.category || "").toLowerCase();
   if (cat.includes("tech")) return "tech";
   if (cat.includes("org")) return "organization";
   if (cat.includes("acad")) return "academic";
-  return "academic";
+  return "";
+}
+
+export function bucketCategory(e: SanitizedEvent): string {
+  const theme = thematicCategory(e);
+  const timing = eventTimingBucket(e.startsAt, e.status);
+
+  if (timing === "today") return theme || "today";
+  if (timing === "past") return theme || "joined-past";
+  // Upcoming: prefer theme for Explore rows; otherwise upcoming joined bucket
+  return theme || "joined-upcoming";
 }
 
 function mapCardStatus(status?: string): string {

@@ -102,6 +102,7 @@ export function OrganizedParticipantView({
                   </td>
                   <td className={styles.actionCell}>
                     <FileAction
+                      eventId={event.id}
                       participantId={participant.id}
                       fileId={file.id}
                       status={file.status}

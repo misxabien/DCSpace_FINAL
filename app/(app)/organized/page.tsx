@@ -6,6 +6,7 @@ import {
   OrganizedShell,
   useOrganizedEvents,
 } from "@/components/organized/OrganizedShell";
+import { EmptyState } from "@/components/ui/EmptyState";
 import styles from "@/components/organized/Organized.module.css";
 
 function SectionHead({
@@ -32,7 +33,7 @@ function SectionHead({
 }
 
 export default function OrganizedPage() {
-  const events = useOrganizedEvents();
+  const { events, error } = useOrganizedEvents();
   const preview = events.slice(0, 2);
   const submissionEvents = events.filter((event) => event.submissions > 0).slice(0, 3);
   const submissionPreview =
@@ -60,8 +61,18 @@ export default function OrganizedPage() {
           href="/organized/events"
           label="See all organized events"
         />
-        {preview.length === 0 ? (
-          <p className={styles.empty}>No organized events yet. Create your first event.</p>
+        {error ? (
+          <EmptyState
+            compact
+            title="Couldn’t load organized events."
+            description={`${error} Try signing out and back in, then refresh this page.`}
+          />
+        ) : preview.length === 0 ? (
+          <EmptyState
+            compact
+            title="No organized events yet."
+            description="Create your first event and it will appear here once it’s saved to your account."
+          />
         ) : (
           <div className="event-grid event-grid--single-row">
             {preview.map((event) => (
@@ -83,7 +94,11 @@ export default function OrganizedPage() {
           label="See event submissions"
         />
         {submissionPreview.length === 0 ? (
-          <p className={styles.empty}>No submissions yet.</p>
+          <EmptyState
+            compact
+            title="No submissions yet."
+            description="Events you’ve submitted for approval will show up here with their review status."
+          />
         ) : (
           <div className="event-grid event-grid--single-row">
             {submissionPreview.map((event) => (

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 export async function GET(request: Request) {
@@ -19,8 +20,7 @@ export async function GET(request: Request) {
       filter.role = { $nin: ["faculty", "organizer", "admin", "super-admin"] };
     }
 
-    const docs = await db
-      .collection("users")
+    const docs = await usersCollection(db)
       .find(filter)
       .sort({ lastName: 1, firstName: 1 })
       .limit(200)

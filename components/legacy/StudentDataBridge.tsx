@@ -4,11 +4,14 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   bucketCategory,
+  eventTimingBucket,
   mapDbEventToCard,
+  timingToJoinedCategory,
+  thematicCategory,
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
-import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
+import { getSavedEventIds } from "@/lib/savedEvents";
 
 declare global {
   interface Window {
@@ -30,6 +33,16 @@ declare global {
         id: string,
         options?: { timing?: string; detailContext?: string; limit?: number },
       ) => void;
+      showEmptyState?: (
+        id: string | HTMLElement,
+        options?: {
+          emptyTitle?: string;
+          emptyDescription?: string;
+          compactEmpty?: boolean;
+          category?: string;
+          timing?: string;
+        },
+      ) => void;
       renderEventDetails?: () => void;
       renderExploreDetails?: () => void;
       renderAttendanceDetails?: () => void;
@@ -43,7 +56,11 @@ declare global {
     DCCertificates?: {
       list: unknown[];
       getCertificatesByCategory?: (category: string, limit?: number) => unknown[];
-      fillCertificateContainer?: (id: string, category: string, limit?: number) => void;
+      fillCertificateContainer?: (
+        id: string,
+        categoryOrOptions: string | { category?: string; limit?: number },
+        limit?: number,
+      ) => void;
     };
   }
 }
@@ -147,15 +164,82 @@ function applyAttendanceCategories(
   });
 }
 
-function joinedTagForEvent(event: LegacyCardEvent) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const day = new Date(`${event.date}T12:00:00`);
-  if (Number.isNaN(day.getTime())) return "joined-upcoming";
-  day.setHours(0, 0, 0, 0);
-  if (day.getTime() === today.getTime()) return "joined-today";
-  if (day.getTime() > today.getTime()) return "joined-upcoming";
-  return "joined-past";
+function tagsForApprovedEvent(
+  event: SanitizedEvent,
+  card: LegacyCardEvent,
+  invited: boolean,
+  registrationStatus?: string,
+) {
+  const timing = eventTimingBucket(event.startsAt, event.status);
+  const joinedCat = timingToJoinedCategory(timing);
+  const theme = thematicCategory(event);
+  const tags = new Set<string>();
+
+  // Date buckets — Home Today / Upcoming / Past + /events/today|upcoming|past
+  tags.add(joinedCat);
+  if (timing === "today") tags.add("today");
+
+  // Explore theme rows
+  if (theme) tags.add(theme);
+  tags.add(card.category);
+
+  if (invited) tags.add("invited");
+  if (registrationStatus) tags.add(joinedCat);
+
+  return Array.from(tags);
+}
+
+function updateSavedPageEmptyState() {
+  const pageEmpty = document.getElementById("saved-page-empty");
+  const sections = document.getElementById("saved-sections");
+  if (!pageEmpty || !sections) return;
+
+  const hasSaved = getSavedEventIds().length > 0;
+  pageEmpty.classList.toggle("is-visible", !hasSaved);
+  sections.classList.toggle("is-hidden", !hasSaved);
+
+  const searchBar = document.querySelector(".search-bar");
+  if (searchBar instanceof HTMLElement) {
+    searchBar.hidden = !hasSaved;
+  }
+
+  const sectionEmpties: Array<[string, string]> = [
+    ["saved-today-empty", "saved-today-grid"],
+    ["saved-upcoming-empty", "saved-upcoming-grid"],
+    ["saved-past-empty", "saved-past-grid"],
+  ];
+  sectionEmpties.forEach(([emptyId, gridId]) => {
+    const empty = document.getElementById(emptyId);
+    const grid = document.getElementById(gridId);
+    if (empty && grid) {
+      empty.hidden = grid.children.length > 0;
+    }
+  });
+}
+
+function refreshSavedViews() {
+  if (!window.DCEvents?.fillSavedContainer) return;
+
+  const grids: Array<{
+    id: string;
+    options: { timing?: string; limit?: number; detailContext: string };
+  }> = [
+    { id: "saved-grid", options: { detailContext: "explore" } },
+    { id: "saved-today-grid", options: { timing: "today", limit: 2, detailContext: "explore" } },
+    { id: "saved-upcoming-grid", options: { timing: "upcoming", limit: 2, detailContext: "explore" } },
+    { id: "saved-past-grid", options: { timing: "past", limit: 2, detailContext: "explore" } },
+  ];
+
+  grids.forEach(({ id, options }) => {
+    if (!document.getElementById(id)) return;
+    try {
+      window.DCEvents?.fillSavedContainer?.(id, options);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  updateSavedPageEmptyState();
 }
 
 function refreshLegacyEventViews(pathname: string) {
@@ -197,14 +281,7 @@ function refreshLegacyEventViews(pathname: string) {
   }
 
   if (pathname.startsWith("/saved")) {
-    ["saved-grid"].forEach((id) => {
-      if (!document.getElementById(id)) return;
-      try {
-        window.DCEvents?.fillSavedContainer?.(id, { detailContext: "explore" });
-      } catch {
-        /* ignore */
-      }
-    });
+    refreshSavedViews();
   }
 }
 
@@ -268,13 +345,23 @@ export function StudentDataBridge() {
     const injectEvents = async () => {
       if (!window.DCEvents) return;
 
+      // Always start from empty — never show leftover prototype data.
+      window.DCEvents.list = [];
+      window.DCEvents.attendanceRfid = {};
+
       try {
         const [eventsRes, registrationsRes, invitationsRes] = await Promise.all([
-          fetch("/api/events?limit=200", { cache: "no-store" }),
-          fetch("/api/user/registrations", { cache: "no-store" }),
-          fetch("/api/user/invitations", { cache: "no-store" }),
+          fetch("/api/events?limit=200", { cache: "no-store", credentials: "include" }),
+          fetch("/api/user/registrations", { cache: "no-store", credentials: "include" }),
+          fetch("/api/user/invitations", { cache: "no-store", credentials: "include" }),
         ]);
-        if (!eventsRes.ok || cancelled) return;
+        if (!eventsRes.ok || cancelled) {
+          if (!cancelled && window.DCEvents) {
+            window.DCEvents.list = [];
+            refreshLegacyEventViews(pathname);
+          }
+          return;
+        }
 
         const data = (await eventsRes.json()) as { events?: SanitizedEvent[] };
         const registrations = registrationsRes.ok
@@ -301,14 +388,26 @@ export function StudentDataBridge() {
           .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
           .map((event) => {
             const card = mapDbEventToCard(event, bucketCategory(event));
-            const tags = [card.category];
-            if (invited.has(card.id)) tags.push("invited");
-            if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
-            const status = joined.get(card.id);
+            const registrationStatus = joined.get(card.id);
+            const tags = tagsForApprovedEvent(
+              event,
+              card,
+              invited.has(card.id),
+              registrationStatus,
+            );
             return {
               ...card,
+              // Keep primary category date-aware for joined pages / home sections
+              category: timingToJoinedCategory(
+                eventTimingBucket(event.startsAt, event.status),
+              ),
               tags,
-              status: status === "pending" ? "pending" : status ? "joined" : card.status,
+              status:
+                registrationStatus === "pending"
+                  ? "pending"
+                  : registrationStatus
+                    ? "joined"
+                    : card.status,
             };
           });
 
@@ -334,25 +433,37 @@ export function StudentDataBridge() {
           }
         }
 
+        const savedIds = getSavedEventIds();
+        const missingSavedIds = savedIds.filter(
+          (id) => !live.some((event) => String(event.id) === id),
+        );
+        if (missingSavedIds.length > 0) {
+          const fetched = await Promise.all(
+            missingSavedIds.map(async (id) => {
+              try {
+                const res = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+                  cache: "no-store",
+                });
+                if (!res.ok) return null;
+                const payload = (await res.json()) as { event?: SanitizedEvent };
+                if (!payload.event) return null;
+                return mapDbEventToCard(payload.event, bucketCategory(payload.event));
+              } catch {
+                return null;
+              }
+            }),
+          );
+          live = [...live, ...fetched.filter((event): event is LegacyCardEvent => Boolean(event))];
+        }
+
         window.DCEvents.list = live;
         refreshLegacyEventViews(pathname);
         window.dispatchEvent(new CustomEvent("dc-events-ready"));
       } catch {
-        /* keep existing list */
-      }
-    };
-
-    const syncSaved = async () => {
-      try {
-        const res = await fetch("/api/user/saved-events", { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { eventIds?: string[] };
-        if (Array.isArray(data.eventIds)) {
-          setSavedEventIds(data.eventIds);
-          window.DCEvents?.fillSavedContainer?.("saved-grid", { detailContext: "explore" });
+        if (!cancelled && window.DCEvents) {
+          window.DCEvents.list = [];
+          refreshLegacyEventViews(pathname);
         }
-      } catch {
-        /* local only */
       }
     };
 
@@ -380,18 +491,14 @@ export function StudentDataBridge() {
       }
     };
 
-    const persistSaved = async () => {
-      const ids = getSavedEventIds();
-      try {
-        await fetch("/api/user/saved-events", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ eventIds: ids }),
-        });
-      } catch {
-        /* ignore */
+    const onEventsReady = () => {
+      refreshLegacyEventViews(pathname);
+      if (pathname.startsWith("/saved")) {
+        refreshSavedViews();
       }
     };
+
+    window.addEventListener("dc-events-ready", onEventsReady);
 
     const wireFeedbackForm = () => {
       if (pathname !== "/feedback/sign") return;
@@ -564,14 +671,31 @@ export function StudentDataBridge() {
         };
         window.DCEvents.renderAttendanceDetails?.();
       } catch {
-        /* keep mock rfid */
+        if (window.DCEvents) {
+          window.DCEvents.attendanceRfid = {
+            ...(window.DCEvents.attendanceRfid || {}),
+            [eventId]: {
+              graceRemaining: "00:00",
+              progress: 0,
+              logs: [],
+              page: { current: 0, total: 1 },
+            },
+          };
+          window.DCEvents.renderAttendanceDetails?.();
+        }
       }
     };
 
     const injectFeedbackList = async () => {
       if (!pathname.startsWith("/feedback")) return;
+      if (window.DCFeedback) {
+        window.DCFeedback.FEEDBACK_ITEMS = [];
+      }
       try {
-        const res = await fetch("/api/user/feedback?mine=1", { cache: "no-store" });
+        const res = await fetch("/api/user/feedback?mine=1", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           feedback?: Array<{
@@ -608,39 +732,68 @@ export function StudentDataBridge() {
 
         const list = document.getElementById("feedback-list");
         if (list) {
+          list.querySelectorAll(".dc-empty-state").forEach((el) => el.remove());
           const lis = Array.from(list.querySelectorAll<HTMLLIElement>("li"));
-          items.forEach((f, index) => {
-            let li = lis[index];
-            if (!li && lis[0]) {
-              li = lis[0].cloneNode(true) as HTMLLIElement;
-              list.appendChild(li);
+          if (!items.length) {
+            lis.forEach((li) => {
+              li.style.display = "none";
+            });
+            if (!list.querySelector(".dc-empty-state") && window.DCEvents?.showEmptyState) {
+              window.DCEvents.showEmptyState(list, {
+                emptyTitle: "No feedback submitted yet.",
+                emptyDescription:
+                  "Feedback you send from Submit Feedback will appear here.",
+                compactEmpty: true,
+              });
             }
-            if (!li) return;
-            li.style.display = "";
-            const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
-            if (btn) btn.setAttribute("data-feedback-id", f.id);
-            const title = li.querySelector(".feedback-item__title");
-            const type = li.querySelector(".feedback-item__type");
-            if (title) title.textContent = f.title;
-            if (type) type.textContent = f.type;
-          });
-          list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
-            if (index >= items.length) li.style.display = "none";
-          });
+          } else {
+            items.forEach((f, index) => {
+              let li = lis[index];
+              if (!li && lis[0]) {
+                li = lis[0].cloneNode(true) as HTMLLIElement;
+                list.appendChild(li);
+              }
+              if (!li) return;
+              li.style.display = "";
+              const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
+              if (btn) btn.setAttribute("data-feedback-id", f.id);
+              const title = li.querySelector(".feedback-item__title");
+              const type = li.querySelector(".feedback-item__type");
+              if (title) title.textContent = f.title;
+              if (type) type.textContent = f.type;
+            });
+            list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
+              if (index >= items.length) li.style.display = "none";
+            });
+          }
         }
 
         if (pathname.startsWith("/feedback/details")) {
           window.DCFeedback?.renderFeedbackDetails?.();
         }
       } catch {
-        /* keep mock */
+        if (window.DCFeedback) {
+          window.DCFeedback.FEEDBACK_ITEMS = [];
+        }
+        const list = document.getElementById("feedback-list");
+        if (list) {
+          list.querySelectorAll<HTMLLIElement>("li").forEach((li) => {
+            li.style.display = "none";
+          });
+        }
       }
     };
 
     const injectCertificates = async () => {
       if (!pathname.startsWith("/certificates")) return;
+      if (window.DCCertificates) {
+        window.DCCertificates.list = [];
+      }
       try {
-        const res = await fetch("/api/user/certificates", { cache: "no-store" });
+        const res = await fetch("/api/user/certificates", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           certificates?: Array<{
@@ -674,7 +827,27 @@ export function StudentDataBridge() {
           },
         );
       } catch {
-        /* keep mock */
+        if (window.DCCertificates) {
+          window.DCCertificates.list = [];
+          ["cert-today-grid", "cert-weekend-grid", "cert-month-grid", "cert-grid"].forEach(
+            (id) => {
+              try {
+                window.DCCertificates?.fillCertificateContainer?.(
+                  id,
+                  id.includes("today")
+                    ? "cert-today"
+                    : id.includes("weekend")
+                      ? "cert-weekend"
+                      : "cert-month",
+                  12,
+                );
+              } catch {
+                const host = document.getElementById(id);
+                if (host) host.innerHTML = "";
+              }
+            },
+          );
+        }
       }
     };
 
@@ -842,22 +1015,12 @@ export function StudentDataBridge() {
       }
     };
 
-    const onSavedChanged = () => {
-      void persistSaved();
-    };
-
-    const onEventsReady = () => {
-      refreshLegacyEventViews(pathname);
-    };
-
-    window.addEventListener("dc-saved-changed", onSavedChanged);
     window.addEventListener("dc-events-ready", onEventsReady);
     window.addEventListener("dc-join-event", onJoinEvent as EventListener);
     window.addEventListener("dc-submit-event", onSubmitEvent as EventListener);
 
     const run = () => {
       void injectEvents();
-      void syncSaved();
       wireFeedbackForm();
       wireAttendanceTap();
       void injectAttendanceRfid();
@@ -879,7 +1042,6 @@ export function StudentDataBridge() {
       window.clearTimeout(t3);
       window.clearTimeout(aiTimer);
       window.clearInterval(poll);
-      window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);
       window.removeEventListener("dc-join-event", onJoinEvent as EventListener);
       window.removeEventListener("dc-submit-event", onSubmitEvent as EventListener);

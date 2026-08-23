@@ -273,6 +273,20 @@ export function readAuthSession(): { token: string; user: UserProfile } | null {
   }
 }
 
+/** Browser fetch with session cookie + stored JWT (organized portal APIs need both). */
+export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const session = readAuthSession();
+  if (session?.token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${session.token}`);
+  }
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+}
+
 export function syncProfileToLegacyStorage(profile: UserProfile) {
   if (typeof window === "undefined") {
     return;

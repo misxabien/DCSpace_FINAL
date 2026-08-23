@@ -9,11 +9,12 @@ import type { OrganizedEvent } from "@/components/organized/OrganizedShell";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventRegistration, ParticipantDetail } from "@/lib/organizedRegistrations";
 import type { InviteAudience, InviteCandidate } from "@/lib/organizedInvitations";
+import { authFetch } from "@/lib/user-api";
 
 type LiveEvent = SanitizedEvent & { submissions?: number };
 
 export async function fetchOrganizedEventsLive(): Promise<OrganizedEvent[]> {
-  const res = await fetch("/api/organized/events", { cache: "no-store" });
+  const res = await authFetch("/api/organized/events", { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load organized events.");
   const data = (await res.json()) as { events?: LiveEvent[] };
   return (data.events || []).map((event) =>
@@ -25,8 +26,8 @@ export async function fetchOrganizedEventLive(
   id: string,
 ): Promise<OrganizedEventDetail | null> {
   const [eventRes, registrationsRes] = await Promise.all([
-    fetch(`/api/events/${encodeURIComponent(id)}`, { cache: "no-store" }),
-    fetch(`/api/organized/events/${encodeURIComponent(id)}/registrations`, {
+    authFetch(`/api/events/${encodeURIComponent(id)}`, { cache: "no-store" }),
+    authFetch(`/api/organized/events/${encodeURIComponent(id)}/registrations`, {
       cache: "no-store",
     }),
   ]);
@@ -60,7 +61,7 @@ export type LiveRegistration = EventRegistration & {
 };
 
 export async function fetchEventRegistrationsLive(eventId: string): Promise<LiveRegistration[]> {
-  const res = await fetch(
+  const res = await authFetch(
     `/api/organized/events/${encodeURIComponent(eventId)}/registrations`,
     { cache: "no-store" },
   );
@@ -80,14 +81,7 @@ export function mapLiveParticipant(
         viewed: Boolean(file.hasFile || file.uploaded),
         status: (file.status as ParticipantDetail["files"][number]["status"]) || "pending",
       }))
-    : [
-        {
-          id: "file-1",
-          name: requiredFileName,
-          viewed: false,
-          status: "pending" as const,
-        },
-      ];
+    : [];
 
   return {
     id: row.id,
@@ -109,7 +103,7 @@ export async function fetchInviteCandidatesLive(
   audience: InviteAudience,
 ): Promise<InviteCandidate[]> {
   const role = audience === "faculty" ? "faculty" : "student";
-  const res = await fetch(`/api/organized/users?role=${encodeURIComponent(role)}`, {
+  const res = await authFetch(`/api/organized/users?role=${encodeURIComponent(role)}`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error("Failed to load invite candidates.");
@@ -135,7 +129,7 @@ export async function fetchInviteCandidatesLive(
 }
 
 export async function fetchEventInvitationsLive(eventId: string) {
-  const res = await fetch(
+  const res = await authFetch(
     `/api/organized/events/${encodeURIComponent(eventId)}/invitations`,
     { cache: "no-store" },
   );
@@ -151,7 +145,7 @@ export async function toggleEventInvitationLive(
   candidate: InviteCandidate,
   invited: boolean,
 ) {
-  const res = await fetch(
+  const res = await authFetch(
     `/api/organized/events/${encodeURIComponent(eventId)}/invitations`,
     {
       method: "POST",

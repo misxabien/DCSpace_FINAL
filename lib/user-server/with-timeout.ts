@@ -18,4 +18,4 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label = "Operati
   });
 }
 
-export const MONGO_QUICK_TIMEOUT_MS = 4_000;
+export const MONGO_QUICK_TIMEOUT_MS = 15_000;

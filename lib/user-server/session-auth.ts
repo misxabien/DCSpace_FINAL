@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { decodeSession } from "@/lib/auth/session";
 import { SESSION_COOKIE } from "@/lib/auth/types";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 
 export type SessionActor = {
   email: string;
@@ -11,6 +12,10 @@ export type SessionActor = {
   role: string;
   userId?: string;
   studentNumber?: string;
+  organizationPart?: string;
+  organizationRole?: string;
+  school?: string;
+  course?: string;
 };
 
 type AuthFailure = { error: string; status: number };
@@ -24,7 +29,7 @@ export async function requireSessionActor(
   if (session) {
     try {
       const db = await getUserDb();
-      const user = await db.collection("users").findOne({ email: session.email });
+      const user = await usersCollection(db).findOne({ email: session.email });
       if (user) {
         return {
           email: String(user.email),
@@ -34,6 +39,10 @@ export async function requireSessionActor(
           role: String(user.role || session.role),
           userId: String(user._id),
           studentNumber: String(user.studentNumber || ""),
+          organizationPart: String(user.organizationPart || ""),
+          organizationRole: String(user.organizationRole || ""),
+          school: String(user.school || ""),
+          course: String(user.course || ""),
         };
       }
     } catch {
@@ -64,7 +73,7 @@ export async function requireSessionActor(
 
     if (payload.sub && ObjectId.isValid(payload.sub)) {
       const db = await getUserDb();
-      const user = await db.collection("users").findOne({
+      const user = await usersCollection(db).findOne({
         _id: new ObjectId(payload.sub),
       });
       if (user) {
@@ -74,6 +83,10 @@ export async function requireSessionActor(
           role: String(user.role || payload.role || "student"),
           userId: String(user._id),
           studentNumber: String(user.studentNumber || ""),
+          organizationPart: String(user.organizationPart || ""),
+          organizationRole: String(user.organizationRole || ""),
+          school: String(user.school || ""),
+          course: String(user.course || ""),
         };
       }
     }

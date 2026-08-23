@@ -1,6 +1,10 @@
 import crypto from "crypto";
 import type { Db } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import {
+  emailVerificationsCollection,
+  usersCollection,
+} from "@/lib/db/user-collections";
 import { hashPassword, verifyPassword } from "@/lib/user-server/password";
 import { sendVerificationEmail } from "@/lib/user-server/mailer";
 import {
@@ -39,8 +43,8 @@ async function isDatabaseAvailable() {
   }
 }
 
-async function getVerificationsCollection(db: Db) {
-  const collection = db.collection("email_verifications");
+async function getVerificationsCollection(db: Awaited<ReturnType<typeof getUserDb>>) {
+  const collection = emailVerificationsCollection(db);
   await collection.createIndex({ email: 1, purpose: 1 }, { unique: true });
   await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   return collection;
@@ -309,7 +313,7 @@ export async function checkRegistrationCode(email: string, code: string) {
 export async function issuePasswordResetCode(email: string) {
   const normalizedEmail = normalizeEmail(email);
   const db = await getUserDb();
-  const user = await db.collection("users").findOne({ email: normalizedEmail });
+  const user = await usersCollection(db).findOne({ email: normalizedEmail });
   if (!user) {
     return {
       email: normalizedEmail,

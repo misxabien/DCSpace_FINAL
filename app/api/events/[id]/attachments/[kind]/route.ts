@@ -7,7 +7,7 @@ import {
   resolveEventAttachment,
 } from "@/lib/events/files";
 import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb } from "@/lib/db/get-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string; kind: string }> };
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });

@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   INVITE_FILTER_OPTIONS,
-  setAllInvited,
-  setCandidateInvited,
   type InviteCandidate,
 } from "@/lib/organizedInvitations";
 import { toggleEventInvitationLive } from "@/lib/organized/live";
@@ -105,19 +103,14 @@ export function InvitationTable({
 
   const toggleInvite = (candidate: InviteCandidate) => {
     const invited = !inviteState[candidate.id];
-    const applyLocal = () => {
-      setCandidateInvited(eventId, candidate.id, invited);
-      onInviteStateChange({ ...inviteState, [candidate.id]: invited });
-    };
-
     if (!candidate.email) {
-      applyLocal();
+      window.alert("This user has no email on file and cannot be invited.");
       return;
     }
 
     void toggleEventInvitationLive(eventId, candidate, invited)
       .then(() => {
-        applyLocal();
+        onInviteStateChange({ ...inviteState, [candidate.id]: invited });
         window.dispatchEvent(new Event("dc-invites-changed"));
       })
       .catch((error) => {
@@ -127,50 +120,37 @@ export function InvitationTable({
 
   const inviteAll = () => {
     const toInvite = visibleIds.filter((id) => !inviteState[id]);
-    const rows = candidates.filter((row) => toInvite.includes(row.id));
-    const liveRows = rows.filter((row) => row.email);
-    if (liveRows.length) {
-      void Promise.all(liveRows.map((row) => toggleEventInvitationLive(eventId, row, true)))
-        .then(() => {
-          setAllInvited(eventId, visibleIds, true);
-          const next = { ...inviteState };
-          for (const id of visibleIds) next[id] = true;
-          onInviteStateChange(next);
-          window.dispatchEvent(new Event("dc-invites-changed"));
-        })
-        .catch((error) => {
-          window.alert(error instanceof Error ? error.message : "Failed to send invitations.");
-        });
+    const rows = candidates.filter((row) => toInvite.includes(row.id) && row.email);
+    if (!rows.length) {
+      window.alert("No users with email addresses to invite.");
       return;
     }
-    setAllInvited(eventId, visibleIds, true);
-    const next = { ...inviteState };
-    for (const id of visibleIds) next[id] = true;
-    onInviteStateChange(next);
+    void Promise.all(rows.map((row) => toggleEventInvitationLive(eventId, row, true)))
+      .then(() => {
+        const next = { ...inviteState };
+        for (const row of rows) next[row.id] = true;
+        onInviteStateChange(next);
+        window.dispatchEvent(new Event("dc-invites-changed"));
+      })
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Failed to send invitations.");
+      });
   };
 
   const undoAll = () => {
     const toUndo = visibleIds.filter((id) => inviteState[id]);
-    const rows = candidates.filter((row) => toUndo.includes(row.id));
-    const liveRows = rows.filter((row) => row.email);
-    if (liveRows.length) {
-      void Promise.all(liveRows.map((row) => toggleEventInvitationLive(eventId, row, false)))
-        .then(() => {
-          setAllInvited(eventId, visibleIds, false);
-          const next = { ...inviteState };
-          for (const id of visibleIds) next[id] = false;
-          onInviteStateChange(next);
-          window.dispatchEvent(new Event("dc-invites-changed"));
-        })
-        .catch((error) => {
-          window.alert(error instanceof Error ? error.message : "Failed to undo invitations.");
-        });
-      return;
-    }
-    setAllInvited(eventId, visibleIds, false);
-    const next = { ...inviteState };
-    for (const id of visibleIds) next[id] = false;
-    onInviteStateChange(next);
+    const rows = candidates.filter((row) => toUndo.includes(row.id) && row.email);
+    if (!rows.length) return;
+    void Promise.all(rows.map((row) => toggleEventInvitationLive(eventId, row, false)))
+      .then(() => {
+        const next = { ...inviteState };
+        for (const row of rows) next[row.id] = false;
+        onInviteStateChange(next);
+        window.dispatchEvent(new Event("dc-invites-changed"));
+      })
+      .catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Failed to undo invitations.");
+      });
   };
 
   return (

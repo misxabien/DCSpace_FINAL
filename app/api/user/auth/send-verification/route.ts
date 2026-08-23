@@ -3,6 +3,7 @@ import type { Db } from "mongodb";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { issueRegistrationVerificationCode } from "@/lib/user-server/verification";
 import {
   MONGO_QUICK_TIMEOUT_MS,
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
         "MongoDB connect",
       );
       const existingUser = await withTimeout(
-        db.collection("users").findOne({ email }),
+        usersCollection(db).findOne({ email }),
         MONGO_QUICK_TIMEOUT_MS,
         "MongoDB user lookup",
       );

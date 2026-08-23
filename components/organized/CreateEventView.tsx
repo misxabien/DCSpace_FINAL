@@ -5,10 +5,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   formatEventDateParts,
-  loadOrganizedEvents,
-  saveOrganizedEvents,
   type OrganizedEvent,
 } from "@/components/organized/OrganizedShell";
+import { authFetch } from "@/lib/user-api";
 import styles from "@/components/organized/CreateEvent.module.css";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
 
@@ -264,7 +263,7 @@ export function CreateEventView() {
     if (!editingId) return;
     let cancelled = false;
     const load = async () => {
-      const res = await fetch(`/api/events/${encodeURIComponent(editingId)}`, { cache: "no-store" });
+      const res = await authFetch(`/api/events/${encodeURIComponent(editingId)}`, { cache: "no-store" });
       if (!res.ok || cancelled) return;
       const payload = (await res.json()) as {
         event?: {
@@ -437,7 +436,13 @@ export function CreateEventView() {
           announcements,
         }),
       });
-      const payload = await res.json().catch(() => ({}));
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        details?: string;
+        notes?: string;
+        activities?: unknown;
+        pdf?: { fileName?: string; mimeType?: string; base64?: string };
+      };
       if (!res.ok) {
         throw new Error(payload.error || payload.details || "Could not generate suggestions.");
       }
@@ -445,18 +450,20 @@ export function CreateEventView() {
         ? payload.activities.map((item: unknown) => String(item).trim()).filter(Boolean)
         : [];
       if (!next.length) throw new Error("No activities were returned.");
-      setActivities((current) => {
-        const seen = new Set(current.map((item) => item.toLowerCase()));
-        const merged = [...current];
-        next.forEach((item: string) => {
-          if (!seen.has(item.toLowerCase())) {
-            seen.add(item.toLowerCase());
-            merged.push(item);
-          }
-        });
-        return merged;
-      });
-      setAiNote(String(payload.notes || "Suggestions added to the program flow."));
+      setActivities(next);
+
+      if (payload.pdf?.base64) {
+        setProgramFileName(payload.pdf.fileName || `${eventName.trim()}-program-flow.pdf`);
+        setProgramFileMimeType(payload.pdf.mimeType || "application/pdf");
+        setProgramFileBase64(payload.pdf.base64);
+        setHasExistingProgramFile(false);
+      }
+
+      setAiNote(
+        payload.pdf?.base64
+          ? `${payload.notes || "Timed program flow generated."} A PDF with suggested times was attached.`
+          : String(payload.notes || "Suggestions added to the program flow."),
+      );
       document.getElementById("event-program-flow")?.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "Could not generate suggestions.");
@@ -537,7 +544,7 @@ export function CreateEventView() {
 
     const endpoint = editingId ? `/api/events/${encodeURIComponent(editingId)}` : "/api/events";
     try {
-      const res = await fetch(endpoint, {
+      const res = await authFetch(endpoint, {
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -551,15 +558,8 @@ export function CreateEventView() {
       }
 
       const savedId = String(data.event?.id || editingId || next.id);
-      const savedEvent = { ...next, id: savedId };
-      const events = loadOrganizedEvents();
-      saveOrganizedEvents(
-        editingId
-          ? events.map((item) => (item.id === editingId ? { ...item, ...savedEvent } : item))
-          : [savedEvent, ...events.filter((item) => item.id !== savedEvent.id)],
-      );
       window.dispatchEvent(new Event("dc-organized-changed"));
-      router.push("/organized");
+      router.push(savedId ? "/organized" : "/organized");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to save event.");
     } finally {
@@ -574,16 +574,10 @@ export function CreateEventView() {
   const dateParts = formatEventDateParts(startDate);
   const announcementParagraphs = announcements.trim()
     ? announcements.split(/\n+/).filter(Boolean)
-    : [
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
-      ];
+    : ["No announcements yet."];
   const descriptionParagraphs = description.trim()
     ? description.split(/\n+/).filter(Boolean)
-    : [
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque habitant morbi tristique senectus et netus.",
-        "Curabitur pretium tincidunt lacus. Nulla gravida orci a odio nullam varius turpis et commodo pharetra.",
-      ];
+    : ["No description provided."];
   const hostedCourse = attendTags.length ? attendTags.join(", ") : "Course";
   const hostedOrganization =
     collaboration === "yes" && collabTags.length ? collabTags.join(", ") : "Organization Name";
@@ -1035,6 +1029,15 @@ export function CreateEventView() {
                         No activities yet. Enter an event name at the top, then click Generate program flow with Gemini.
                       </p>
                     )}
+                    {programFileBase64 ? (
+                      <a
+                        className={styles.programDownloadBtn}
+                        href={`data:${programFileMimeType || "application/pdf"};base64,${programFileBase64}`}
+                        download={programFileName || "program-flow.pdf"}
+                      >
+                        Download PDF
+                      </a>
+                    ) : null}
                     {aiNote ? <p className={styles.aiHint}>{aiNote}</p> : null}
                     {aiError ? <p className={styles.aiError}>{aiError}</p> : null}
                   </div>

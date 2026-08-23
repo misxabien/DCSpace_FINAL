@@ -37,7 +37,7 @@ export function OrganizedEventHeader({ event }: { event: OrganizedEventHeaderDat
   return (
     <>
       <div className={styles.hero}>
-        <img src={event.imageUrl} alt="" />
+        {event.imageUrl ? <img src={event.imageUrl} alt="" /> : null}
       </div>
 
       <div className={styles.head}>

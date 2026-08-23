@@ -3,6 +3,7 @@ import { encodeSession, sessionCookieOptions } from "@/lib/auth/session";
 import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { usersCollection } from "@/lib/db/user-collections";
 import { verifyPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
       "MongoDB connect",
     );
     const user = await withTimeout(
-      db.collection("users").findOne({ email }),
+      usersCollection(db).findOne({ email }),
       MONGO_QUICK_TIMEOUT_MS,
       "MongoDB user lookup",
     );
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
       });
 
       try {
-        await db.collection("users").updateOne(
+        await usersCollection(db).updateOne(
           { _id: user._id },
           { $set: { lastLoginAt: new Date().toISOString() } },
         );
@@ -166,6 +167,20 @@ export async function POST(request: Request) {
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     console.error("[DC Space] Mongo login lookup failed:", details);
+    const isDatabaseIssue =
+      /timed out|secureConnect|server selection|connectTimeoutMS|mongo|ECONN|ENOTFOUND|tls|SSL|alert internal error/i.test(
+        details,
+      );
+    if (isDatabaseIssue) {
+      return NextResponse.json(
+        {
+          error:
+            "Could not reach MongoDB. In Atlas → Network Access, allow your current IP (or temporarily 0.0.0.0/0), confirm the cluster is not paused, then try again.",
+          details,
+        },
+        { status: 503 },
+      );
+    }
   }
 
   return NextResponse.json(

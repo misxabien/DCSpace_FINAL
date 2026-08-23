@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { certificatesCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 
@@ -21,7 +22,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const cert = await db.collection("certificates").findOne({ _id: new ObjectId(id) });
+    const cert = await certificatesCollection(db).findOne({ _id: new ObjectId(id) });
     if (!cert) {
       return NextResponse.json({ error: "Certificate not found." }, { status: 404 });
     }

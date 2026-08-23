@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
-import { activitiesCollection } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { activitiesCollection } from "@/lib/db/admin-collections";
+import {
+  usersCollection,
+  attendanceCollection,
+  feedbackCollection,
+  certificatesCollection,
+} from "@/lib/db/user-collections";
 import { eventsCollection } from "@/lib/events/types";
 
 /** Build report rows from live user/event/activity data for admin Reports UI. */
@@ -12,17 +18,18 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const userDb = await getUserDb();
+    const adminDb = await getAdminDb();
     const [events, activities, usersCount, attendanceCount, feedbackCount, certCount] =
       await Promise.all([
-        eventsCollection(db).find({}).sort({ updatedAt: -1 }).limit(50).toArray(),
-        activitiesCollection(db).find({}).sort({ createdAt: -1 }).limit(50).toArray(),
-        db.collection("users").countDocuments({
+        eventsCollection(adminDb).find({}).sort({ updatedAt: -1 }).limit(50).toArray(),
+        activitiesCollection(adminDb).find({}).sort({ createdAt: -1 }).limit(50).toArray(),
+        usersCollection(userDb).countDocuments({
           role: { $nin: ["admin", "super-admin"] },
         }),
-        db.collection("attendance_records").countDocuments({}),
-        db.collection("feedback_entries").countDocuments({}),
-        db.collection("certificates").countDocuments({}),
+        attendanceCollection(userDb).countDocuments({}),
+        feedbackCollection(userDb).countDocuments({}),
+        certificatesCollection(userDb).countDocuments({}),
       ]);
 
     const monthStart = new Date();

@@ -14,6 +14,7 @@ export type OrganizedListEvent = {
   submissions: number;
   reviewNote?: string;
   reviewStatus?: string;
+  imageUrl?: string;
 };
 
 export type OrganizedDetailEvent = OrganizedListEvent & {
@@ -65,6 +66,10 @@ export function mapSanitizedToOrganized(
         : event.status === "rejected"
           ? "Rejected"
           : "",
+    imageUrl:
+      event.posterImage ||
+      event.attachments?.poster ||
+      (event.hasPoster ? `/api/events/${encodeURIComponent(event.id)}/attachments/poster` : ""),
   };
 }
 
@@ -100,7 +105,10 @@ export function mapSanitizedToOrganizedDetail(
     ...mapSanitizedToOrganized(event, submissions),
     imageUrl:
       event.posterImage ||
-      "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=480&fit=crop&q=80",
+      event.attachments?.poster ||
+      (event.hasPoster
+        ? `/api/events/${encodeURIComponent(event.id)}/attachments/poster`
+        : ""),
     announcements: splitParagraphs(event.announcements).length
       ? splitParagraphs(event.announcements)
       : ["No announcements yet."],

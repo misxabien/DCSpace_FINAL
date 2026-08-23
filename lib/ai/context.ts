@@ -1,11 +1,13 @@
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import {
+  savedEventsCollection,
+  usersCollection,
   attendanceCollection,
   certificatesCollection,
   feedbackCollection,
-} from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+} from "@/lib/db/user-collections";
 import { registrationsCollection } from "@/lib/user-server/portal";
 
 function hourLabel(iso: string) {
@@ -33,16 +35,17 @@ function sentimentFromRating(avgRating: number) {
 }
 
 export async function loadEventAiContext(eventId: string) {
-  const db = await getUserDb();
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
   if (!ObjectId.isValid(eventId)) return null;
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
   if (!event) return null;
 
   const [registrationCount, attendanceDocs, feedbackDocs, savedCount] = await Promise.all([
-    registrationsCollection(db).countDocuments({ eventId }),
-    attendanceCollection(db).find({ eventId }).limit(400).toArray(),
-    feedbackCollection(db).find({ eventId }).limit(80).toArray(),
-    db.collection("saved_events").countDocuments({ eventIds: eventId }).catch(() => 0),
+    registrationsCollection(userDb).countDocuments({ eventId }),
+    attendanceCollection(userDb).find({ eventId }).limit(400).toArray(),
+    feedbackCollection(userDb).find({ eventId }).limit(80).toArray(),
+    savedEventsCollection(userDb).countDocuments({ eventIds: eventId }).catch(() => 0),
   ]);
 
   const tapIn = attendanceDocs.filter((row) => String(row.action || "in") === "in").length;
@@ -123,17 +126,17 @@ export async function loadEventAiContext(eventId: string) {
 }
 
 export async function loadUserAiContext(userId: string) {
-  const db = await getUserDb();
+  const userDb = await getUserDb();
   if (!ObjectId.isValid(userId)) return null;
-  const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
+  const user = await usersCollection(userDb).findOne({ _id: new ObjectId(userId) });
   if (!user) return null;
   const email = String(user.email || "").toLowerCase();
 
   const [attendanceDocs, registrationCount, certificateCount, feedbackCount] = await Promise.all([
-    attendanceCollection(db).find({ email }).limit(120).toArray(),
-    registrationsCollection(db).countDocuments({ email }),
-    certificatesCollection(db).countDocuments({ email }),
-    feedbackCollection(db).countDocuments({ email }),
+    attendanceCollection(userDb).find({ email }).limit(120).toArray(),
+    registrationsCollection(userDb).countDocuments({ email }),
+    certificatesCollection(userDb).countDocuments({ email }),
+    feedbackCollection(userDb).countDocuments({ email }),
   ]);
 
   const qualified = attendanceDocs.filter((row) => Boolean(row.qualifiedForCertificate)).length;
@@ -166,20 +169,21 @@ export async function loadUserAiContext(userId: string) {
 }
 
 export async function loadCampusAiContext(limit = 12) {
-  const db = await getUserDb();
-  const events = await eventsCollection(db)
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
+  const events = await eventsCollection(adminDb)
     .find({})
     .sort({ updatedAt: -1 })
     .limit(limit)
     .toArray();
 
   const [pending, live, completed, attendanceCount, feedbackCount, userCount] = await Promise.all([
-    eventsCollection(db).countDocuments({ status: "pending" }),
-    eventsCollection(db).countDocuments({ status: "live" }),
-    eventsCollection(db).countDocuments({ status: "completed" }),
-    attendanceCollection(db).countDocuments({}),
-    feedbackCollection(db).countDocuments({}),
-    db.collection("users").countDocuments({ role: { $nin: ["admin", "super-admin"] } }),
+    eventsCollection(adminDb).countDocuments({ status: "pending" }),
+    eventsCollection(adminDb).countDocuments({ status: "live" }),
+    eventsCollection(adminDb).countDocuments({ status: "completed" }),
+    attendanceCollection(userDb).countDocuments({}),
+    feedbackCollection(userDb).countDocuments({}),
+    usersCollection(userDb).countDocuments({ role: { $nin: ["admin", "super-admin"] } }),
   ]);
 
   return {
@@ -216,19 +220,20 @@ export async function loadReportAiContext(eventIds: string[]) {
 }
 
 export async function loadStudentAiContext(email: string) {
-  const db = await getUserDb();
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
   const normalized = email.trim().toLowerCase();
-  const user = await db.collection("users").findOne({ email: normalized });
-  const events = await eventsCollection(db)
+  const user = await usersCollection(userDb).findOne({ email: normalized });
+  const events = await eventsCollection(adminDb)
     .find({ status: { $in: ["approved", "live"] } })
     .sort({ startsAt: 1 })
     .limit(16)
     .toArray();
 
   const [registrationCount, attendanceCount, certificateCount] = await Promise.all([
-    registrationsCollection(db).countDocuments({ email: normalized }),
-    attendanceCollection(db).countDocuments({ email: normalized }),
-    certificatesCollection(db).countDocuments({ email: normalized }),
+    registrationsCollection(userDb).countDocuments({ email: normalized }),
+    attendanceCollection(userDb).countDocuments({ email: normalized }),
+    certificatesCollection(userDb).countDocuments({ email: normalized }),
   ]);
 
   return {

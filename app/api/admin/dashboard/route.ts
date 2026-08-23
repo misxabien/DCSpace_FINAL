@@ -6,14 +6,15 @@ import {
   sanitizeEvent,
   type SpaceEvent,
 } from "@/lib/events/types";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import {
-  activitiesCollection,
+  usersCollection,
   attendanceCollection,
-  certificatesCollection,
   feedbackCollection,
-  type ActivityDoc,
-} from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+  certificatesCollection,
+} from "@/lib/db/user-collections";
+import { activitiesCollection } from "@/lib/db/admin-collections";
+import type { ActivityDoc } from "@/lib/user-server/activity";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import {
   MONGO_QUICK_TIMEOUT_MS,
@@ -74,18 +75,15 @@ export async function GET(request: Request) {
   }
 
   try {
-    const db = await withTimeout(
-      getUserDb(),
-      DASHBOARD_TIMEOUT_MS,
-      "MongoDB connect",
-    );
+    const userDb = await withTimeout(getUserDb(), DASHBOARD_TIMEOUT_MS, "MongoDB connect");
+    const adminDb = await getAdminDb();
 
-    const usersCol = db.collection("users");
-    const eventsCol = eventsCollection(db);
-    const activitiesCol = activitiesCollection(db);
-    const attendanceCol = attendanceCollection(db);
-    const feedbackCol = feedbackCollection(db);
-    const certificatesCol = certificatesCollection(db);
+    const usersCol = usersCollection(userDb);
+    const eventsCol = eventsCollection(adminDb);
+    const activitiesCol = activitiesCollection(adminDb);
+    const attendanceCol = attendanceCollection(userDb);
+    const feedbackCol = feedbackCollection(userDb);
+    const certificatesCol = certificatesCollection(userDb);
 
     const weekAgo = daysAgoIso(7);
     const monthAgo = daysAgoIso(30);
