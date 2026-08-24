@@ -18,4 +18,5 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label = "Operati
   });
 }
 
-export const MONGO_QUICK_TIMEOUT_MS = 15_000;
+/** Must stay above mongo-connect serverSelectionTimeoutMS (20s) + a small buffer. */
+export const MONGO_QUICK_TIMEOUT_MS = 30_000;

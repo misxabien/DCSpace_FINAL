@@ -29,6 +29,10 @@ export type OrganizedDetailEvent = OrganizedListEvent & {
   attendanceRequired: string;
   gracePeriod: string;
   requiredFiles: string;
+  speakers: string[];
+  programActivities: string[];
+  collaboratingDepartments: string[];
+  audienceSchools: string[];
   attachments: Array<{ label: string; fileName: string; url: string }>;
 };
 
@@ -123,6 +127,12 @@ export function mapSanitizedToOrganizedDetail(
     attendanceRequired: event.attendanceRequired || "30 minutes",
     gracePeriod: event.gracePeriod || "15 minutes",
     requiredFiles: requiredFiles.length ? requiredFiles.join(", ") : "None",
+    speakers: Array.isArray(event.speakers) ? event.speakers : [],
+    programActivities: Array.isArray(event.programActivities) ? event.programActivities : [],
+    collaboratingDepartments: Array.isArray(event.collaboratingDepartments)
+      ? event.collaboratingDepartments
+      : [],
+    audienceSchools: Array.isArray(event.audienceSchools) ? event.audienceSchools : [],
     attachments,
   };
 }

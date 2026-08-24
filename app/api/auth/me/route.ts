@@ -7,6 +7,9 @@ import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
 
+const ME_CACHE_TTL_MS = 30_000;
+const meCache = new Map<string, { at: number; user: Awaited<ReturnType<typeof toSessionUser>> }>();
+
 export async function GET() {
   const jar = await cookies();
   const cookieUser = decodeSession(jar.get(SESSION_COOKIE)?.value);
@@ -15,10 +18,25 @@ export async function GET() {
   }
 
   try {
+    const cacheKey = cookieUser.email.trim().toLowerCase();
+    const cached = meCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ME_CACHE_TTL_MS) {
+      return NextResponse.json({ user: cached.user });
+    }
+
     const db = await getUserDb();
-    const doc = await usersCollection(db).findOne({
-      email: cookieUser.email.trim().toLowerCase(),
-    });
+    const doc = await usersCollection(db).findOne(
+      { email: cacheKey },
+      {
+        projection: {
+          email: 1,
+          firstName: 1,
+          lastName: 1,
+          role: 1,
+          organizationRole: 1,
+        },
+      },
+    );
     if (!doc) {
       return NextResponse.json({ user: cookieUser });
     }
@@ -29,6 +47,8 @@ export async function GET() {
       role: String(doc.role || ""),
       organizationRole: String(doc.organizationRole || ""),
     });
+
+    meCache.set(cacheKey, { at: Date.now(), user: live });
 
     if (cookieUser.isAdmin && !isAdminRole(live.role)) {
       const response = NextResponse.json({ user: null });

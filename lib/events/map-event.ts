@@ -21,12 +21,14 @@ export type SanitizedEvent = {
   department?: string;
   status?: string;
   organizerName?: string;
+  organizerEmail?: string;
   posterImage?: string;
   hasPoster?: boolean;
   reviewNote?: string;
   conceptPaperName?: string;
   certificateTemplateName?: string;
   programFileName?: string;
+  programFileVisibility?: "everyone" | "organizers";
   hasConceptPaper?: boolean;
   hasCertificateTemplate?: boolean;
   hasProgramFile?: boolean;
@@ -59,6 +61,15 @@ export type LegacyCardEvent = {
   description: string;
   announcements: string;
   tags?: string[];
+  imageUrl?: string;
+  speakers: string[];
+  programActivities: string[];
+  collaboratingDepartments: string[];
+  audienceSchools: string[];
+  organizerEmail: string;
+  reviewNote: string;
+  dbStatus: string;
+  attachmentFiles: Array<{ label: string; fileName: string; url: string }>;
 };
 
 function formatTimeLabel(iso: string): string {
@@ -136,7 +147,14 @@ export function timingToJoinedCategory(
 export function thematicCategory(e: SanitizedEvent): string {
   const cat = (e.category || "").toLowerCase();
   if (cat.includes("tech")) return "tech";
-  if (cat.includes("org")) return "organization";
+  if (
+    cat.includes("org") ||
+    cat.includes("social") ||
+    cat.includes("party") ||
+    cat.includes("celebration")
+  ) {
+    return "organization";
+  }
   if (cat.includes("acad")) return "academic";
   return "";
 }
@@ -146,9 +164,8 @@ export function bucketCategory(e: SanitizedEvent): string {
   const timing = eventTimingBucket(e.startsAt, e.status);
 
   if (timing === "today") return theme || "today";
-  if (timing === "past") return theme || "joined-past";
-  // Upcoming: prefer theme for Explore rows; otherwise upcoming joined bucket
-  return theme || "joined-upcoming";
+  if (timing === "past") return theme || "past";
+  return theme || "upcoming";
 }
 
 function mapCardStatus(status?: string): string {
@@ -169,6 +186,46 @@ function mapCardStatus(status?: string): string {
     default:
       return "open";
   }
+}
+
+export function resolveEventImageUrl(e: SanitizedEvent): string {
+  if (e.posterImage) return e.posterImage;
+  if (e.attachments?.poster) return e.attachments.poster;
+  return "";
+}
+
+function buildAttachmentFiles(
+  e: SanitizedEvent,
+  options?: { includeOrganizerOnly?: boolean },
+) {
+  const files: LegacyCardEvent["attachmentFiles"] = [];
+  if (e.hasConceptPaper && e.attachments?.conceptPaper) {
+    files.push({
+      label: "Concept Paper",
+      fileName: e.conceptPaperName || "concept-paper.pdf",
+      url: e.attachments.conceptPaper,
+    });
+  }
+  if (e.hasCertificateTemplate && e.attachments?.certificateTemplate) {
+    files.push({
+      label: "Certificate Template",
+      fileName: e.certificateTemplateName || "certificate-template.pdf",
+      url: e.attachments.certificateTemplate,
+    });
+  }
+  const programOrganizerOnly = e.programFileVisibility === "organizers";
+  if (
+    e.hasProgramFile &&
+    e.attachments?.programFile &&
+    (options?.includeOrganizerOnly || !programOrganizerOnly)
+  ) {
+    files.push({
+      label: "Program Flow",
+      fileName: e.programFileName || "program-flow.pdf",
+      url: e.attachments.programFile,
+    });
+  }
+  return files;
 }
 
 export function mapDbEventToCard(
@@ -198,5 +255,16 @@ export function mapDbEventToCard(
     filesApproved: false,
     description: e.description || "",
     announcements: e.announcements || "",
+    imageUrl: resolveEventImageUrl(e),
+    speakers: Array.isArray(e.speakers) ? e.speakers : [],
+    programActivities: Array.isArray(e.programActivities) ? e.programActivities : [],
+    collaboratingDepartments: Array.isArray(e.collaboratingDepartments)
+      ? e.collaboratingDepartments
+      : [],
+    audienceSchools: Array.isArray(e.audienceSchools) ? e.audienceSchools : [],
+    organizerEmail: String(e.organizerEmail || ""),
+    reviewNote: e.reviewNote || "",
+    dbStatus: e.status || "",
+    attachmentFiles: buildAttachmentFiles(e),
   };
 }

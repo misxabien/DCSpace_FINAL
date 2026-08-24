@@ -333,25 +333,36 @@ export async function issuePasswordResetCode(email: string) {
     purpose: RESET_PURPOSE,
   });
 
-  const verifications = await getVerificationsCollection(db);
-  const now = new Date();
-  await verifications.updateOne(
-    { email: normalizedEmail, purpose: RESET_PURPOSE },
-    {
-      $set: {
-        email: normalizedEmail,
-        purpose: RESET_PURPOSE,
-        codeHash,
-        expiresAt,
-        updatedAt: now,
-        attempts: 0,
+  try {
+    const verifications = await getVerificationsCollection(db);
+    const now = new Date();
+    await verifications.updateOne(
+      { email: normalizedEmail, purpose: RESET_PURPOSE },
+      {
+        $set: {
+          email: normalizedEmail,
+          purpose: RESET_PURPOSE,
+          codeHash,
+          expiresAt,
+          updatedAt: now,
+          attempts: 0,
+        },
+        $setOnInsert: { createdAt: now },
       },
-      $setOnInsert: { createdAt: now },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  } catch (error) {
+    console.warn(
+      "[DC Space] Could not persist password-reset code to Mongo — using memory store:",
+      error instanceof Error ? error.message : error,
+    );
+  }
 
-  const sendResult = await sendVerificationEmail({ email: normalizedEmail, code });
+  const sendResult = await sendVerificationEmail({
+    email: normalizedEmail,
+    code,
+    purpose: "password-reset",
+  });
   return {
     email: normalizedEmail,
     expiresAt: expiresAt.toISOString(),
@@ -370,24 +381,40 @@ export async function verifyPasswordResetCode(email: string, code: string) {
     return { ok: false as const, error: "Verification code must be a 6-digit number." };
   }
 
-  const db = await getUserDb();
-  const verifications = await getVerificationsCollection(db);
-  const record = await verifications.findOne({
-    email: normalizedEmail,
-    purpose: RESET_PURPOSE,
-  });
-  if (record) {
-    if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-      return { ok: false as const, error: "Verification code has expired. Please request a new code." };
+  // Prefer the newest in-memory code so a stale Mongo row cannot reject a fresh email.
+  const memory = readMemoryVerification(normalizedEmail, RESET_PURPOSE);
+  if (memory) {
+    if (isMemoryVerificationExpired(memory)) {
+      deleteMemoryVerification(normalizedEmail, RESET_PURPOSE);
+    } else if (verifyPassword(trimmedCode, memory.codeHash)) {
+      return { ok: true as const };
+    } else {
+      incrementMemoryAttempts(memory);
+      // Fall through to Mongo in case memory is from an older request.
     }
-    if (!verifyPassword(trimmedCode, String(record.codeHash || ""))) {
-      await verifications.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
-      return { ok: false as const, error: "Invalid verification code." };
-    }
-    return { ok: true as const };
   }
 
-  const memory = readMemoryVerification(normalizedEmail, RESET_PURPOSE);
+  try {
+    const db = await getUserDb();
+    const verifications = await getVerificationsCollection(db);
+    const record = await verifications.findOne({
+      email: normalizedEmail,
+      purpose: RESET_PURPOSE,
+    });
+    if (record) {
+      if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+        return { ok: false as const, error: "Verification code has expired. Please request a new code." };
+      }
+      if (!verifyPassword(trimmedCode, String(record.codeHash || ""))) {
+        await verifications.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
+        return { ok: false as const, error: "Invalid verification code." };
+      }
+      return { ok: true as const };
+    }
+  } catch {
+    /* memory-only fallback below */
+  }
+
   if (!memory) {
     return { ok: false as const, error: "No verification code found. Please request a new code." };
   }
@@ -395,11 +422,7 @@ export async function verifyPasswordResetCode(email: string, code: string) {
     deleteMemoryVerification(normalizedEmail, RESET_PURPOSE);
     return { ok: false as const, error: "Verification code has expired. Please request a new code." };
   }
-  if (!verifyPassword(trimmedCode, memory.codeHash)) {
-    incrementMemoryAttempts(memory);
-    return { ok: false as const, error: "Invalid verification code." };
-  }
-  return { ok: true as const };
+  return { ok: false as const, error: "Invalid verification code." };
 }
 
 export async function consumePasswordResetCode(email: string, code: string) {

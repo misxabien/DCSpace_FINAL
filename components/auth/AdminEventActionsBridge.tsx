@@ -40,6 +40,8 @@ type LiveEvent = {
     programFile?: string;
     poster?: string;
   };
+  posterImage?: string;
+  hasPoster?: boolean;
 };
 
 const DETAIL_PAGES = new Set([
@@ -272,6 +274,27 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
 
   fillEventFiles(root, event);
   fillProgramFlow(root, event);
+
+  const posterSrc =
+    event.posterImage ||
+    event.attachments?.poster ||
+    (event.hasPoster ? `/api/events/${encodeURIComponent(event.id)}/attachments/poster` : "");
+  root.querySelectorAll<HTMLImageElement>(".poster img, #event-info-card img.poster-image").forEach(
+    (img) => {
+      if (!posterSrc) return;
+      img.src = posterSrc;
+      img.loading = "eager";
+      img.decoding = "async";
+    },
+  );
+  root.querySelectorAll<HTMLElement>(".poster[data-poster], .detail-top-aside .poster").forEach(
+    (el) => {
+      if (!posterSrc || el.querySelector("img")) return;
+      el.style.backgroundImage = `url("${posterSrc}")`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+    },
+  );
 
   const rfidLink = root.querySelector<HTMLAnchorElement>("#live-attendance-link, a[href='/admin/rfid17']");
   if (rfidLink) {

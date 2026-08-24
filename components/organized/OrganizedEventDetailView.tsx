@@ -219,6 +219,62 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
         </div>
       </section>
 
+      {event.speakers?.length ? (
+        <section className={styles.section}>
+          <h3>Speakers</h3>
+          <div className={styles.list}>
+            {event.speakers.map((speaker) => (
+              <div className={styles.listItem} key={speaker}>
+                <IconHostedPeople />
+                <span>{speaker}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {event.programActivities?.length ? (
+        <section className={styles.section}>
+          <h3>Program Flow</h3>
+          <div className={styles.list}>
+            {event.programActivities.map((item) => (
+              <div className={styles.listItem} key={item}>
+                <IconEventType />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {event.audienceSchools?.length ? (
+        <section className={styles.section}>
+          <h3>Audience / Schools</h3>
+          <div className={styles.list}>
+            {event.audienceSchools.map((school) => (
+              <div className={styles.listItem} key={school}>
+                <IconHostedBook />
+                <span>{school}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {event.collaboratingDepartments?.length ? (
+        <section className={styles.section}>
+          <h3>Collaborating Departments</h3>
+          <div className={styles.list}>
+            {event.collaboratingDepartments.map((dept) => (
+              <div className={styles.listItem} key={dept}>
+                <IconHostedBuilding />
+                <span>{dept}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className={styles.section}>
         <h3>Event Requirements</h3>
         <div className={styles.list}>

@@ -17,6 +17,8 @@
     style.id = 'dc-bookmark-styles';
     style.textContent =
       '.event-card__venue,.event-card__time{margin:0;}' +
+      '.event-card__media{position:relative;overflow:hidden;}' +
+      '.event-card__image{width:100%;height:100%;object-fit:cover;display:block;}' +
       '.event-card__bookmark.is-saved{background:#FFE082;border:none;color:#448AFF;}' +
       '.event-card__bookmark.is-saved svg{fill:currentColor;stroke:currentColor;}';
     document.head.appendChild(style);
@@ -116,8 +118,16 @@
     article.setAttribute('role', 'link');
     article.setAttribute('aria-label', 'View ' + event.name);
 
+    var mediaHtml = '';
+    if (event.imageUrl) {
+      mediaHtml =
+        '<img class="event-card__image" src="' + escapeHtml(String(event.imageUrl)) +
+        '" alt="" loading="eager" decoding="async" fetchpriority="high" />';
+    }
+
     article.innerHTML =
       '<div class="event-card__media">' +
+        mediaHtml +
         '<button type="button" class="event-card__bookmark" data-event-id="' + escapeHtml(String(event.id)) + '" aria-label="Save event">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>' +
         '</button>' +

@@ -17,6 +17,8 @@ import {
   syncProfileToLegacyStorage,
   type UserProfile,
 } from "@/lib/user-api";
+import { readCachedAuthUser } from "@/lib/cached-auth-user";
+import { invalidatePortalCache } from "@/lib/portal-data-client";
 
 type LoginOptions = {
   portal?: "admin" | "user";
@@ -40,20 +42,21 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<SessionUser | null>(() => readCachedAuthUser());
+  const [loading, setLoading] = useState(() => readCachedAuthUser() === null);
 
   const refresh = useCallback(async () => {
+    const hadCachedUser = Boolean(readCachedAuthUser());
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
       if (!res.ok) {
-        setUser(null);
+        if (!hadCachedUser) setUser(null);
         return;
       }
       const data = (await res.json()) as { user: SessionUser | null };
       setUser(data.user);
     } catch {
-      setUser(null);
+      if (!hadCachedUser) setUser(null);
     } finally {
       setLoading(false);
     }
@@ -118,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.sessionStorage.removeItem("dcspaceCurrentUser");
       window.localStorage.removeItem("dc_admin_role");
       document.body.classList.remove("is-super-admin");
+      invalidatePortalCache();
     } catch {
       /* ignore */
     }

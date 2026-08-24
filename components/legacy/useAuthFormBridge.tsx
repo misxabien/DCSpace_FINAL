@@ -56,7 +56,9 @@ function clearError() {
 function setSubmitting(form: HTMLFormElement, submitting: boolean) {
   const button =
     form.querySelector<HTMLButtonElement>("[data-auth-continue]") ||
-    form.querySelector<HTMLButtonElement>('button[type="submit"], .btn-continue, .btn-create, .btn-signin');
+    form.querySelector<HTMLButtonElement>(
+      'button[type="submit"], .btn-continue, .btn-create, .btn-signin, .btn-send, .btn-submit, .btn-save',
+    );
   if (!button) {
     return;
   }
@@ -132,7 +134,54 @@ const AUTH_PATHS = new Set([
   "/accounts",
   "/verify",
   "/agreement",
+  "/forgot-password",
+  "/forgot-password/verify",
+  "/new-password",
 ]);
+
+const RESET_EMAIL_KEY = "dcspaceResetEmail";
+const RESET_CODE_KEY = "dcspaceResetCode";
+
+function readResetEmail() {
+  try {
+    return (window.sessionStorage.getItem(RESET_EMAIL_KEY) || "").trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function writeResetEmail(email: string) {
+  try {
+    window.sessionStorage.setItem(RESET_EMAIL_KEY, email);
+  } catch {
+    /* ignore */
+  }
+}
+
+function writeResetCode(code: string) {
+  try {
+    window.sessionStorage.setItem(RESET_CODE_KEY, code);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readResetCode() {
+  try {
+    return (window.sessionStorage.getItem(RESET_CODE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function clearResetSession() {
+  try {
+    window.sessionStorage.removeItem(RESET_EMAIL_KEY);
+    window.sessionStorage.removeItem(RESET_CODE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function useAuthFormBridge() {
   const pathname = usePathname();
@@ -361,6 +410,122 @@ export function useAuthFormBridge() {
           router.push(canOrganizeEvents(result.user) ? "/organized" : "/home");
           return;
         }
+
+        if (pathname === "/forgot-password") {
+          const email = String(
+            data.get("schoolEmail") || data.get("email") || "",
+          )
+            .trim()
+            .toLowerCase();
+          if (!email.endsWith("@sdca.edu.ph")) {
+            showError("Use your school email ending in @sdca.edu.ph.");
+            return;
+          }
+
+          submitting = true;
+          setSubmitting(formEl, true);
+          const res = await fetch("/api/user/auth/forgot-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload.error || payload.details || "Failed to send reset code.");
+          }
+
+          writeResetEmail(email);
+          clearError();
+          window.alert(
+            `${payload.message || "If this email is registered, a verification code was sent."}\n\nUse the newest 6-digit code from your school email.`,
+          );
+          go("/forgot-password/verify");
+          return;
+        }
+
+        if (pathname === "/forgot-password/verify") {
+          const verificationCode = String(
+            data.get("verificationCode") || data.get("code") || "",
+          )
+            .trim()
+            .replace(/\s/g, "");
+          if (!/^\d{6}$/.test(verificationCode)) {
+            showError("Enter the 6-digit verification code from your email (or server terminal).");
+            return;
+          }
+
+          const email =
+            readResetEmail() ||
+            new URLSearchParams(window.location.search).get("schoolEmail")?.trim().toLowerCase() ||
+            "";
+          if (!email) {
+            showError("Start again from the school email step.");
+            go("/forgot-password");
+            return;
+          }
+
+          submitting = true;
+          setSubmitting(formEl, true);
+          const res = await fetch("/api/user/auth/verify-reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, code: verificationCode }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload.error || "Invalid verification code.");
+          }
+
+          writeResetEmail(email);
+          writeResetCode(verificationCode);
+          go("/new-password");
+          return;
+        }
+
+        if (pathname === "/new-password") {
+          const newPassword = String(data.get("newPassword") || data.get("password") || "");
+          const confirmPassword = String(data.get("confirmPassword") || "");
+          const email = readResetEmail();
+          const code = readResetCode();
+
+          if (!email || !code) {
+            showError("Start again from the school email step.");
+            go("/forgot-password");
+            return;
+          }
+          if (newPassword !== confirmPassword) {
+            showError("Passwords do not match.");
+            return;
+          }
+          if (!isPasswordStrong(newPassword)) {
+            showError(
+              "Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.",
+            );
+            return;
+          }
+
+          submitting = true;
+          setSubmitting(formEl, true);
+          const res = await fetch("/api/user/auth/reset-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              code,
+              newPassword,
+              confirmPassword,
+            }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload.error || "Failed to reset password.");
+          }
+
+          clearResetSession();
+          window.alert(payload.message || "Password updated. You can sign in now.");
+          go("/login");
+          return;
+        }
       } catch (error) {
         showError(error instanceof Error ? error.message : "Something went wrong. Please try again.");
         setSubmitting(formEl, false);
@@ -387,7 +552,7 @@ export function useAuthFormBridge() {
         return;
       }
       const button = target.closest<HTMLButtonElement>(
-        "[data-auth-continue], .btn-continue, button.btn-create, button.btn-signin",
+        "[data-auth-continue], .btn-continue, button.btn-create, button.btn-signin, button.btn-send, button.btn-submit, button.btn-save",
       );
       if (!button || button.disabled) {
         return;

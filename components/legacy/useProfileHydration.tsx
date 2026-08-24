@@ -19,7 +19,9 @@ import {
   getProfileInfoStorageKey,
   prepareCoverImageForStorage,
   prepareProfilePhotoForStorage,
+  readCachedAccountImages,
 } from "@/lib/profile-images";
+import { preloadImageUrls } from "@/lib/image-preload";
 
 const COURSE_LABELS: Record<string, string> = {
   "bs-medical-laboratory-science": "BS Medical Laboratory Science (Medical Technology)",
@@ -196,16 +198,34 @@ export function useProfileHydration() {
 
   useEffect(() => {
     const session = readAuthSession();
+    const cached = readCachedAccountImages();
+
+    if (cached.photoUrl || cached.bannerUrl) {
+      applyAvatarToDom(cached.photoUrl || session?.user.photoUrl || "");
+      applyBannerToDom(cached.bannerUrl || session?.user.bannerUrl || "");
+      preloadImageUrls([cached.photoUrl, cached.bannerUrl]);
+    }
+
     if (!session?.user) {
       return;
     }
 
-    applyProfileToDom(session.user);
+    applyProfileToDom({
+      ...session.user,
+      photoUrl: cached.photoUrl || session.user.photoUrl || "",
+      bannerUrl: cached.bannerUrl || session.user.bannerUrl || "",
+    });
 
     let cancelled = false;
 
     async function refreshFromServer() {
       try {
+        const cacheKey = "dc_profile_refreshed_at";
+        const last = Number(window.sessionStorage.getItem(cacheKey) || 0);
+        if (Date.now() - last < 120_000) {
+          return;
+        }
+
         const result = await fetchProfile(session?.token);
         if (cancelled) return;
         if (session?.token && result.profile) {
@@ -213,6 +233,7 @@ export function useProfileHydration() {
         }
         syncProfileToLegacyStorage(result.profile);
         applyProfileToDom(result.profile);
+        window.sessionStorage.setItem(cacheKey, String(Date.now()));
       } catch {
         /* keep local session data if API is unreachable */
       }

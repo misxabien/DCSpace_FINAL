@@ -233,7 +233,9 @@ export function OrganizedEventCard({
             className={styles.listCardImage}
             src={event.imageUrl}
             alt=""
-            loading="lazy"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
           />
         ) : null}
         <button

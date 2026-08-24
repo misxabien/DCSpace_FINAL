@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { attendanceCollection } from "@/lib/user-server/activity";
+import { eventOwnedBy } from "@/lib/events/ownership";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
@@ -26,9 +27,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
-    const owns =
-      event.organizerEmail === actor.email || event.organizerId === actor.userId;
-    if (!owns) {
+    if (!eventOwnedBy(event, actor.email, actor.userId)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

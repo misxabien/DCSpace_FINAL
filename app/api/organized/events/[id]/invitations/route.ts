@@ -4,6 +4,7 @@ import { eventsCollection } from "@/lib/events/types";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { usersCollection } from "@/lib/db/user-collections";
 import { invitationsCollection, notifyUser } from "@/lib/user-server/portal";
+import { eventOwnedBy } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -14,8 +15,9 @@ async function requireOrganizer(eventId: string, email: string, userId?: string)
   if (!ObjectId.isValid(eventId)) return { error: "Invalid event id.", status: 400 } as const;
   const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
   if (!event) return { error: "Event not found.", status: 404 } as const;
-  const owns = event.organizerEmail === email || (userId && event.organizerId === userId);
-  if (!owns) return { error: "Forbidden.", status: 403 } as const;
+  if (!eventOwnedBy(event, email, userId)) {
+    return { error: "Forbidden.", status: 403 } as const;
+  }
   return { userDb, event };
 }
 

@@ -61,11 +61,15 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     const fileName = file.name.replace(/["\r\n]/g, "") || "download";
+    const cacheControl =
+      kind === "poster"
+        ? "private, max-age=86400, stale-while-revalidate=604800"
+        : "private, max-age=3600";
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": file.mimeType || "application/octet-stream",
         "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": "private, no-store",
+        "Cache-Control": cacheControl,
       },
     });
   } catch (error) {

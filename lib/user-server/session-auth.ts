@@ -29,7 +29,9 @@ export async function requireSessionActor(
   if (session) {
     try {
       const db = await getUserDb();
-      const user = await usersCollection(db).findOne({ email: session.email });
+      const user = await usersCollection(db).findOne({
+        email: session.email.trim().toLowerCase(),
+      });
       if (user) {
         return {
           email: String(user.email),

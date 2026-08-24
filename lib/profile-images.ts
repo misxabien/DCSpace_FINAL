@@ -138,6 +138,17 @@ export async function prepareCoverImageForStorage(file: File) {
   return fileToCompressedDataUrl(file, MAX_BANNER_DIMENSION);
 }
 
+export function readCachedAccountImages() {
+  if (typeof window === "undefined") {
+    return { photoUrl: "", bannerUrl: "" };
+  }
+
+  return {
+    photoUrl: window.localStorage.getItem(getProfilePhotoStorageKey()) || "",
+    bannerUrl: window.localStorage.getItem(getProfileCoverStorageKey()) || "",
+  };
+}
+
 export function cacheAccountImages(profile: UserProfile) {
   if (typeof window === "undefined") {
     return;

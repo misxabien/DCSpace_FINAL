@@ -108,6 +108,13 @@ function deriveEndsAt(doc: {
   return `${day}T${normalizeClock(String(doc.endTime))}`;
 }
 
+function formatPosterDataUrl(base64?: string, mimeType?: string) {
+  const raw = String(base64 || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:")) return raw;
+  return `data:${mimeType || "image/jpeg"};base64,${raw}`;
+}
+
 export function sanitizeEvent(
   doc: SpaceEvent & { _id: ObjectId } & {
     date?: string;
@@ -115,7 +122,7 @@ export function sanitizeEvent(
     endTime?: string;
     venue?: string;
   },
-  options?: { includeMedia?: boolean },
+  options?: { includeMedia?: boolean; includePoster?: boolean },
 ) {
   const startsAt = String(doc.startsAt || "").trim() || deriveStartsAt(doc);
   const endsAt = String(doc.endsAt || "").trim() || deriveEndsAt(doc, startsAt);
@@ -148,11 +155,16 @@ export function sanitizeEvent(
     audienceSchools: asStringList(doc.audienceSchools),
     programActivities: asStringList(doc.programActivities),
     department: doc.department || "",
-    hasPoster: Boolean(doc.posterImageBase64),
-    hasConceptPaper: Boolean(doc.conceptPaperBase64),
-    hasCertificateTemplate: Boolean(doc.certificateTemplateBase64),
-    hasProgramFile: Boolean(doc.programFileBase64),
-    posterImage: options?.includeMedia ? doc.posterImageBase64 || "" : "",
+    hasPoster: Boolean(doc.posterImageBase64 || doc.posterImageMimeType),
+    hasConceptPaper: Boolean(doc.conceptPaperBase64 || doc.conceptPaperName),
+    hasCertificateTemplate: Boolean(
+      doc.certificateTemplateBase64 || doc.certificateTemplateName,
+    ),
+    hasProgramFile: Boolean(doc.programFileBase64 || doc.programFileName),
+    posterImage:
+      options?.includeMedia || options?.includePoster
+        ? formatPosterDataUrl(doc.posterImageBase64, doc.posterImageMimeType)
+        : "",
     attachments: {
       conceptPaper: doc.conceptPaperBase64
         ? `/api/events/${doc._id.toString()}/attachments/concept-paper`

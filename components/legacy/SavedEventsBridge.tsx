@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { getSavedEventIds, setSavedEventIds } from "@/lib/savedEvents";
+import { readCachedPortalData } from "@/lib/portal-data-client";
 
 /**
  * Keeps bookmarked event IDs in sync between localStorage and MongoDB
@@ -12,6 +13,11 @@ export function SavedEventsBridge() {
     let cancelled = false;
 
     const loadFromApi = async () => {
+      const cached = readCachedPortalData();
+      if (cached?.savedEventIds?.length) {
+        setSavedEventIds(cached.savedEventIds.map(String));
+      }
+
       try {
         const res = await fetch("/api/user/saved-events", {
           cache: "no-store",

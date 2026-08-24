@@ -9,6 +9,7 @@ import {
   notifyUser,
   registrationsCollection,
 } from "@/lib/user-server/portal";
+import { isPublicEventStatus } from "@/lib/events/public-status";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 
@@ -87,8 +88,17 @@ export async function POST(request: Request) {
     const event = ObjectId.isValid(eventId)
       ? await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) })
       : null;
+    if (!event) {
+      return NextResponse.json({ error: "Event not found." }, { status: 404 });
+    }
+    if (!isPublicEventStatus(event.status)) {
+      return NextResponse.json(
+        { error: "This event is not open for registration yet." },
+        { status: 403 },
+      );
+    }
     const eventTitle =
-      String(body.eventTitle || "").trim() || String(event?.title || "Event");
+      String(body.eventTitle || "").trim() || String(event.title || "Event");
 
     const existing = await registrationsCollection(userDb).findOne({
       eventId,

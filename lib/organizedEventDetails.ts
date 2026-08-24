@@ -12,6 +12,10 @@ export type OrganizedEventDetail = Omit<OrganizedEvent, "imageUrl"> & {
   attendanceRequired: string;
   gracePeriod: string;
   requiredFiles: string;
+  speakers?: string[];
+  programActivities?: string[];
+  collaboratingDepartments?: string[];
+  audienceSchools?: string[];
   attachments?: Array<{ label: string; fileName: string; url: string }>;
   iroomReservationId?: string;
   iroomStatus?: string;

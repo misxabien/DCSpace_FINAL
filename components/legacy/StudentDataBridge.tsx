@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
   bucketCategory,
@@ -11,7 +11,16 @@ import {
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
-import { getSavedEventIds } from "@/lib/savedEvents";
+import { getSavedEventIds, setSavedEventIds } from "@/lib/savedEvents";
+import {
+  fetchPortalData,
+  invalidatePortalCache,
+  isPortalCacheStale,
+  readCachedPortalData,
+  type PortalPayload,
+} from "@/lib/portal-data-client";
+import { preloadImageUrls } from "@/lib/image-preload";
+import { authFetch } from "@/lib/user-api";
 
 declare global {
   interface Window {
@@ -43,6 +52,8 @@ declare global {
           timing?: string;
         },
       ) => void;
+      upsertEvent?: (event: unknown) => void;
+      renderDetailContent?: (event: unknown) => void;
       renderEventDetails?: () => void;
       renderExploreDetails?: () => void;
       renderAttendanceDetails?: () => void;
@@ -166,25 +177,25 @@ function applyAttendanceCategories(
 
 function tagsForApprovedEvent(
   event: SanitizedEvent,
-  card: LegacyCardEvent,
   invited: boolean,
-  registrationStatus?: string,
+  isJoined: boolean,
 ) {
   const timing = eventTimingBucket(event.startsAt, event.status);
-  const joinedCat = timingToJoinedCategory(timing);
   const theme = thematicCategory(event);
   const tags = new Set<string>();
 
-  // Date buckets — Home Today / Upcoming / Past + /events/today|upcoming|past
-  tags.add(joinedCat);
+  // Browse / Explore — every admin-approved event from every organizer
+  tags.add(timing);
+  if (timing !== "past") tags.add("browse");
+  if (theme) tags.add(theme);
   if (timing === "today") tags.add("today");
 
-  // Explore theme rows
-  if (theme) tags.add(theme);
-  tags.add(card.category);
+  // Home "Events Joined" — only when this user actually registered
+  if (isJoined) {
+    tags.add(timingToJoinedCategory(timing));
+  }
 
   if (invited) tags.add("invited");
-  if (registrationStatus) tags.add(joinedCat);
 
   return Array.from(tags);
 }
@@ -242,6 +253,56 @@ function refreshSavedViews() {
   updateSavedPageEmptyState();
 }
 
+async function hydrateEventDetailPage(pathname: string) {
+  if (!pathname.startsWith("/events/details") && !pathname.startsWith("/events/explore")) {
+    return false;
+  }
+  const detailId = new URLSearchParams(window.location.search).get("id");
+  if (!detailId || !window.DCEvents) return false;
+
+  try {
+    const res = await authFetch(`/api/events/${encodeURIComponent(detailId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return false;
+    const payload = (await res.json()) as { event?: SanitizedEvent };
+    if (!payload.event) return false;
+
+    const card = mapDbEventToCard(payload.event, bucketCategory(payload.event));
+    const existing = window.DCEvents.getEventById?.(detailId) as LegacyCardEvent | null;
+    const merged = existing
+      ? {
+          ...card,
+          category: existing.category,
+          tags: existing.tags,
+          status: existing.status,
+          filesApproved: existing.filesApproved,
+        }
+      : card;
+
+    window.DCEvents.upsertEvent?.(merged);
+    preloadImageUrls([merged.imageUrl]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderLegacyDetailViews(pathname: string) {
+  if (pathname.startsWith("/events/details") && window.DCEvents?.renderEventDetails) {
+    window.DCEvents.renderEventDetails();
+  }
+  if (pathname.startsWith("/events/explore") && window.DCEvents?.renderExploreDetails) {
+    window.DCEvents.renderExploreDetails();
+  }
+  if (pathname.startsWith("/attendance/details") && window.DCEvents?.renderAttendanceDetails) {
+    window.DCEvents.renderAttendanceDetails();
+  }
+  if (pathname.startsWith("/events/submit") && window.DCEvents?.renderSubmitPage) {
+    window.DCEvents.renderSubmitPage();
+  }
+}
+
 function refreshLegacyEventViews(pathname: string) {
   if (!window.DCEvents) return;
 
@@ -267,22 +328,22 @@ function refreshLegacyEventViews(pathname: string) {
     }
   }
 
-  if (pathname.startsWith("/events/details") && window.DCEvents.renderEventDetails) {
-    window.DCEvents.renderEventDetails();
-  }
-  if (pathname.startsWith("/events/explore") && window.DCEvents.renderExploreDetails) {
-    window.DCEvents.renderExploreDetails();
-  }
-  if (pathname.startsWith("/attendance/details") && window.DCEvents.renderAttendanceDetails) {
-    window.DCEvents.renderAttendanceDetails();
-  }
-  if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
-    window.DCEvents.renderSubmitPage();
-  }
-
   if (pathname.startsWith("/saved")) {
     refreshSavedViews();
   }
+
+  const isDetailPage =
+    pathname.startsWith("/events/details") || pathname.startsWith("/events/explore");
+
+  if (isDetailPage) {
+    renderLegacyDetailViews(pathname);
+    void hydrateEventDetailPage(pathname).then((hydrated) => {
+      if (hydrated) renderLegacyDetailViews(pathname);
+    });
+    return;
+  }
+
+  renderLegacyDetailViews(pathname);
 }
 
 function formatClock(iso: string) {
@@ -338,130 +399,161 @@ function fileToDataUrl(file: File) {
  */
 export function StudentDataBridge() {
   const pathname = usePathname();
+  const listenersWired = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    const injectEvents = async () => {
-      if (!window.DCEvents) return;
+    const mapPortalToLive = (data: PortalPayload) => {
+      const joined = new Map(
+        (data.registrations || []).map((row) => [
+          String(row.eventId || ""),
+          String(row.status || "joined"),
+        ]),
+      );
+      const invited = new Set(
+        (data.invitations || [])
+          .filter((row) => String(row.status || "pending") !== "joined")
+          .map((row) => String(row.eventId || "")),
+      );
 
-      // Always start from empty — never show leftover prototype data.
-      window.DCEvents.list = [];
-      window.DCEvents.attendanceRfid = {};
+      return (data.events || []).map((event): LegacyCardEvent => {
+        const registrationStatus = joined.get(String(event.id));
+        const isJoined = Boolean(registrationStatus);
+        const timing = eventTimingBucket(event.startsAt, event.status);
+        const theme = thematicCategory(event);
+        const card = mapDbEventToCard(event, bucketCategory(event));
+        const tags = tagsForApprovedEvent(event, invited.has(card.id), isJoined);
+        return {
+          ...card,
+          category: isJoined
+            ? timingToJoinedCategory(timing)
+            : theme || (timing === "today" ? "today" : timing),
+          tags,
+          status:
+            registrationStatus === "pending"
+              ? "pending"
+              : registrationStatus
+                ? "joined"
+                : card.status,
+        };
+      });
+    };
 
-      try {
-        const [eventsRes, registrationsRes, invitationsRes] = await Promise.all([
-          fetch("/api/events?limit=200", { cache: "no-store", credentials: "include" }),
-          fetch("/api/user/registrations", { cache: "no-store", credentials: "include" }),
-          fetch("/api/user/invitations", { cache: "no-store", credentials: "include" }),
-        ]);
-        if (!eventsRes.ok || cancelled) {
-          if (!cancelled && window.DCEvents) {
-            window.DCEvents.list = [];
-            refreshLegacyEventViews(pathname);
-          }
-          return;
-        }
+    const commitLiveEvents = (live: LegacyCardEvent[]) => {
+      if (!window.DCEvents || cancelled) return;
+      window.DCEvents.list = live;
+      preloadImageUrls(live.map((event) => event.imageUrl));
+      refreshLegacyEventViews(pathname);
+      window.dispatchEvent(new CustomEvent("dc-events-ready"));
+    };
 
-        const data = (await eventsRes.json()) as { events?: SanitizedEvent[] };
-        const registrations = registrationsRes.ok
-          ? ((await registrationsRes.json()) as {
-              registrations?: Array<{ eventId?: string; status?: string }>;
-            }).registrations || []
-          : [];
-        const invitations = invitationsRes.ok
-          ? ((await invitationsRes.json()) as {
-              invitations?: Array<{ eventId?: string; status?: string }>;
-            }).invitations || []
-          : [];
+    const hydrateFromPortal = async (data: PortalPayload, enrich = true) => {
+      if (!window.DCEvents || cancelled) return;
 
-        const joined = new Map(
-          registrations.map((row) => [String(row.eventId || ""), String(row.status || "joined")]),
-        );
-        const invited = new Set(
-          invitations
-            .filter((row) => String(row.status || "pending") !== "joined")
-            .map((row) => String(row.eventId || "")),
-        );
+      if (Array.isArray(data.savedEventIds)) {
+        setSavedEventIds(data.savedEventIds.map(String));
+      }
 
-        let live: LegacyCardEvent[] = (data.events || [])
-          .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
-          .map((event) => {
-            const card = mapDbEventToCard(event, bucketCategory(event));
-            const registrationStatus = joined.get(card.id);
-            const tags = tagsForApprovedEvent(
-              event,
-              card,
-              invited.has(card.id),
-              registrationStatus,
-            );
-            return {
-              ...card,
-              // Keep primary category date-aware for joined pages / home sections
-              category: timingToJoinedCategory(
-                eventTimingBucket(event.startsAt, event.status),
-              ),
-              tags,
-              status:
-                registrationStatus === "pending"
-                  ? "pending"
-                  : registrationStatus
-                    ? "joined"
-                    : card.status,
-            };
-          });
+      let live: LegacyCardEvent[] = mapPortalToLive(data);
 
-        if (pathname.startsWith("/attendance")) {
-          const buckets = await fetchAttendanceBuckets();
-          live = applyAttendanceCategories(live, buckets);
-        }
+      if (pathname.startsWith("/attendance")) {
+        const buckets = await fetchAttendanceBuckets();
+        live = applyAttendanceCategories(live, buckets);
+      }
 
-        const params = new URLSearchParams(window.location.search);
-        const detailId = params.get("id");
-        if (detailId && !live.some((event) => String(event.id) === detailId)) {
-          const one = await fetch(`/api/events/${encodeURIComponent(detailId)}`, {
+      if (!enrich) {
+        commitLiveEvents(live);
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const detailId = params.get("id");
+      if (detailId) {
+        try {
+          const one = await authFetch(`/api/events/${encodeURIComponent(detailId)}`, {
             cache: "no-store",
           });
           if (one.ok) {
             const payload = (await one.json()) as { event?: SanitizedEvent };
             if (payload.event) {
-              live = [
-                mapDbEventToCard(payload.event, bucketCategory(payload.event)),
-                ...live,
-              ];
+              const full = mapDbEventToCard(payload.event, bucketCategory(payload.event));
+              const index = live.findIndex((event) => String(event.id) === detailId);
+              if (index >= 0) {
+                live[index] = {
+                  ...full,
+                  category: live[index].category,
+                  tags: live[index].tags,
+                  status: live[index].status,
+                  filesApproved: live[index].filesApproved,
+                };
+              } else {
+                live = [full, ...live];
+              }
             }
           }
+        } catch {
+          /* keep list entry */
         }
+      }
 
-        const savedIds = getSavedEventIds();
-        const missingSavedIds = savedIds.filter(
-          (id) => !live.some((event) => String(event.id) === id),
+      const savedIds = getSavedEventIds();
+      const missingSavedIds = savedIds.filter(
+        (id) => !live.some((event) => String(event.id) === id),
+      );
+      if (missingSavedIds.length > 0) {
+        const fetched = await Promise.all(
+          missingSavedIds.map(async (id) => {
+            try {
+              const res = await authFetch(`/api/events/${encodeURIComponent(id)}`, {
+                cache: "no-store",
+              });
+              if (!res.ok) return null;
+              const payload = (await res.json()) as { event?: SanitizedEvent };
+              if (!payload.event) return null;
+              return mapDbEventToCard(payload.event, bucketCategory(payload.event));
+            } catch {
+              return null;
+            }
+          }),
         );
-        if (missingSavedIds.length > 0) {
-          const fetched = await Promise.all(
-            missingSavedIds.map(async (id) => {
-              try {
-                const res = await fetch(`/api/events/${encodeURIComponent(id)}`, {
-                  cache: "no-store",
-                });
-                if (!res.ok) return null;
-                const payload = (await res.json()) as { event?: SanitizedEvent };
-                if (!payload.event) return null;
-                return mapDbEventToCard(payload.event, bucketCategory(payload.event));
-              } catch {
-                return null;
-              }
-            }),
-          );
-          live = [...live, ...fetched.filter((event): event is LegacyCardEvent => Boolean(event))];
+        live = [...live, ...fetched.filter((event): event is LegacyCardEvent => Boolean(event))];
+      }
+
+      commitLiveEvents(live);
+    };
+
+    const injectEvents = async (force = false) => {
+      if (!window.DCEvents) return;
+
+      if (!force && window.DCEvents.list.length > 0) {
+        refreshLegacyEventViews(pathname);
+      }
+
+      const cached = !force ? readCachedPortalData() : null;
+      if (!force && cached && window.DCEvents.list.length === 0) {
+        await hydrateFromPortal(cached, false);
+      }
+
+      if (!force && cached && !isPortalCacheStale()) {
+        void fetchPortalData(false).then((fresh) => {
+          if (fresh && !cancelled) void hydrateFromPortal(fresh, true);
+        });
+        return;
+      }
+
+      try {
+        const data = await fetchPortalData(force);
+        if (!data || cancelled) {
+          if (!cancelled && window.DCEvents && window.DCEvents.list.length === 0) {
+            refreshLegacyEventViews(pathname);
+          }
+          return;
         }
 
-        window.DCEvents.list = live;
-        refreshLegacyEventViews(pathname);
-        window.dispatchEvent(new CustomEvent("dc-events-ready"));
+        await hydrateFromPortal(data, true);
       } catch {
-        if (!cancelled && window.DCEvents) {
-          window.DCEvents.list = [];
+        if (!cancelled && window.DCEvents && window.DCEvents.list.length === 0) {
           refreshLegacyEventViews(pathname);
         }
       }
@@ -965,11 +1057,12 @@ export function StudentDataBridge() {
       }
       try {
         await joinEvent(eventId, String(detail.eventTitle || ""));
+        invalidatePortalCache();
         if (actionBtn) {
           actionBtn.textContent = "Registration Successful";
           actionBtn.className = "detail-action detail-action--joined";
         }
-        void injectEvents();
+        void injectEvents(true);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to join event.");
         if (actionBtn) {
@@ -1005,22 +1098,26 @@ export function StudentDataBridge() {
           });
         }
         await joinEvent(eventId, String(detail.eventTitle || ""), files);
+        invalidatePortalCache();
         if (submitBtn) {
           submitBtn.textContent = "Registration Pending";
           submitBtn.disabled = true;
           submitBtn.className = "detail-action detail-action--pending";
         }
+        void injectEvents(true);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to submit registration.");
       }
     };
 
     window.addEventListener("dc-events-ready", onEventsReady);
-    window.addEventListener("dc-join-event", onJoinEvent as EventListener);
-    window.addEventListener("dc-submit-event", onSubmitEvent as EventListener);
+    if (!listenersWired.current) {
+      listenersWired.current = true;
+      window.addEventListener("dc-join-event", onJoinEvent as EventListener);
+      window.addEventListener("dc-submit-event", onSubmitEvent as EventListener);
+    }
 
-    const run = () => {
-      void injectEvents();
+    const runPageHooks = () => {
       wireFeedbackForm();
       wireAttendanceTap();
       void injectAttendanceRfid();
@@ -1029,22 +1126,23 @@ export function StudentDataBridge() {
       void injectNotifications();
     };
 
-    const t1 = window.setTimeout(run, 80);
-    const t2 = window.setTimeout(run, 400);
-    const t3 = window.setTimeout(run, 900);
-    const poll = window.setInterval(run, 10000);
-    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
+    async function bootstrap() {
+      for (let i = 0; i < 15 && !window.DCEvents; i += 1) {
+        if (cancelled) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      void injectEvents();
+      runPageHooks();
+    }
+
+    void bootstrap();
+
+    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 400);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
       window.clearTimeout(aiTimer);
-      window.clearInterval(poll);
       window.removeEventListener("dc-events-ready", onEventsReady);
-      window.removeEventListener("dc-join-event", onJoinEvent as EventListener);
-      window.removeEventListener("dc-submit-event", onSubmitEvent as EventListener);
     };
   }, [pathname]);
 

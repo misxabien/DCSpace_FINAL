@@ -9,6 +9,8 @@ import {
   type SpaceEvent,
 } from "@/lib/events/types";
 import { getAdminDb } from "@/lib/db/get-db";
+import { eventOwnedBy } from "@/lib/events/ownership";
+import { isPublicEventStatus } from "@/lib/events/public-status";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 const REVIEW_STATUSES: EventStatus[] = [
@@ -46,9 +48,8 @@ export async function GET(request: Request, context: RouteContext) {
 
     if (!isAdmin && actor && !("error" in actor)) {
       const visible =
-        ["approved", "live", "completed"].includes(doc.status) ||
-        doc.organizerEmail === actor.email ||
-        doc.organizerId === actor.userId;
+        isPublicEventStatus(doc.status) ||
+        eventOwnedBy(doc, actor.email, actor.userId);
       if (!visible) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
@@ -128,8 +129,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (!isAdmin) {
       const owns =
-        existing.organizerEmail === (actor && !("error" in actor) ? actor.email : "") ||
-        existing.organizerId === (actor && !("error" in actor) ? actor.userId : "");
+        actor && !("error" in actor)
+          ? eventOwnedBy(existing, actor.email, actor.userId)
+          : false;
       if (!owns) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }

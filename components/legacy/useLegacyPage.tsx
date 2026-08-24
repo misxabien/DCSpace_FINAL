@@ -8,14 +8,26 @@ function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(`script[data-legacy-src="${src}"]`);
     if (existing) {
-      resolve();
+      if ((existing as HTMLScriptElement).dataset.loaded === "1") {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error(`Failed to load ${src}`)),
+        { once: true },
+      );
       return;
     }
     const el = document.createElement("script");
     el.src = `/legacy/${src}`;
     el.async = false;
     el.dataset.legacySrc = src;
-    el.onload = () => resolve();
+    el.onload = () => {
+      el.dataset.loaded = "1";
+      resolve();
+    };
     el.onerror = () => reject(new Error(`Failed to load ${src}`));
     document.body.appendChild(el);
   });
