@@ -141,12 +141,12 @@ export async function GET(request: Request) {
       eventsCol
         .find({ status: "pending" })
         .sort({ createdAt: -1 })
-        .limit(20)
+        .limit(50)
         .toArray(),
       eventsCol
         .find({ status: { $in: ["approved", "live", "completed"] } })
-        .sort({ updatedAt: -1 })
-        .limit(20)
+        .sort({ startsAt: 1, updatedAt: -1 })
+        .limit(50)
         .toArray(),
       activitiesCol.find({}).sort({ createdAt: -1 }).limit(40).toArray(),
       attendanceCol.countDocuments({}),

@@ -389,11 +389,15 @@ const EVENT_SEEDS = [
 /** Public sample events — visible in explore for every authenticated user. */
 const PUBLIC_STATUSES = new Set(["approved", "live", "completed"]);
 
-/** All public sample events get a registration for every portal user. */
+/**
+ * Joins/invites are per-account only. Seed no longer auto-registers every user.
+ * Pass --demo-rsvps to attach sample RSVPs to student@sdca.edu.ph only (optional).
+ */
+const DEMO_RSVPS = process.argv.includes("--demo-rsvps");
+const DEMO_RSVP_EMAIL = "student@sdca.edu.ph";
 const REGISTRATION_SEEDS = EVENT_SEEDS.filter((row) => PUBLIC_STATUSES.has(row.status)).map(
   (row) => ({ seedKey: row.seedKey, status: "joined" }),
 );
-
 const INVITATION_SEEDS = [{ seedKey: "sample-upcoming-bsba-forum", status: "pending" }];
 
 /** Student + faculty accounts that use the user portal (exclude admin consoles). */
@@ -471,79 +475,94 @@ try {
     }
   }
 
-  if (portalUsers.length) {
+  // Clear sample joins/invites so "Events Joined" only shows real per-account RSVPs.
+  const seededEventIds = [...eventIdBySeed.values()];
+  if (seededEventIds.length) {
+    const deletedRegs = await registrations.deleteMany({
+      eventId: { $in: seededEventIds },
+    });
+    const deletedInvites = await invitations.deleteMany({
+      eventId: { $in: seededEventIds },
+    });
+    console.log(
+      `Cleared ${deletedRegs.deletedCount} sample registrations and ${deletedInvites.deletedCount} sample invitations (per-account joins only).`,
+    );
+  }
+
+  if (DEMO_RSVPS && portalUsers.length) {
     const now = new Date().toISOString();
+    const account =
+      portalUsers.find(
+        (row) => String(row.email || "").trim().toLowerCase() === DEMO_RSVP_EMAIL,
+      ) || portalUsers[0];
+    const email = String(account.email || "").trim().toLowerCase();
+    const userName =
+      `${account.firstName || ""} ${account.lastName || ""}`.trim() || email;
     let registrationCount = 0;
     let invitationCount = 0;
 
-    for (const account of portalUsers) {
-      const email = String(account.email || "").trim().toLowerCase();
-      if (!email) continue;
+    for (const reg of REGISTRATION_SEEDS) {
+      const eventId = eventIdBySeed.get(reg.seedKey);
+      const event = EVENT_SEEDS.find((row) => row.seedKey === reg.seedKey);
+      if (!eventId || !event) continue;
 
-      const userName =
-        `${account.firstName || ""} ${account.lastName || ""}`.trim() || email;
-
-      for (const reg of REGISTRATION_SEEDS) {
-        const eventId = eventIdBySeed.get(reg.seedKey);
-        const event = EVENT_SEEDS.find((row) => row.seedKey === reg.seedKey);
-        if (!eventId || !event) continue;
-
-        await registrations.updateOne(
-          { email, eventId },
-          {
-            $set: {
-              email,
-              eventId,
-              eventTitle: event.title,
-              userName,
-              studentNumber: String(account.studentNumber || ""),
-              course: String(account.course || event.allowedCourses?.[0] || ""),
-              school: String(account.school || "St. Dominic College of Asia"),
-              organization: String(account.organizationPart || ""),
-              organizationRole: String(account.organizationRole || ""),
-              status: reg.status,
-              updatedAt: now,
-            },
-            $setOnInsert: { createdAt: now },
+      await registrations.updateOne(
+        { email, eventId },
+        {
+          $set: {
+            email,
+            eventId,
+            eventTitle: event.title,
+            userName,
+            studentNumber: String(account.studentNumber || ""),
+            course: String(account.course || event.allowedCourses?.[0] || ""),
+            school: String(account.school || "St. Dominic College of Asia"),
+            organization: String(account.organizationPart || ""),
+            organizationRole: String(account.organizationRole || ""),
+            status: reg.status,
+            updatedAt: now,
           },
-          { upsert: true },
-        );
-        registrationCount += 1;
-      }
+          $setOnInsert: { createdAt: now },
+        },
+        { upsert: true },
+      );
+      registrationCount += 1;
+    }
 
-      for (const invite of INVITATION_SEEDS) {
-        const eventId = eventIdBySeed.get(invite.seedKey);
-        const event = EVENT_SEEDS.find((row) => row.seedKey === invite.seedKey);
-        if (!eventId || !event) continue;
+    for (const invite of INVITATION_SEEDS) {
+      const eventId = eventIdBySeed.get(invite.seedKey);
+      const event = EVENT_SEEDS.find((row) => row.seedKey === invite.seedKey);
+      if (!eventId || !event) continue;
 
-        await invitations.updateOne(
-          { email, eventId },
-          {
-            $set: {
-              email,
-              eventId,
-              eventTitle: event.title,
-              userName,
-              course: String(account.course || ""),
-              organization: String(account.organizationPart || ""),
-              status: invite.status,
-              updatedAt: now,
-            },
-            $setOnInsert: { createdAt: now },
+      await invitations.updateOne(
+        { email, eventId },
+        {
+          $set: {
+            email,
+            eventId,
+            eventTitle: event.title,
+            userName,
+            course: String(account.course || ""),
+            organization: String(account.organizationPart || ""),
+            status: invite.status,
+            updatedAt: now,
           },
-          { upsert: true },
-        );
-        invitationCount += 1;
-      }
+          $setOnInsert: { createdAt: now },
+        },
+        { upsert: true },
+      );
+      invitationCount += 1;
     }
 
     console.log(
-      `Synced ${registrationCount} registrations and ${invitationCount} invitations across ${portalUsers.length} portal users.`,
+      `Demo RSVPs for ${email}: ${registrationCount} registrations, ${invitationCount} invitations.`,
     );
   }
 
   console.log("\nSeed complete.");
-  console.log("Every student/faculty account now sees public events in Explore and Events Joined.");
+  console.log("Public sample events are in Explore for every user.");
+  console.log("Events Joined stays empty until each user registers themselves.");
+  console.log("Optional: npm run seed:events -- --demo-rsvps");
   console.log("Admin: pending, approved, live/ongoing, completed, inactive (rejected/postponed/cancelled)");
 } catch (error) {
   console.error(error);

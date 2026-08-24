@@ -17,13 +17,17 @@ export async function resolveAdminEventId(id: string, status = "") {
   const fromQuery = id.trim();
   if (fromQuery) return fromQuery;
 
-  const res = await fetch("/api/events?limit=80", { cache: "no-store" });
+  const wanted = normalizeEventStatusParam(status);
+  const query = wanted
+    ? `/api/events?limit=200&status=${encodeURIComponent(wanted)}`
+    : "/api/events?limit=200";
+  const res = await fetch(query, { cache: "no-store" });
   if (!res.ok) return "";
   const payload = (await res.json()) as { events?: ListedEvent[] };
   const events = Array.isArray(payload.events) ? payload.events : [];
-  const wanted = normalizeEventStatusParam(status);
   const match =
     (wanted ? events.find((event) => String(event.status || "") === wanted) : null) ||
+    events.find((event) => ["approved", "live", "completed"].includes(String(event.status || ""))) ||
     events[0];
   return String(match?.id || "");
 }

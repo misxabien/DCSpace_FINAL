@@ -25,6 +25,8 @@ export type SanitizedEvent = {
   posterImage?: string;
   hasPoster?: boolean;
   reviewNote?: string;
+  createdAt?: string;
+  updatedAt?: string;
   conceptPaperName?: string;
   certificateTemplateName?: string;
   programFileName?: string;
@@ -166,6 +168,25 @@ export function bucketCategory(e: SanitizedEvent): string {
   if (timing === "today") return theme || "today";
   if (timing === "past") return theme || "past";
   return theme || "upcoming";
+}
+
+/** Happening now → upcoming (soonest first) → past (newest first). */
+export function compareEventsForDisplay(
+  a: { startsAt?: string; status?: string; title?: string; name?: string; date?: string },
+  b: { startsAt?: string; status?: string; title?: string; name?: string; date?: string },
+) {
+  const timingA = eventTimingBucket(a.startsAt || a.date, a.status);
+  const timingB = eventTimingBucket(b.startsAt || b.date, b.status);
+  const order = { today: 0, upcoming: 1, past: 2 } as const;
+  const weight = order[timingA] - order[timingB];
+  if (weight !== 0) return weight;
+
+  const startA = parseEventStart(a.startsAt || a.date)?.getTime() ?? 0;
+  const startB = parseEventStart(b.startsAt || b.date)?.getTime() ?? 0;
+  if (timingA === "past") return startB - startA;
+  if (startA !== startB) return startA - startB;
+
+  return String(a.title || a.name || "").localeCompare(String(b.title || b.name || ""));
 }
 
 function mapCardStatus(status?: string): string {

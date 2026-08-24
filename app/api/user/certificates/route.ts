@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
     if (!isAdmin && actor && !("error" in actor)) {
-      filter.email = actor.email;
+      filter.email = actor.email.trim().toLowerCase();
     } else if (isAdmin && email) {
       filter.email = email.trim().toLowerCase();
     }
@@ -39,8 +39,15 @@ export async function GET(request: Request) {
       .limit(200)
       .toArray();
 
+    const actorEmail = actor && !("error" in actor) ? actor.email.trim().toLowerCase() : "";
+
     return NextResponse.json({
-      certificates: docs.map((doc) => ({
+      certificates: docs
+        .filter((doc) => {
+          if (isAdmin || !actorEmail) return true;
+          return String(doc.email || "").trim().toLowerCase() === actorEmail;
+        })
+        .map((doc) => ({
         id: String(doc._id),
         name: String(doc.name || "Certificate of Participation"),
         eventId: String(doc.eventId || ""),

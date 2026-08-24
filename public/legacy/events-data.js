@@ -30,12 +30,29 @@
   function getEventsByCategory(category, limit) {
     var list = eventList();
     var results = [];
+    var joinedOnly = String(category || '').indexOf('joined-') === 0;
     for (var i = 0; i < list.length; i++) {
       var event = list[i];
+      // Home / Events Joined: only events this user registered for.
+      if (joinedOnly) {
+        var hasJoinedTag = event.tags && event.tags.indexOf(category) !== -1;
+        if (event.category === category || hasJoinedTag) {
+          results.push(event);
+        }
+        continue;
+      }
       if (event.category === category || (event.tags && event.tags.indexOf(category) !== -1)) {
         results.push(event);
       }
     }
+    results.sort(function (a, b) {
+      var dateA = String(a.date || '');
+      var dateB = String(b.date || '');
+      var isPast = category === 'joined-past' || category === 'past';
+      if (isPast) return dateB.localeCompare(dateA);
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
     if (typeof limit === 'number') return results.slice(0, limit);
     return results;
   }

@@ -20,6 +20,7 @@ import {
 } from "@/lib/events/ownership";
 import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
 import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
+import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
 
@@ -87,7 +88,7 @@ async function resolveActor(request: Request) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const scope = searchParams.get("scope");
-  const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 200);
+  const limit = Math.min(Number(searchParams.get("limit") || 200) || 200, 500);
 
   if (scope === "public") {
     const jar = await cookies();
@@ -102,13 +103,15 @@ export async function GET(request: Request) {
       const docs = await eventsCollection(db)
         .find({ status: { $in: [...PUBLIC_EVENT_STATUSES] } })
         .project(EVENT_LIST_PROJECTION)
-        .sort({ updatedAt: -1 })
+        .sort({ startsAt: 1, updatedAt: -1 })
         .limit(limit)
         .toArray();
 
-      return NextResponse.json({
-        events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
-      });
+      const events = docs
+        .map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }))
+        .sort(compareEventsForDisplay);
+
+      return NextResponse.json({ events });
     } catch (error) {
       const details = error instanceof Error ? error.message : "Unknown error";
       return NextResponse.json(
@@ -144,16 +147,27 @@ export async function GET(request: Request) {
     }
 
     const db = await getAdminDb();
+    const isAdminList = actor.kind === "admin";
     const docs = await eventsCollection(db)
       .find(filter)
       .project(EVENT_LIST_PROJECTION)
-      .sort({ updatedAt: -1 })
+      .sort(
+        status === "pending" || (isAdminList && !status)
+          ? { updatedAt: -1, startsAt: 1 }
+          : { startsAt: 1, updatedAt: -1 },
+      )
       .limit(limit)
       .toArray();
 
-    return NextResponse.json({
-      events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
-    });
+    const events = docs
+      .map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }))
+      .sort(
+        status === "pending"
+          ? (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+          : compareEventsForDisplay,
+      );
+
+    return NextResponse.json({ events });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

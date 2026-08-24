@@ -19,12 +19,14 @@ export async function GET(request: Request) {
       isAdmin && emailParam
         ? emailParam.trim().toLowerCase()
         : actor && !("error" in actor)
-          ? actor.email
+          ? actor.email.trim().toLowerCase()
           : "";
     if (!email) {
       return NextResponse.json({ eventIds: [] });
     }
-    const doc = await savedEventsCollection(db).findOne({ email });
+    const doc = await savedEventsCollection(db).findOne({
+      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+    });
     return NextResponse.json({
       eventIds: Array.isArray(doc?.eventIds) ? doc.eventIds.map(String) : [],
     });
@@ -53,7 +55,10 @@ export async function PUT(request: Request) {
   try {
     const db = await getUserDb();
     const col = savedEventsCollection(db);
-    const existing = await col.findOne({ email: actor.email });
+    const email = actor.email.trim().toLowerCase();
+    const existing = await col.findOne({
+      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+    });
     let ids: string[] = Array.isArray(existing?.eventIds)
       ? existing!.eventIds.map(String)
       : [];
@@ -71,10 +76,10 @@ export async function PUT(request: Request) {
     }
 
     await col.updateOne(
-      { email: actor.email },
+      { email },
       {
         $set: {
-          email: actor.email,
+          email,
           userId: actor.userId || "",
           eventIds: ids,
           updatedAt: new Date().toISOString(),

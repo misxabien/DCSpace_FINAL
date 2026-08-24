@@ -9,8 +9,13 @@ export const HEAVY_ATTACHMENT_PROJECTION = {
 export const EVENT_LIST_PROJECTION = {
   ...HEAVY_ATTACHMENT_PROJECTION,
   posterImageBase64: 0,
-  posterImageMimeType: 0,
 } as const;
 
-/** Portal/browse payload — keep posters for instant card rendering. */
-export const PORTAL_EVENT_PROJECTION = HEAVY_ATTACHMENT_PROJECTION;
+/**
+ * Portal browse payload — skip all base64 blobs; clients use /attachments/* URLs.
+ * Keep mime/name fields so hasPoster / hasConceptPaper still resolve.
+ */
+export const PORTAL_EVENT_PROJECTION = {
+  ...HEAVY_ATTACHMENT_PROJECTION,
+  posterImageBase64: 0,
+} as const;

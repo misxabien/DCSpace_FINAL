@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   bucketCategory,
+  compareEventsForDisplay,
   eventTimingBucket,
   mapDbEventToCard,
   timingToJoinedCategory,
@@ -20,10 +21,17 @@ import {
   type PortalPayload,
 } from "@/lib/portal-data-client";
 import { preloadImageUrls } from "@/lib/image-preload";
-import { authFetch } from "@/lib/user-api";
+import { authFetch, readAuthSession } from "@/lib/user-api";
+
+function cardsStorageKey() {
+  const session = readAuthSession();
+  const email = session?.user.email?.trim().toLowerCase() || "guest";
+  return `dc_events_cards_v1:${email}`;
+}
 
 declare global {
   interface Window {
+    __dcNavigate?: (href: string) => void;
     DCEvents?: {
       list: unknown[];
       attendanceRfid?: Record<string, unknown>;
@@ -260,16 +268,27 @@ async function hydrateEventDetailPage(pathname: string) {
   const detailId = new URLSearchParams(window.location.search).get("id");
   if (!detailId || !window.DCEvents) return false;
 
+  // Instant paint from whatever we already have in memory / cache.
+  const existing = window.DCEvents.getEventById?.(detailId) as LegacyCardEvent | null;
+  if (existing) {
+    renderLegacyDetailViews(pathname);
+  }
+
   try {
     const res = await authFetch(`/api/events/${encodeURIComponent(detailId)}`, {
       cache: "no-store",
     });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      if (!existing) markDetailMissing();
+      return false;
+    }
     const payload = (await res.json()) as { event?: SanitizedEvent };
-    if (!payload.event) return false;
+    if (!payload.event) {
+      if (!existing) markDetailMissing();
+      return false;
+    }
 
     const card = mapDbEventToCard(payload.event, bucketCategory(payload.event));
-    const existing = window.DCEvents.getEventById?.(detailId) as LegacyCardEvent | null;
     const merged = existing
       ? {
           ...card,
@@ -284,8 +303,17 @@ async function hydrateEventDetailPage(pathname: string) {
     preloadImageUrls([merged.imageUrl]);
     return true;
   } catch {
+    if (!existing) markDetailMissing();
     return false;
   }
+}
+
+function markDetailMissing() {
+  document.body.classList.add("detail-page--missing");
+  const title = document.getElementById("detail-title");
+  if (title) title.textContent = "Event Not Found";
+  const action = document.getElementById("detail-action");
+  if (action) action.hidden = true;
 }
 
 function renderLegacyDetailViews(pathname: string) {
@@ -399,10 +427,28 @@ function fileToDataUrl(file: File) {
  */
 export function StudentDataBridge() {
   const pathname = usePathname();
+  const router = useRouter();
   const listenersWired = useRef(false);
 
   useEffect(() => {
+    window.__dcNavigate = (href: string) => {
+      router.push(href);
+    };
+    return () => {
+      if (window.__dcNavigate) delete window.__dcNavigate;
+    };
+  }, [router]);
+
+  useEffect(() => {
     let cancelled = false;
+
+    const onSoftNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ href?: string }>).detail || {};
+      const href = String(detail.href || "");
+      if (!href) return;
+      event.preventDefault();
+      router.push(href);
+    };
 
     const mapPortalToLive = (data: PortalPayload) => {
       const joined = new Map(
@@ -417,7 +463,8 @@ export function StudentDataBridge() {
           .map((row) => String(row.eventId || "")),
       );
 
-      return (data.events || []).map((event): LegacyCardEvent => {
+      return (data.events || [])
+        .map((event): LegacyCardEvent => {
         const registrationStatus = joined.get(String(event.id));
         const isJoined = Boolean(registrationStatus);
         const timing = eventTimingBucket(event.startsAt, event.status);
@@ -437,12 +484,31 @@ export function StudentDataBridge() {
                 ? "joined"
                 : card.status,
         };
-      });
+      })
+        .sort((a, b) =>
+          compareEventsForDisplay(
+            { startsAt: a.date, status: a.dbStatus || a.status, name: a.name },
+            { startsAt: b.date, status: b.dbStatus || b.status, name: b.name },
+          ),
+        );
     };
 
     const commitLiveEvents = (live: LegacyCardEvent[]) => {
       if (!window.DCEvents || cancelled) return;
       window.DCEvents.list = live;
+      try {
+        window.sessionStorage.setItem(
+          cardsStorageKey(),
+          JSON.stringify(
+            live.map((event) => ({
+              ...event,
+              imageUrl: event.imageUrl?.startsWith("data:") ? "" : event.imageUrl,
+            })),
+          ),
+        );
+      } catch {
+        /* quota */
+      }
       preloadImageUrls(live.map((event) => event.imageUrl));
       refreshLegacyEventViews(pathname);
       window.dispatchEvent(new CustomEvent("dc-events-ready"));
@@ -526,13 +592,41 @@ export function StudentDataBridge() {
     const injectEvents = async (force = false) => {
       if (!window.DCEvents) return;
 
+      // Restore last mapped cards instantly so detail clicks never wait on the network.
+      if (!force && window.DCEvents.list.length === 0) {
+        try {
+          const raw = window.sessionStorage.getItem(cardsStorageKey());
+          if (raw) {
+            const cards = JSON.parse(raw) as LegacyCardEvent[];
+            if (Array.isArray(cards) && cards.length) {
+              window.DCEvents.list = cards;
+              refreshLegacyEventViews(pathname);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (!force && window.DCEvents.list.length > 0) {
         refreshLegacyEventViews(pathname);
+      }
+
+      // Detail pages: fetch the single event in parallel with portal refresh.
+      if (
+        pathname.startsWith("/events/details") ||
+        pathname.startsWith("/events/explore")
+      ) {
+        void hydrateEventDetailPage(pathname).then((hydrated) => {
+          if (hydrated && !cancelled) renderLegacyDetailViews(pathname);
+        });
       }
 
       const cached = !force ? readCachedPortalData() : null;
       if (!force && cached && window.DCEvents.list.length === 0) {
         await hydrateFromPortal(cached, false);
+      } else if (!force && cached && window.DCEvents.list.length > 0) {
+        // Keep UI responsive; refresh portal in background.
       }
 
       if (!force && cached && !isPortalCacheStale()) {
@@ -1029,7 +1123,7 @@ export function StudentDataBridge() {
     };
 
     const joinEvent = async (eventId: string, eventTitle: string, files?: unknown[]) => {
-      const res = await fetch("/api/user/registrations", {
+      const res = await authFetch("/api/user/registrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1043,7 +1137,67 @@ export function StudentDataBridge() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to join event.");
       }
-      return data;
+      return data as {
+        registration?: { status?: string };
+        registrationCount?: number;
+        duplicate?: boolean;
+      };
+    };
+
+    const markLocalRegistration = (
+      eventId: string,
+      status: "joined" | "pending",
+    ) => {
+      if (!window.DCEvents?.list) return;
+      const list = window.DCEvents.list as LegacyCardEvent[];
+      const next = list.map((event) => {
+        if (String(event.id) !== eventId) return event;
+        const timing = eventTimingBucket(event.date, event.dbStatus || event.status);
+        const joinedCategory = timingToJoinedCategory(timing);
+        const tags = new Set(Array.isArray(event.tags) ? event.tags : []);
+        tags.add(joinedCategory);
+        tags.add(timing);
+        return {
+          ...event,
+          status,
+          category: joinedCategory,
+          tags: Array.from(tags),
+        };
+      });
+      window.DCEvents.list = next;
+      try {
+        window.sessionStorage.setItem(
+          cardsStorageKey(),
+          JSON.stringify(
+            next.map((event) => ({
+              ...event,
+              imageUrl: event.imageUrl?.startsWith("data:") ? "" : event.imageUrl,
+            })),
+          ),
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const showRegisteredBanner = (message: string) => {
+      let wrap = document.getElementById("detail-status-wrap");
+      let status = document.getElementById("detail-status");
+      if (!wrap) {
+        const page = document.querySelector(".detail-page");
+        if (page) {
+          wrap = document.createElement("div");
+          wrap.id = "detail-status-wrap";
+          wrap.className = "detail-status-wrap";
+          wrap.innerHTML = `<p id="detail-status" class="detail-status"></p>`;
+          const actionWrap = page.querySelector(".detail-action-wrap");
+          if (actionWrap) page.insertBefore(wrap, actionWrap);
+          else page.appendChild(wrap);
+          status = wrap.querySelector("#detail-status");
+        }
+      }
+      if (status) status.textContent = message;
+      if (wrap) wrap.hidden = false;
     };
 
     const onJoinEvent = async (event: Event) => {
@@ -1056,13 +1210,36 @@ export function StudentDataBridge() {
         actionBtn.textContent = "Joining…";
       }
       try {
-        await joinEvent(eventId, String(detail.eventTitle || ""));
+        const result = await joinEvent(eventId, String(detail.eventTitle || ""));
+        const status =
+          result.registration?.status === "pending" ? "pending" : "joined";
+        markLocalRegistration(eventId, status);
         invalidatePortalCache();
         if (actionBtn) {
-          actionBtn.textContent = "Registration Successful";
-          actionBtn.className = "detail-action detail-action--joined";
+          actionBtn.textContent =
+            status === "pending" ? "Registration Pending" : "You Are Registered";
+          actionBtn.className =
+            status === "pending"
+              ? "detail-action detail-action--pending"
+              : "detail-action detail-action--joined";
+          actionBtn.disabled = true;
         }
-        void injectEvents(true);
+        showRegisteredBanner(
+          status === "pending"
+            ? "Registration pending file approval"
+            : "You are registered for this event",
+        );
+        window.DCEvents?.renderExploreDetails?.();
+        window.DCEvents?.renderEventDetails?.();
+        await injectEvents(true);
+        window.DCEvents?.renderExploreDetails?.();
+        window.DCEvents?.renderEventDetails?.();
+        window.dispatchEvent(new CustomEvent("dc-events-ready"));
+        if (typeof result.registrationCount === "number") {
+          console.info(
+            `[DC Space] Registered. Event now has ${result.registrationCount} student(s).`,
+          );
+        }
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to join event.");
         if (actionBtn) {
@@ -1098,6 +1275,7 @@ export function StudentDataBridge() {
           });
         }
         await joinEvent(eventId, String(detail.eventTitle || ""), files);
+        markLocalRegistration(eventId, "pending");
         invalidatePortalCache();
         if (submitBtn) {
           submitBtn.textContent = "Registration Pending";
@@ -1111,6 +1289,11 @@ export function StudentDataBridge() {
     };
 
     window.addEventListener("dc-events-ready", onEventsReady);
+    window.addEventListener("dc-navigate", onSoftNavigate as EventListener);
+    const onPortalInvalidated = () => {
+      void injectEvents(true);
+    };
+    window.addEventListener("dc-portal-invalidated", onPortalInvalidated);
     if (!listenersWired.current) {
       listenersWired.current = true;
       window.addEventListener("dc-join-event", onJoinEvent as EventListener);
@@ -1127,9 +1310,9 @@ export function StudentDataBridge() {
     };
 
     async function bootstrap() {
-      for (let i = 0; i < 15 && !window.DCEvents; i += 1) {
+      for (let i = 0; i < 40 && !window.DCEvents; i += 1) {
         if (cancelled) return;
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
       void injectEvents();
       runPageHooks();
@@ -1137,14 +1320,16 @@ export function StudentDataBridge() {
 
     void bootstrap();
 
-    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 400);
+    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 800);
 
     return () => {
       cancelled = true;
       window.clearTimeout(aiTimer);
       window.removeEventListener("dc-events-ready", onEventsReady);
+      window.removeEventListener("dc-navigate", onSoftNavigate as EventListener);
+      window.removeEventListener("dc-portal-invalidated", onPortalInvalidated);
     };
-  }, [pathname]);
+  }, [pathname, router]);
 
   return null;
 }

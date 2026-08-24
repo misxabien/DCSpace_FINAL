@@ -16,6 +16,8 @@
     article.setAttribute('tabindex', '0');
     article.setAttribute('role', 'button');
     article.setAttribute('aria-label', cert.name + ' for ' + cert.eventName);
+    if (cert.id) article.setAttribute('data-cert-id', String(cert.id));
+    if (cert.downloadUrl) article.setAttribute('data-download-url', String(cert.downloadUrl));
 
     article.innerHTML =
       '<div class="cert-card__preview" aria-hidden="true"></div>' +
@@ -34,6 +36,32 @@
       '</div>';
 
     return article;
+  }
+
+  function openCertificateDownload(card) {
+    var url = card.getAttribute('data-download-url');
+    if (!url && card.getAttribute('data-cert-id')) {
+      url = '/api/user/certificates/' + encodeURIComponent(card.getAttribute('data-cert-id')) + '/download';
+    }
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function wireCertificateCards(root) {
+    if (!root || root.dataset.dcCertWired === '1') return;
+    root.dataset.dcCertWired = '1';
+    root.addEventListener('click', function (event) {
+      var card = event.target.closest('.cert-card');
+      if (!card || !root.contains(card)) return;
+      openCertificateDownload(card);
+    });
+    root.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      var card = event.target.closest('.cert-card');
+      if (!card || !root.contains(card)) return;
+      event.preventDefault();
+      openCertificateDownload(card);
+    });
   }
 
   function injectEmptyStateStyles() {
@@ -71,6 +99,7 @@
     var certs = DCCertificates.getCertificatesByCategory(category, max);
 
     root.innerHTML = '';
+    wireCertificateCards(root);
     if (!certs.length) {
       root.appendChild(
         createEmptyState(

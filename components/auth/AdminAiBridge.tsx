@@ -213,20 +213,53 @@ function markEventAiLoading(root: ParentNode) {
   if (reco) reco.textContent = "Generating Gemini recommendations…";
 }
 
+async function hydrateLiveRegistrationStats(root: ParentNode, eventId: string) {
+  try {
+    const res = await fetch(
+      `/api/user/registrations?eventId=${encodeURIComponent(eventId)}`,
+      { cache: "no-store", credentials: "include" },
+    );
+    if (!res.ok) return 0;
+    const payload = (await res.json()) as { registrations?: unknown[] };
+    const count = Array.isArray(payload.registrations) ? payload.registrations.length : 0;
+    setMetricRow(root, "registered participants", String(count));
+    setMetricRow(root, "predictive expected attendee", `${count} Attendees`);
+    setMetricRow(root, "registration status", count > 0 ? "Open" : "Open");
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
 async function hydrateEventPage(root: ParentNode, eventId: string) {
   markEventAiLoading(root);
+  const liveCount = await hydrateLiveRegistrationStats(root, eventId);
   const res = await fetch("/api/ai/event-insights", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ eventId }),
+    body: JSON.stringify({ eventId, refresh: true }),
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) {
-    applyEventInsights(root, unavailableInsights());
+    applyEventInsights(root, {
+      ...unavailableInsights(),
+      expectedAttendees: liveCount,
+      registrations: liveCount,
+      capacityConclusion:
+        liveCount > 0
+          ? `${liveCount} student${liveCount === 1 ? "" : "s"} registered. AI insights are offline, but live registration counts are still connected.`
+          : unavailableInsights().capacityConclusion,
+    });
     return;
   }
-  applyEventInsights(root, payload as EventInsights);
+  const insights = payload as EventInsights;
+  applyEventInsights(root, {
+    ...insights,
+    // Prefer live Mongo registration count for expectancy / registered students.
+    expectedAttendees: Number(insights.registrations ?? insights.expectedAttendees ?? liveCount),
+    registrations: Number(insights.registrations ?? liveCount),
+  });
 }
 
 async function hydrateUserInsights(userId: string) {
@@ -424,7 +457,7 @@ function persistReportSections() {
 async function hydrateReportEvents(root: ParentNode) {
   const list = root.querySelector(".rg-list");
   if (!list) return;
-  const res = await fetch("/api/events?limit=80", { cache: "no-store" });
+  const res = await fetch("/api/events?limit=200", { cache: "no-store", credentials: "include" });
   if (!res.ok) return;
   const payload = (await res.json()) as {
     events?: Array<{
@@ -439,8 +472,11 @@ async function hydrateReportEvents(root: ParentNode) {
   const events = (payload.events || []).filter((event) =>
     ["completed", "live", "approved"].includes(event.status),
   );
-  const preferred = events.filter((event) => event.status === "completed");
-  const rows = (preferred.length ? preferred : events).slice(0, 12);
+  // Prefer accepted/completed events for analysis & evaluation reports.
+  const preferred = events.filter((event) =>
+    ["approved", "completed", "live"].includes(event.status),
+  );
+  const rows = preferred.slice(0, 16);
   const selectedIds = readJson<string[]>(REPORT_STORAGE.eventIds, []);
 
   patchChildren(list, ".rg-event", rows, (el, event, index) => {

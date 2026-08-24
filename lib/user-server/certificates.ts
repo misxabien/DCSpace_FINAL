@@ -1,8 +1,12 @@
 import type { Db } from "mongodb";
+import { ObjectId } from "mongodb";
+import { getAdminDb } from "@/lib/db/get-db";
+import { eventsCollection } from "@/lib/events/types";
 import { certificatesCollection, logUserActivity } from "@/lib/user-server/activity";
 import { notifyUser } from "@/lib/user-server/portal";
 import {
   buildCertificatePdfFromTemplate,
+  buildDefaultCertificateTemplate,
   inferCertificateCategory,
 } from "@/lib/certificates/template";
 
@@ -30,6 +34,90 @@ export function certificateDownloadUrl(id: string) {
   return `/api/user/certificates/${encodeURIComponent(id)}/download`;
 }
 
+function formatDateIssued(value?: string) {
+  if (value && value.trim()) return value.trim();
+  return new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Return stored PDF bytes or generate, persist, and return when missing. */
+export async function resolveCertificatePdf(
+  db: Db,
+  cert: StoredCertificateDoc & { _id?: unknown },
+): Promise<{ base64: string; fileName: string; mimeType: string } | null> {
+  const existing = String(cert.generatedPdfBase64 || "").trim();
+  if (existing) {
+    return {
+      base64: existing,
+      fileName: String(cert.generatedPdfFileName || "certificate.pdf"),
+      mimeType: String(cert.generatedPdfMimeType || "application/pdf"),
+    };
+  }
+
+  const recipientName = String(cert.userName || cert.name || cert.email || "Participant");
+  const eventName = String(cert.eventName || cert.eventTitle || "Event");
+  const dateIssued = formatDateIssued(cert.dateIssued || cert.createdAt);
+
+  let templateBase64 = "";
+  const eventId = String(cert.eventId || "");
+  if (eventId && ObjectId.isValid(eventId)) {
+    const event = await eventsCollection(await getAdminDb()).findOne(
+      { _id: new ObjectId(eventId) },
+      {
+        projection: {
+          title: 1,
+          certificateTemplateBase64: 1,
+          hasCertificateTemplate: 1,
+        },
+      },
+    );
+    templateBase64 = String(event?.certificateTemplateBase64 || "").trim();
+    if (!templateBase64 && event?.hasCertificateTemplate) {
+      templateBase64 = await buildDefaultCertificateTemplate();
+    }
+  }
+
+  if (!templateBase64) {
+    templateBase64 = await buildDefaultCertificateTemplate();
+  }
+
+  const generatedPdfBase64 = await buildCertificatePdfFromTemplate({
+    templateBase64,
+    recipientName,
+    eventName,
+    dateIssued,
+  });
+  const generatedPdfFileName = `${eventName} - ${recipientName}.pdf`;
+  const generatedPdfMimeType = "application/pdf";
+
+  if (cert._id) {
+    await certificatesCollection(db).updateOne(
+      { _id: cert._id },
+      {
+        $set: {
+          generatedPdfBase64,
+          generatedPdfMimeType,
+          generatedPdfFileName,
+          userName: recipientName,
+          eventName,
+          dateIssued,
+          status: "generated",
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    );
+  }
+
+  return {
+    base64: generatedPdfBase64,
+    fileName: generatedPdfFileName,
+    mimeType: generatedPdfMimeType,
+  };
+}
+
 export async function createCertificateDoc(input: {
   db: Db;
   event: {
@@ -43,9 +131,9 @@ export async function createCertificateDoc(input: {
   qualificationSource: "admin" | "attendance";
   attendanceMinutes?: number;
 }) {
-  if (!input.event.certificateTemplateBase64) {
-    throw new Error("This event has no certificate template PDF.");
-  }
+  const templateBase64 =
+    String(input.event.certificateTemplateBase64 || "").trim() ||
+    (await buildDefaultCertificateTemplate());
 
   const now = new Date().toISOString();
   const dateIssued = new Date(now).toLocaleDateString("en-US", {
@@ -54,7 +142,7 @@ export async function createCertificateDoc(input: {
     year: "numeric",
   });
   const generatedPdfBase64 = await buildCertificatePdfFromTemplate({
-    templateBase64: input.event.certificateTemplateBase64,
+    templateBase64,
     recipientName: input.recipient.userName,
     eventName: input.event.title,
     dateIssued,

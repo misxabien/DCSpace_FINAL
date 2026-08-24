@@ -42,11 +42,14 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<SessionUser | null>(() => readCachedAuthUser());
-  const [loading, setLoading] = useState(() => readCachedAuthUser() === null);
+  // Always start null so server HTML and the first client render match.
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const hadCachedUser = Boolean(readCachedAuthUser());
+    const cached = readCachedAuthUser();
+    const hadCachedUser = Boolean(cached);
+    if (cached) setUser(cached);
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
       if (!res.ok) {
@@ -93,6 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      // Drop previous account's portal/joined cache before switching users.
+      invalidatePortalCache({ resetUi: true });
+
       if (data.token && data.profile) {
         saveAuthSession(data.token, data.profile);
         syncProfileToLegacyStorage(data.profile);
@@ -121,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.sessionStorage.removeItem("dcspaceCurrentUser");
       window.localStorage.removeItem("dc_admin_role");
       document.body.classList.remove("is-super-admin");
-      invalidatePortalCache();
+      invalidatePortalCache({ resetUi: true });
     } catch {
       /* ignore */
     }

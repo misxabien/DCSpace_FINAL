@@ -34,7 +34,7 @@ export async function requireSessionActor(
       });
       if (user) {
         return {
-          email: String(user.email),
+          email: String(user.email || "").trim().toLowerCase(),
           name:
             `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
             session.name,
@@ -51,7 +51,7 @@ export async function requireSessionActor(
       /* fall through with cookie session */
     }
     return {
-      email: session.email,
+      email: String(session.email || "").trim().toLowerCase(),
       name: session.name,
       role: session.role,
     };
@@ -80,7 +80,7 @@ export async function requireSessionActor(
       });
       if (user) {
         return {
-          email: String(user.email),
+          email: String(user.email || "").trim().toLowerCase(),
           name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || payload.email,
           role: String(user.role || payload.role || "student"),
           userId: String(user._id),
@@ -94,7 +94,7 @@ export async function requireSessionActor(
     }
 
     return {
-      email: payload.email,
+      email: String(payload.email || "").trim().toLowerCase(),
       name: payload.email,
       role: payload.role || "student",
       userId: payload.sub,

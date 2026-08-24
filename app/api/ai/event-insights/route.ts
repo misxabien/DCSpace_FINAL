@@ -57,7 +57,11 @@ export async function POST(request: Request) {
       registrationStatus?: string;
       recommendations?: unknown;
     }>(
-      `You are DC Space campus admin AI. Analyze this live event snapshot and return JSON only:
+      `You are DC Space campus admin AI. Analyze this event snapshot and return JSON only.
+Event status is "${context.event.status}". Adapt the analysis:
+- approved / pending live: focus on pre-event capacity planning, expected turnout, registration health, and readiness evaluation.
+- live: focus on crowd, RFID taps, congestion, and real-time attendance.
+- completed / cancelled / postponed: focus on performance evaluation, feedback sentiment, and future recommendations.
 {
   "expectedAttendees": 0,
   "expectedAttendanceRate": 0,
@@ -88,12 +92,12 @@ export async function POST(request: Request) {
   "registrationStatus": "Open|Closing|Closed|Complete",
   "recommendations": ["bullet 1","bullet 2","bullet 3"]
 }
-Rates are 0-100 integers. Base claims on the numbers. If data is sparse, say so and keep risk Low.
+Rates are 0-100 integers. Base claims on the numbers. If data is sparse, say so and keep risk Low. Approved events with registrations should still receive capacity conclusions and evaluation recommendations.
 
 Data:
 ${JSON.stringify(context, null, 2)}`,
       {
-        cacheKey: `event-insights:${eventId}:${context.stats.registrations}:${context.stats.uniqueScans}:${context.stats.feedbackCount}`,
+        cacheKey: `event-insights:${eventId}:${context.event.status}:${context.stats.registrations}:${context.stats.uniqueScans}:${context.stats.feedbackCount}`,
         skipCache: Boolean(body.refresh),
       },
     );
@@ -105,6 +109,15 @@ ${JSON.stringify(context, null, 2)}`,
     return NextResponse.json({
       eventId,
       aiAvailable: true,
+      eventStatus: context.event.status,
+      evaluationMode:
+        context.event.status === "approved"
+          ? "pre-event"
+          : context.event.status === "live"
+            ? "live"
+            : context.event.status === "completed"
+              ? "post-event"
+              : "status-review",
       expectedAttendees: Number(result.expectedAttendees || context.stats.registrations || 0),
       expectedAttendanceRate: Number(result.expectedAttendanceRate || context.stats.attendanceRate || 0),
       predictionConfidence: Number(result.predictionConfidence || 0),
@@ -140,7 +153,14 @@ ${JSON.stringify(context, null, 2)}`,
       securityRisk: String(result.securityRisk || (context.stats.duplicateScans ? "Moderate" : "Low")),
       duplicateScans: context.stats.duplicateScans,
       interestFlow: String(result.interestFlow || "Steady"),
-      registrationStatus: String(result.registrationStatus || "Open"),
+      registrationStatus: String(
+        result.registrationStatus ||
+          (context.event.status === "approved" || context.event.status === "live"
+            ? "Open"
+            : context.event.status === "completed"
+              ? "Complete"
+              : "Closed"),
+      ),
       recommendations,
     });
   } catch (error) {

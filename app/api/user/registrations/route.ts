@@ -6,6 +6,7 @@ import { usersCollection } from "@/lib/db/user-collections";
 import { logUserActivity } from "@/lib/user-server/activity";
 import {
   invitationsCollection,
+  notifyAdmins,
   notifyUser,
   registrationsCollection,
 } from "@/lib/user-server/portal";
@@ -31,7 +32,8 @@ export async function GET(request: Request) {
     if (isAdmin) {
       if (email) filter.email = email.trim().toLowerCase();
     } else if (actor && !("error" in actor)) {
-      filter.email = actor.email;
+      // Only this account's registrations — never another user's.
+      filter.email = actor.email.trim().toLowerCase();
     }
     const docs = await registrationsCollection(userDb)
       .find(filter)
@@ -100,11 +102,13 @@ export async function POST(request: Request) {
     const eventTitle =
       String(body.eventTitle || "").trim() || String(event.title || "Event");
 
+    const email = actor.email.trim().toLowerCase();
     const existing = await registrationsCollection(userDb).findOne({
       eventId,
-      email: actor.email,
+      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
     });
     if (existing) {
+      const registrationCount = await registrationsCollection(userDb).countDocuments({ eventId });
       return NextResponse.json({
         registration: {
           id: String(existing._id),
@@ -112,6 +116,7 @@ export async function POST(request: Request) {
           eventTitle: String(existing.eventTitle || eventTitle),
           status: String(existing.status || "joined"),
         },
+        registrationCount,
         duplicate: true,
       });
     }
@@ -131,10 +136,11 @@ export async function POST(request: Request) {
             uploaded: true,
           }))
       : [];
+    const status = files.length ? "pending" : String(body.status || "joined");
     const doc = {
       eventId,
       eventTitle,
-      email: actor.email,
+      email: email,
       userName: actor.name,
       userId: actor.userId || "",
       studentNumber: actor.studentNumber || String(user?.studentNumber || ""),
@@ -142,14 +148,15 @@ export async function POST(request: Request) {
       school: String(user?.school || ""),
       organization: String(user?.organizationPart || ""),
       organizationRole: String(user?.organizationRole || ""),
-      status: files.length ? "pending" : String(body.status || "joined"),
+      status,
       files,
       createdAt: now,
+      updatedAt: now,
     };
     const result = await registrationsCollection(userDb).insertOne(doc);
 
     await invitationsCollection(userDb).updateMany(
-      { eventId, email: actor.email },
+      { eventId, email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } },
       { $set: { status: "joined", updatedAt: now } },
     );
 
@@ -160,22 +167,35 @@ export async function POST(request: Request) {
       actorRole: actor.role,
       targetId: eventId,
       targetTitle: eventTitle,
-      meta: { kind: "registration" },
+      meta: { kind: "registration", status },
     });
+
+    const registrationCount = await registrationsCollection(userDb).countDocuments({ eventId });
 
     if (event?.organizerEmail) {
       await notifyUser({
         email: String(event.organizerEmail),
         title: "New event registration",
-        body: `${actor.name} registered for ${eventTitle}.`,
+        body: `${actor.name} registered for ${eventTitle}. Expected attendees: ${registrationCount}.`,
         type: "registration",
         eventId,
         eventTitle,
       });
     }
 
+    void notifyAdmins({
+      title: "Student registered for event",
+      body: `${actor.name} joined ${eventTitle}. Registered students: ${registrationCount}.`,
+      type: "registration",
+      eventId,
+      eventTitle,
+    });
+
     return NextResponse.json(
-      { registration: { id: String(result.insertedId), ...doc } },
+      {
+        registration: { id: String(result.insertedId), ...doc },
+        registrationCount,
+      },
       { status: 201 },
     );
   } catch (error) {

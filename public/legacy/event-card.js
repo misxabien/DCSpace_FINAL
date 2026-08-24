@@ -151,7 +151,18 @@
   }
 
   function navigateToEvent(id, context) {
-    window.location.href = DCEvents.getEventDetailUrl(id, context || 'joined');
+    var url = DCEvents.getEventDetailUrl(id, context || 'joined');
+    if (typeof window.__dcNavigate === 'function') {
+      window.__dcNavigate(url);
+      return;
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('dc-navigate', { detail: { href: url } }));
+      return;
+    } catch (e) {
+      /* fall through */
+    }
+    window.location.assign(url);
   }
 
   function attachCardNavigation(card, id, context) {
@@ -202,16 +213,16 @@
       description: 'You do not have any event invitations right now. New invitations will appear here.'
     },
     'home-today-grid': {
-      title: 'No events scheduled for today.',
-      description: 'You currently have no events happening today. Check back later or join a new event to get started.'
+      title: 'No joined events for today.',
+      description: 'Events you register for that happen today will appear here under Events Joined.'
     },
     'home-upcoming-grid': {
-      title: 'No upcoming events found.',
-      description: 'There are no scheduled events coming up. Join an event to stay connected and start planning ahead.'
+      title: 'No upcoming joined events.',
+      description: 'Join an event from Explore and it will show up here for your account only.'
     },
     'home-past-grid': {
-      title: 'No past events available.',
-      description: 'You do not have any completed events yet. Past events will appear here once they have ended.'
+      title: 'No past joined events yet.',
+      description: 'Events you registered for will move here after they end.'
     },
     'row-today': {
       title: 'No events happening today.',

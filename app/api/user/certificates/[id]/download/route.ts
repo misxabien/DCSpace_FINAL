@@ -4,6 +4,7 @@ import { getUserDb } from "@/lib/user-server/get-user-db";
 import { certificatesCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { resolveCertificatePdf } from "@/lib/user-server/certificates";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -28,25 +29,25 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     if (!isAdmin && actor && !("error" in actor)) {
-      const email = String(cert.email || "").toLowerCase();
-      if (email !== actor.email.toLowerCase()) {
+      const email = String(cert.email || "").trim().toLowerCase();
+      if (email !== actor.email.trim().toLowerCase()) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
     }
 
-    const base64 = String(cert.generatedPdfBase64 || "");
-    if (!base64) {
+    const resolved = await resolveCertificatePdf(db, cert);
+    if (!resolved?.base64) {
       return NextResponse.json(
         { error: "Certificate file is unavailable." },
         { status: 404 },
       );
     }
 
-    const bytes = Buffer.from(base64, "base64");
-    const fileName = String(cert.generatedPdfFileName || "certificate.pdf");
+    const bytes = Buffer.from(resolved.base64, "base64");
+    const fileName = resolved.fileName;
     return new NextResponse(bytes, {
       headers: {
-        "Content-Type": String(cert.generatedPdfMimeType || "application/pdf"),
+        "Content-Type": resolved.mimeType,
         "Content-Disposition": `inline; filename="${fileName.replace(/"/g, "")}"`,
         "Cache-Control": "private, no-store",
       },

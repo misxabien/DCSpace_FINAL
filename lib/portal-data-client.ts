@@ -28,6 +28,13 @@ function compactForStorage(data: PortalPayload): PortalPayload {
       ...event,
       posterImage:
         event.posterImage?.startsWith("data:") ? "" : event.posterImage || "",
+      // Prefer URL so cards stay light across reloads
+      attachments: {
+        ...event.attachments,
+        poster:
+          event.attachments?.poster ||
+          (event.hasPoster ? `/api/events/${event.id}/attachments/poster` : ""),
+      },
     })),
   };
 }
@@ -67,14 +74,34 @@ export function isPortalCacheStale(maxAgeMs = MEMORY_TTL_MS) {
   return Date.now() - cache.at > maxAgeMs;
 }
 
-export function invalidatePortalCache() {
+export function invalidatePortalCache(options?: { resetUi?: boolean }) {
   cache = { at: 0, data: null };
-  if (typeof window !== "undefined") {
-    try {
-      window.sessionStorage.removeItem(accountStorageKey());
-    } catch {
-      /* ignore */
+  inflight = null;
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(accountStorageKey());
+
+    if (options?.resetUi) {
+      // Account switch: drop every account's snapshot so joins never leak across logins.
+      const keys: string[] = [];
+      for (let i = 0; i < window.sessionStorage.length; i += 1) {
+        const key = window.sessionStorage.key(i);
+        if (
+          key &&
+          (key.startsWith("dc_portal_data_v1") || key.startsWith("dc_events_cards_v1"))
+        ) {
+          keys.push(key);
+        }
+      }
+      keys.forEach((key) => window.sessionStorage.removeItem(key));
+      window.sessionStorage.removeItem("dc_events_cards_v1");
+      if (window.DCEvents) {
+        window.DCEvents.list = [];
+      }
+      window.dispatchEvent(new CustomEvent("dc-portal-invalidated"));
     }
+  } catch {
+    /* ignore */
   }
 }
 

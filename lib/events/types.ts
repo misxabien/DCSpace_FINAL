@@ -166,18 +166,22 @@ export function sanitizeEvent(
         ? formatPosterDataUrl(doc.posterImageBase64, doc.posterImageMimeType)
         : "",
     attachments: {
-      conceptPaper: doc.conceptPaperBase64
-        ? `/api/events/${doc._id.toString()}/attachments/concept-paper`
-        : "",
-      certificateTemplate: doc.certificateTemplateBase64
-        ? `/api/events/${doc._id.toString()}/attachments/certificate-template`
-        : "",
-      programFile: doc.programFileBase64
-        ? `/api/events/${doc._id.toString()}/attachments/program-file`
-        : "",
-      poster: doc.posterImageBase64
-        ? `/api/events/${doc._id.toString()}/attachments/poster`
-        : "",
+      conceptPaper:
+        doc.conceptPaperBase64 || doc.conceptPaperName
+          ? `/api/events/${doc._id.toString()}/attachments/concept-paper`
+          : "",
+      certificateTemplate:
+        doc.certificateTemplateBase64 || doc.certificateTemplateName
+          ? `/api/events/${doc._id.toString()}/attachments/certificate-template`
+          : "",
+      programFile:
+        doc.programFileBase64 || doc.programFileName
+          ? `/api/events/${doc._id.toString()}/attachments/program-file`
+          : "",
+      poster:
+        doc.posterImageBase64 || doc.posterImageMimeType
+          ? `/api/events/${doc._id.toString()}/attachments/poster`
+          : "",
     },
     status: doc.status,
     organizerId: doc.organizerId || "",

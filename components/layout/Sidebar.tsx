@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BOTTOM_NAV,
+  STUDENT_NAV_ITEMS,
   getNavItemsForRole,
   isNavActive,
 } from "@/lib/navigation";
@@ -51,7 +52,12 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isOrganizer, logout } = useAuth();
-  const navItems = getNavItemsForRole(isOrganizer);
+  // Keep first paint identical on server + client (auth cache only exists in the browser).
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  const navItems = hydrated ? getNavItemsForRole(isOrganizer) : STUDENT_NAV_ITEMS;
   useSidebarCollapse();
 
   const handleBottomClick = async (
@@ -102,7 +108,7 @@ export function Sidebar() {
       <nav aria-label="Primary">
         <ul className="nav">
           {navItems.map((item) => {
-            const active = isNavActive(pathname, item.href);
+            const active = hydrated && isNavActive(pathname, item.href);
             return (
               <li key={item.href}>
                 <Link
@@ -123,12 +129,13 @@ export function Sidebar() {
 
       <ul className="nav nav--bottom">
         {BOTTOM_NAV.map((item) => {
-          const active = isNavActive(pathname, item.href);
+          const active = hydrated && isNavActive(pathname, item.href);
           return (
             <li key={item.href}>
               <Link
                 href={item.href}
                 className={active ? "is-active" : undefined}
+                aria-current={active ? "page" : undefined}
                 onClick={(event) => handleBottomClick(event, item.href)}
               >
                 <NavIcon icon={item.icon} />

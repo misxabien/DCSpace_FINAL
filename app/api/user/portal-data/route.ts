@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection, sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
+import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { PORTAL_EVENT_PROJECTION } from "@/lib/events/list-projection";
 import { escapeRegex } from "@/lib/events/ownership";
 import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
@@ -25,14 +26,16 @@ export async function GET(request: Request) {
       eventsCollection(adminDb)
         .find({ status: { $in: [...PUBLIC_EVENT_STATUSES] } })
         .project(PORTAL_EVENT_PROJECTION)
-        .sort({ updatedAt: -1 })
-        .limit(200)
+        .sort({ startsAt: 1, updatedAt: -1 })
+        .limit(500)
         .toArray(),
       registrationsCollection(userDb)
-        .find({ email })
+        .find({
+          email: { $regex: `^${escapeRegex(email)}$`, $options: "i" },
+        })
         .project({ eventId: 1, status: 1 })
         .sort({ createdAt: -1 })
-        .limit(200)
+        .limit(500)
         .toArray(),
       invitationsCollection(userDb)
         .find({
@@ -40,9 +43,12 @@ export async function GET(request: Request) {
         })
         .project({ eventId: 1, eventTitle: 1, status: 1, createdAt: 1 })
         .sort({ createdAt: -1 })
-        .limit(200)
+        .limit(500)
         .toArray(),
-      savedEventsCollection(userDb).findOne({ email }, { projection: { eventIds: 1 } }),
+      savedEventsCollection(userDb).findOne(
+        { email: { $regex: `^${escapeRegex(email)}$`, $options: "i" } },
+        { projection: { eventIds: 1 } },
+      ),
     ]);
 
     const publicEventIds = new Set(eventDocs.map((doc) => String(doc._id)));
@@ -57,10 +63,15 @@ export async function GET(request: Request) {
         createdAt: String(doc.createdAt || ""),
       }));
 
+    const events = eventDocs
+      .map((doc) =>
+        // Use attachment URLs instead of embedding poster base64 (keeps portal fast).
+        sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includePoster: false }),
+      )
+      .sort(compareEventsForDisplay);
+
     return NextResponse.json({
-      events: eventDocs.map((doc) =>
-        sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includePoster: true }),
-      ),
+      events,
       registrations: registrationDocs.map((doc) => ({
         eventId: String(doc.eventId || ""),
         status: String(doc.status || "joined"),
