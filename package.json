@@ -9,6 +9,7 @@
     "lint": "eslint",
     "convert:legacy": "node scripts/convert-legacy.mjs",
     "seed:admins": "node scripts/seed-admins.mjs",
+    "seed:events": "node scripts/seed-events-admin.mjs",
     "seed:attendance": "node scripts/seed-attendance-demo.mjs",
     "test:attendance": "node scripts/test-attendance-flow.mjs",
     "test:mongo": "node scripts/test-mongo.mjs"

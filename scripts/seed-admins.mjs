@@ -60,7 +60,7 @@ const SEEDS = [
 const envEmail = process.env.DEV_ADMIN_EMAIL?.trim().toLowerCase();
 const envPassword = process.env.DEV_ADMIN_PASSWORD?.trim();
 const envName = process.env.DEV_ADMIN_NAME?.trim() || "Dev Admin";
-if (envEmail && envPassword) {
+if (envEmail && envPassword && !SEEDS.some((s) => s.email.toLowerCase() === envEmail)) {
   const [firstName, ...rest] = envName.split(/\s+/);
   SEEDS.push({
     email: envEmail,

@@ -440,10 +440,11 @@ function hydrateEvents(
     liveEvents !== null
       ? mapped.filter((event) => event.status === "pending")
       : data.events.pending;
+  const APPROVED_STATUSES = ["approved", "live", "completed"];
   const approvedEvents =
     liveEvents !== null
-      ? mapped.filter((event) => event.status === "approved")
-      : data.events.approved.filter((event) => event.status === "approved");
+      ? mapped.filter((event) => APPROVED_STATUSES.includes(event.status))
+      : data.events.approved.filter((event) => APPROVED_STATUSES.includes(event.status));
 
   fillList(
     "pending-list",
@@ -815,7 +816,7 @@ export function AdminDataBridge() {
             startsAt?: string;
           }> | null = null;
           try {
-            const eventsRes = await fetch("/api/events?limit=200", { cache: "no-store" });
+            const eventsRes = await fetch("/api/events?limit=500", { cache: "no-store" });
             if (eventsRes.ok) {
               const payload = (await eventsRes.json()) as { events?: NonNullable<typeof liveEvents> };
               liveEvents = payload.events || [];

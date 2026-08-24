@@ -156,7 +156,7 @@ export async function GET(request: Request) {
       usersCol
         .find({ role: { $nin: ["admin", "super-admin"] } })
         .sort({ createdAt: -1 })
-        .limit(50)
+        .limit(500)
         .toArray(),
       eventsCol.countDocuments({}),
       eventsCol.countDocuments({ status: "pending" }),
@@ -173,12 +173,12 @@ export async function GET(request: Request) {
       eventsCol
         .find({ status: "pending" })
         .sort({ createdAt: -1 })
-        .limit(20)
+        .limit(500)
         .toArray(),
       eventsCol
         .find({ status: { $in: ["approved", "live", "completed"] } })
         .sort({ updatedAt: -1 })
-        .limit(20)
+        .limit(500)
         .toArray(),
       eventsCol
         .find({ status: { $in: ["approved", "live"] } })

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
-    const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 200);
+    const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 500);
 
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
