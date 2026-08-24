@@ -351,6 +351,11 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   if (rfidLink) {
     rfidLink.href = `/admin/rfid17?id=${encodeURIComponent(event.id)}`;
   }
+  try {
+    if (event.id) sessionStorage.setItem("dc-rfid-event-id", event.id);
+  } catch {
+    /* ignore */
+  }
 
   const actions = root.querySelector("#detail-actions");
   if (actions) {

@@ -407,11 +407,52 @@ async function hydrateAdminNotifications() {
   );
 }
 
-async function hydrateRfid() {
-  const eventId = new URLSearchParams(window.location.search).get("id") || "";
-  if (!eventId) return;
+const RFID_EVENT_STORAGE_KEY = "dc-rfid-event-id";
+let rfidScanEventId = "";
 
+function rememberRfidEventId(eventId: string) {
+  const id = eventId.trim();
+  if (!id) return;
+  rfidScanEventId = id;
+  try {
+    sessionStorage.setItem(RFID_EVENT_STORAGE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function resolveRfidEventId() {
+  const query = new URLSearchParams(window.location.search);
+  const fromQuery = (query.get("id") || query.get("eventId") || "").trim();
+  if (fromQuery) {
+    rememberRfidEventId(fromQuery);
+    return fromQuery;
+  }
+  if (rfidScanEventId) return rfidScanEventId;
+  try {
+    const stored = sessionStorage.getItem(RFID_EVENT_STORAGE_KEY) || "";
+    if (stored) {
+      rfidScanEventId = stored;
+      return stored;
+    }
+  } catch {
+    /* ignore */
+  }
+  const catalog = await fetchJson<{ events?: Array<{ id: string; status: string }> }>(
+    "/api/events?limit=200",
+  );
+  const live = (catalog?.events || []).filter((event) => event.status === "live");
+  if (live.length === 1 && live[0]?.id) {
+    rememberRfidEventId(live[0].id);
+    return live[0].id;
+  }
+  return "";
+}
+
+async function hydrateRfid() {
+  const eventId = await resolveRfidEventId();
   wireRfidScanner(eventId);
+  if (!eventId) return;
 
   const data = await fetchJson<{
     event?: { title?: string };
@@ -545,21 +586,33 @@ async function hydrateRfid() {
   }
 }
 
+function isOtherEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.id === "dc-rfid-scan-input") return false;
+  const tag = target.tagName;
+  return (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    target.isContentEditable
+  );
+}
+
 function wireRfidScanner(eventId: string) {
-  if (document.body.dataset.dcRfidWired === eventId) return;
-  document.body.dataset.dcRfidWired = eventId;
+  rememberRfidEventId(eventId);
 
   let host = document.getElementById("dc-rfid-scan-wrap");
   if (!host) {
     host = document.createElement("div");
     host.id = "dc-rfid-scan-wrap";
+    host.setAttribute("aria-hidden", "true");
     host.style.cssText =
-      "margin:16px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+      "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;";
     host.innerHTML =
-      '<label for="dc-rfid-scan-input" style="font-weight:600;color:#334155;">Scan RFID</label>' +
-      '<input id="dc-rfid-scan-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Tap or type RFID tag…" style="flex:1;min-width:220px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;" />' +
-      '<span id="dc-rfid-scan-status" style="font-size:13px;color:#64748b;"></span>' +
-      '<div id="dc-rfid-feed" style="width:100%;margin-top:12px;display:flex;flex-direction:column;gap:6px;"></div>';
+      '<label for="dc-rfid-scan-input">Scan RFID</label>' +
+      '<input id="dc-rfid-scan-input" type="text" autocomplete="off" />' +
+      '<span id="dc-rfid-scan-status"></span>' +
+      '<div id="dc-rfid-feed"></div>';
     const tapPanel = document.querySelector(".tap-panel") || document.querySelector(".main-panel");
     if (tapPanel) tapPanel.appendChild(host);
     else document.body.appendChild(host);
@@ -569,23 +622,29 @@ function wireRfidScanner(eventId: string) {
   const status = document.getElementById("dc-rfid-scan-status");
   if (!input) return;
 
-  const submitScan = async () => {
-    const rfidNumber = input.value.trim();
+  const submitScan = async (rawValue?: string) => {
+    const rfidNumber = String(rawValue ?? input.value).trim();
     if (!rfidNumber) return;
+    input.value = "";
+    if (!rfidScanEventId) {
+      if (status) status.textContent = "Open Live Attendance RFID from a live event.";
+      return;
+    }
     if (status) status.textContent = "Recording…";
     try {
       const res = await fetch("/api/admin/attendance/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, rfidNumber }),
+        body: JSON.stringify({ eventId: rfidScanEventId, rfidNumber }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (status) status.textContent = data.error || "Scan failed.";
+        const alert = document.querySelector(".rfid-alert");
+        if (alert) alert.textContent = data.error || "Scan failed.";
         return;
       }
       if (status) status.textContent = data.message || "Recorded.";
-      input.value = "";
       await hydrateRfid();
     } catch {
       if (status) status.textContent = "Scan failed.";
@@ -595,13 +654,54 @@ function wireRfidScanner(eventId: string) {
   if (input.dataset.dcWired !== "1") {
     input.dataset.dcWired = "1";
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+      if (event.key === "Enter" || event.key === "NumpadEnter") {
         event.preventDefault();
         void submitScan();
       }
     });
-    input.focus();
   }
+
+  if (document.body.dataset.dcRfidHidWired !== "1") {
+    document.body.dataset.dcRfidHidWired = "1";
+    let hidBuffer = "";
+    let hidTimer = 0;
+
+    const flushHid = () => {
+      const value = hidBuffer.trim();
+      hidBuffer = "";
+      if (value) void submitScan(value);
+    };
+
+    document.addEventListener("keydown", (event) => {
+      if (
+        !document.querySelector('[data-admin-page="rfid17"]') &&
+        !document.querySelector(".tap-panel")
+      ) {
+        return;
+      }
+      if (isOtherEditableTarget(event.target)) return;
+
+      if (event.key === "Enter" || event.key === "NumpadEnter") {
+        event.preventDefault();
+        window.clearTimeout(hidTimer);
+        if (hidBuffer.trim()) {
+          flushHid();
+        } else {
+          void submitScan();
+        }
+        return;
+      }
+
+      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+      event.preventDefault();
+      hidBuffer += event.key;
+      input.value = hidBuffer;
+      window.clearTimeout(hidTimer);
+      hidTimer = window.setTimeout(flushHid, 120);
+    });
+  }
+
+  window.setTimeout(() => input.focus(), 0);
 }
 
 async function hydrateCertificateDetails() {
