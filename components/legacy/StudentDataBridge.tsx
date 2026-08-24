@@ -103,7 +103,7 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
 
 async function fetchAttendanceBuckets() {
   try {
-    const res = await fetch("/api/user/attendance", { cache: "no-store" });
+    const res = await fetch("/api/user/attendance", { cache: "no-store", credentials: "include" });
     if (!res.ok) return new Map<string, "attendance-completed" | "attendance-incomplete" | "attendance-today">();
     const data = (await res.json()) as {
       attendance?: Array<{
@@ -116,9 +116,11 @@ async function fetchAttendanceBuckets() {
       string,
       "attendance-completed" | "attendance-incomplete" | "attendance-today"
     >();
+    const seen = new Set<string>();
     for (const row of data.attendance || []) {
       const eventId = String(row.eventId || "");
       if (!eventId) continue;
+      seen.add(eventId);
       if (row.qualifiedForCertificate || row.action === "out") {
         buckets.set(eventId, "attendance-completed");
         continue;
@@ -313,8 +315,26 @@ export function StudentDataBridge() {
           });
 
         if (pathname.startsWith("/attendance")) {
+          const registeredIds = new Set(
+            registrations
+              .filter((row) => ["joined", "approved"].includes(String(row.status || "joined")))
+              .map((row) => String(row.eventId || "")),
+          );
+          live = live.filter((event) => registeredIds.has(String(event.id)));
           const buckets = await fetchAttendanceBuckets();
           live = applyAttendanceCategories(live, buckets);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          live = live.map((event) => {
+            if (buckets.has(String(event.id))) return event;
+            const day = new Date(`${event.date}T12:00:00`);
+            if (Number.isNaN(day.getTime())) return event;
+            day.setHours(0, 0, 0, 0);
+            if (day.getTime() === today.getTime() && event.status === "live") {
+              return { ...event, category: "attendance-today" };
+            }
+            return event;
+          });
         }
 
         const params = new URLSearchParams(window.location.search);
@@ -335,6 +355,29 @@ export function StudentDataBridge() {
         }
 
         window.DCEvents.list = live;
+        if (pathname.startsWith("/attendance") && !pathname.startsWith("/attendance/details")) {
+          const grids = ["attendance-today-grid", "attendance-completed-grid", "attendance-incomplete-grid"];
+          const hasAny = grids.some((id) => {
+            const el = document.getElementById(id);
+            return el && live.some((event) => {
+              const cat = String(event.category || "");
+              if (id === "attendance-today-grid") return cat === "attendance-today";
+              if (id === "attendance-completed-grid") return cat === "attendance-completed";
+              if (id === "attendance-incomplete-grid") return cat === "attendance-incomplete";
+              return false;
+            });
+          });
+          if (!hasAny && live.length === 0) {
+            grids.forEach((id) => {
+              const el = document.getElementById(id);
+              if (!el) return;
+              el.innerHTML =
+                '<div style="padding:24px;text-align:center;color:#64748b;font-size:14px;line-height:1.5;">' +
+                "No registered events yet. Join an event first, then return here to track your tap-in and tap-out." +
+                "</div>";
+            });
+          }
+        }
         refreshLegacyEventViews(pathname);
         window.dispatchEvent(new CustomEvent("dc-events-ready"));
       } catch {
@@ -446,60 +489,59 @@ export function StudentDataBridge() {
       if (!pathname.startsWith("/attendance")) return;
       const params = new URLSearchParams(window.location.search);
       const eventId = params.get("id");
-      if (!eventId) return;
+      if (!eventId || pathname !== "/attendance/details") return;
 
-      if (pathname === "/attendance/details") {
-        const footer = document.querySelector(".rfid-panel__footer");
-        if (footer && !document.getElementById("dc-tap-out-btn")) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.id = "dc-tap-out-btn";
-          button.className = "rfid-sort__btn is-active";
-          button.textContent = "Tap Out";
-          button.addEventListener("click", async () => {
-            button.disabled = true;
-            try {
-              const res = await fetch("/api/user/attendance", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  eventId,
-                  eventName:
-                    document.getElementById("detail-name")?.textContent || "",
-                  action: "out",
-                }),
-              });
-              const data = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                window.alert(data.error || "Failed to tap out.");
-                return;
-              }
-              if (data.certificate?.id) {
-                window.alert(
-                  "Attendance completed. Your certificate is now available in Certificates.",
-                );
-              } else {
-                window.alert("Tap out recorded.");
-              }
-              window.location.assign("/certificates");
-            } catch {
-              window.alert("Failed to tap out.");
-            } finally {
-              button.disabled = false;
+      const footer = document.querySelector(".rfid-panel__footer");
+      if (footer && !document.getElementById("dc-tap-out-btn")) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.id = "dc-tap-out-btn";
+        button.className = "rfid-sort__btn is-active";
+        button.textContent = "Tap Out (Manual)";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            const res = await fetch("/api/user/attendance", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                eventId,
+                eventName: document.getElementById("detail-name")?.textContent || "",
+                action: "out",
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              window.alert(data.error || "Failed to tap out.");
+              return;
             }
-          });
-          footer.prepend(button);
-        }
+            if (data.certificate?.id) {
+              window.alert(
+                "Attendance completed. Your certificate is now available in Certificates.",
+              );
+            } else {
+              window.alert("Tap out recorded.");
+            }
+            void injectAttendanceRfid();
+            void injectEvents();
+          } catch {
+            window.alert("Failed to tap out.");
+          } finally {
+            button.disabled = false;
+          }
+        });
+        footer.prepend(button);
+      }
 
-        void fetch("/api/user/attendance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventId,
-            eventName: document.getElementById("detail-name")?.textContent || "",
-            action: "in",
-          }),
-        }).catch(() => undefined);
+      let note = document.getElementById("dc-attendance-rfid-note");
+      if (!note && footer) {
+        note = document.createElement("p");
+        note.id = "dc-attendance-rfid-note";
+        note.style.cssText = "margin:0 0 10px;font-size:13px;color:#64748b;line-height:1.4;";
+        note.textContent =
+          "Tap in at the venue with your RFID tag. This page updates automatically when your scan is recorded.";
+        footer.prepend(note);
       }
     };
 
@@ -510,6 +552,7 @@ export function StudentDataBridge() {
       try {
         const res = await fetch(`/api/user/attendance?eventId=${encodeURIComponent(eventId)}`, {
           cache: "no-store",
+          credentials: "include",
         });
         if (!res.ok) return;
         const data = (await res.json()) as {
@@ -529,7 +572,7 @@ export function StudentDataBridge() {
         for (const row of rows) {
           const stamp = String(row.scannedAt || row.createdAt || "");
           if (row.action === "in") {
-            if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "00:00 PM" });
+            if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
             openIn = stamp;
           } else {
             logs.push({
@@ -541,27 +584,61 @@ export function StudentDataBridge() {
             qualified = Boolean(row.qualifiedForCertificate || qualified);
           }
         }
-        if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "00:00 PM" });
-        while (logs.length < 5) logs.push({ tapIn: "00:00 AM", tapOut: "00:00 PM" });
+        if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
+        if (!logs.length) logs.push({ tapIn: "—", tapOut: "—" });
+
+        const statusEl = document.getElementById("dc-attendance-status");
+        if (!statusEl) {
+          const host = document.querySelector(".rfid-panel__header") || document.querySelector(".rfid-panel");
+          if (host) {
+            const banner = document.createElement("p");
+            banner.id = "dc-attendance-status";
+            banner.style.cssText =
+              "margin:0 0 12px;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.4;";
+            host.prepend(banner);
+          }
+        }
+        const banner = document.getElementById("dc-attendance-status");
+        if (banner) {
+          if (openIn) {
+            banner.style.background = "#ecfdf5";
+            banner.style.color = "#047857";
+            banner.textContent = `You are currently tapped in (since ${formatClock(openIn)}). Tap out at the venue when you leave.`;
+          } else if (qualified) {
+            banner.style.background = "#eff6ff";
+            banner.style.color = "#1d4ed8";
+            banner.textContent = "Attendance completed for this event. Check Certificates if you qualified.";
+          } else if (rows.length > 0) {
+            banner.style.background = "#f8fafc";
+            banner.style.color = "#475569";
+            banner.textContent = "Your latest tap-out was recorded. Tap in again when you return.";
+          } else {
+            banner.style.background = "#fffbeb";
+            banner.style.color = "#b45309";
+            banner.textContent = "No attendance yet. Tap in at the venue with your registered RFID tag.";
+          }
+        }
 
         const event = window.DCEvents.getEventById?.(eventId) as
-          | { attendanceRequired?: string; gracePeriod?: string }
+          | { attendanceRequired?: string; gracePeriod?: string; name?: string }
           | undefined;
+        const detailName = document.getElementById("detail-name");
+        if (detailName && event?.name) detailName.textContent = event.name;
         const required = Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
         const progress = qualified ? 100 : Math.min(100, Math.round((lastMinutes / required) * 100));
 
         window.DCEvents.attendanceRfid = {
           ...(window.DCEvents.attendanceRfid || {}),
           [eventId]: {
-            graceRemaining: openIn ? event?.gracePeriod || "15:00" : "00:00",
+            graceRemaining: openIn ? event?.gracePeriod || "15 minutes" : "Complete",
             progress,
-            logs: logs.slice(0, 8),
-            page: { current: logs.some((row) => row.tapIn !== "00:00 AM") ? 1 : 0, total: 1 },
+            logs: logs.slice(-8).reverse(),
+            page: { current: logs.some((row) => row.tapIn !== "—") ? 1 : 0, total: 1 },
           },
         };
         window.DCEvents.renderAttendanceDetails?.();
       } catch {
-        /* keep mock rfid */
+        /* keep static panel */
       }
     };
 
@@ -866,7 +943,8 @@ export function StudentDataBridge() {
     const t1 = window.setTimeout(run, 80);
     const t2 = window.setTimeout(run, 400);
     const t3 = window.setTimeout(run, 900);
-    const poll = window.setInterval(run, 10000);
+    const pollMs = pathname.startsWith("/attendance") ? 3000 : 10000;
+    const poll = window.setInterval(run, pollMs);
     const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
 
     return () => {

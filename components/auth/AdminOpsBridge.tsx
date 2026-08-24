@@ -409,48 +409,198 @@ async function hydrateAdminNotifications() {
 
 async function hydrateRfid() {
   const eventId = new URLSearchParams(window.location.search).get("id") || "";
-  const url = eventId
-    ? `/api/user/attendance?eventId=${encodeURIComponent(eventId)}`
-    : "/api/user/attendance";
+  if (!eventId) return;
+
+  wireRfidScanner(eventId);
+
   const data = await fetchJson<{
-    attendance: Array<{
+    event?: { title?: string };
+    latestScan?: {
       participantName: string;
       email: string;
       action: string;
       scannedAt: string;
-      eventTitle: string;
+      eventTitle?: string;
+      rfidNumber?: string;
+    } | null;
+    recentScans?: Array<{
+      participantName: string;
+      email: string;
+      action: string;
+      scannedAt: string;
+      rfidNumber?: string;
     }>;
-  }>(url);
-  const latest = data?.attendance?.[0];
-  if (!latest) {
-    const profileName = document.querySelector(".profile-name");
-    if (profileName) profileName.textContent = "Waiting for tap…";
-    const tapIn = document.getElementById("tap-in");
-    const tapOut = document.getElementById("tap-out");
-    if (tapIn) tapIn.textContent = "00:00";
-    if (tapOut) tapOut.textContent = "00:00";
-    return;
-  }
-  const name = document.querySelector(".event-name");
-  if (name && latest.eventTitle) name.textContent = latest.eventTitle;
+    stats?: {
+      registrations: number;
+      registeredWithRfid: number;
+      tapIn: number;
+      tapOut: number;
+      currentlyInside: number;
+    };
+    registeredRfids?: Array<{
+      email: string;
+      userName: string;
+      studentNumber?: string;
+      course?: string;
+      rfidNumber: string;
+    }>;
+  }>(`/api/admin/attendance/live?eventId=${encodeURIComponent(eventId)}`);
+
+  const eventTitle = data?.event?.title || data?.latestScan?.eventTitle || "Event";
+  const nameEl = document.querySelector(".event-name");
+  if (nameEl) nameEl.textContent = eventTitle;
+
+  const latest = data?.latestScan;
   const profileName = document.querySelector(".profile-name");
-  if (profileName) profileName.textContent = latest.participantName || "Participant";
+  if (profileName) {
+    profileName.textContent = latest?.participantName || "Waiting for RFID tap…";
+  }
+
   const meta = document.querySelector(".profile-meta");
   if (meta) {
     const spans = meta.querySelectorAll("span");
-    if (spans[1]) spans[1].textContent = latest.email;
+    if (spans[0] && latest?.rfidNumber) spans[0].textContent = `RFID ${latest.rfidNumber}`;
+    if (spans[1]) spans[1].textContent = latest?.email || "Scan a registered tag";
   }
-  const tapIn = document.getElementById("tap-in");
-  const tapOut = document.getElementById("tap-out");
+
   const timeLabel = (value: string) => {
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "00:00";
+    if (Number.isNaN(date.getTime())) return "—";
     return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   };
-  if (latest.action === "out") {
-    if (tapOut) tapOut.textContent = timeLabel(latest.scannedAt);
-  } else if (tapIn) {
-    tapIn.textContent = timeLabel(latest.scannedAt);
+
+  const tapIn = document.getElementById("tap-in");
+  const tapOut = document.getElementById("tap-out");
+  if (tapIn) tapIn.textContent = "—";
+  if (tapOut) tapOut.textContent = "—";
+
+  if (latest) {
+    const email = latest.email.trim().toLowerCase();
+    const userScans = (data?.recentScans || []).filter(
+      (row) => row.email.trim().toLowerCase() === email,
+    );
+    let lastIn = "";
+    let lastOut = "";
+    for (const row of [...userScans].reverse()) {
+      if (row.action === "in" && !lastIn) lastIn = row.scannedAt;
+      if (row.action === "out") lastOut = row.scannedAt;
+    }
+    if (lastIn && tapIn) tapIn.textContent = timeLabel(lastIn);
+    if (lastOut && tapOut) tapOut.textContent = timeLabel(lastOut);
+    if (!lastOut && latest.action === "in" && tapIn) {
+      tapIn.textContent = timeLabel(latest.scannedAt);
+    }
+    if (latest.action === "out" && tapOut) {
+      tapOut.textContent = timeLabel(latest.scannedAt);
+    }
+  }
+
+  const alert = document.querySelector(".rfid-alert");
+  if (alert && data?.stats) {
+    const waiting = Math.max(0, data.stats.registrations - data.stats.registeredWithRfid);
+    alert.textContent =
+      waiting > 0
+        ? `${data.stats.currentlyInside} inside · ${data.stats.registeredWithRfid} registered RFID tags · ${waiting} registered without RFID`
+        : `${data.stats.currentlyInside} inside · ${data.stats.tapIn} tap-ins · ${data.stats.tapOut} tap-outs`;
+  }
+
+  const feedHost = document.getElementById("dc-rfid-feed");
+  if (feedHost && data?.recentScans) {
+    if (!data.recentScans.length) {
+      feedHost.innerHTML =
+        '<p style="margin:0;color:#64748b;font-size:13px;">No scans yet. Scan a registered RFID tag below.</p>';
+    } else {
+      feedHost.innerHTML = data.recentScans
+        .slice(0, 8)
+        .map(
+          (row) =>
+            `<div class="dc-rfid-feed-row"><strong>${row.participantName}</strong> · ${row.action === "in" ? "Tap In" : "Tap Out"} · ${timeLabel(row.scannedAt)}${row.rfidNumber ? ` · ${row.rfidNumber}` : ""}</div>`,
+        )
+        .join("");
+    }
+  }
+
+  let registryHost = document.getElementById("dc-rfid-registry");
+  if (!registryHost) {
+    registryHost = document.createElement("div");
+    registryHost.id = "dc-rfid-registry";
+    registryHost.style.cssText =
+      "margin:12px 0 0;width:100%;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;";
+    const scanWrap = document.getElementById("dc-rfid-scan-wrap");
+    if (scanWrap) scanWrap.prepend(registryHost);
+  }
+  const registered = data?.registeredRfids || [];
+  if (!registered.length) {
+    registryHost.innerHTML =
+      '<p style="margin:0;color:#64748b;font-size:13px;">No registered participants have RFID tags yet. Assign tags in user profiles first.</p>';
+  } else {
+    registryHost.innerHTML =
+      `<p style="margin:0 0 8px;font-weight:600;color:#334155;font-size:13px;">Registered RFID tags (${registered.length})</p>` +
+      registered
+        .map(
+          (row) =>
+            `<div style="font-size:13px;color:#475569;margin:4px 0;"><code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;">${row.rfidNumber}</code> · ${row.userName}${row.studentNumber ? ` · ${row.studentNumber}` : ""}</div>`,
+        )
+        .join("");
+  }
+}
+
+function wireRfidScanner(eventId: string) {
+  if (document.body.dataset.dcRfidWired === eventId) return;
+  document.body.dataset.dcRfidWired = eventId;
+
+  let host = document.getElementById("dc-rfid-scan-wrap");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "dc-rfid-scan-wrap";
+    host.style.cssText =
+      "margin:16px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+    host.innerHTML =
+      '<label for="dc-rfid-scan-input" style="font-weight:600;color:#334155;">Scan RFID</label>' +
+      '<input id="dc-rfid-scan-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Tap or type RFID tag…" style="flex:1;min-width:220px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;" />' +
+      '<span id="dc-rfid-scan-status" style="font-size:13px;color:#64748b;"></span>' +
+      '<div id="dc-rfid-feed" style="width:100%;margin-top:12px;display:flex;flex-direction:column;gap:6px;"></div>';
+    const tapPanel = document.querySelector(".tap-panel") || document.querySelector(".main-panel");
+    if (tapPanel) tapPanel.appendChild(host);
+    else document.body.appendChild(host);
+  }
+
+  const input = document.getElementById("dc-rfid-scan-input") as HTMLInputElement | null;
+  const status = document.getElementById("dc-rfid-scan-status");
+  if (!input) return;
+
+  const submitScan = async () => {
+    const rfidNumber = input.value.trim();
+    if (!rfidNumber) return;
+    if (status) status.textContent = "Recording…";
+    try {
+      const res = await fetch("/api/admin/attendance/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, rfidNumber }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (status) status.textContent = data.error || "Scan failed.";
+        return;
+      }
+      if (status) status.textContent = data.message || "Recorded.";
+      input.value = "";
+      await hydrateRfid();
+    } catch {
+      if (status) status.textContent = "Scan failed.";
+    }
+  };
+
+  if (input.dataset.dcWired !== "1") {
+    input.dataset.dcWired = "1";
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void submitScan();
+      }
+    });
+    input.focus();
   }
 }
 
@@ -1254,7 +1404,8 @@ export function AdminOpsBridge() {
 
     const t1 = window.setTimeout(() => void run(), 80);
     const t2 = window.setTimeout(() => void run(), 400);
-    const poll = window.setInterval(() => void run(), 12000);
+    const pollMs = pageIdFromPath(pathname) === "rfid17" ? 3000 : 12000;
+    const poll = window.setInterval(() => void run(), pollMs);
     return () => {
       cancelled = true;
       window.clearTimeout(t1);

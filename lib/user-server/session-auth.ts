@@ -11,6 +11,7 @@ export type SessionActor = {
   role: string;
   userId?: string;
   studentNumber?: string;
+  course?: string;
 };
 
 type AuthFailure = { error: string; status: number };
@@ -34,6 +35,7 @@ export async function requireSessionActor(
           role: String(user.role || session.role),
           userId: String(user._id),
           studentNumber: String(user.studentNumber || ""),
+          course: String(user.course || ""),
         };
       }
     } catch {
@@ -74,6 +76,7 @@ export async function requireSessionActor(
           role: String(user.role || payload.role || "student"),
           userId: String(user._id),
           studentNumber: String(user.studentNumber || ""),
+          course: String(user.course || ""),
         };
       }
     }
