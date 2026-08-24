@@ -21,7 +21,23 @@ const STEPS = [
   "Review & Submit",
 ] as const;
 
+const TOAST_DURATION_MS = 4500;
+
+type MissingField = {
+  label: string;
+  focusId: string;
+  step: number;
+};
+
 type Visibility = "everyone" | "organizers";
+
+function RequiredMark() {
+  return (
+    <span className={styles.requiredMark} aria-hidden="true">
+      *
+    </span>
+  );
+}
 
 function readFileAsBase64(file: File) {
   return new Promise<{ name: string; mimeType: string; base64: string }>((resolve, reject) => {
@@ -64,6 +80,8 @@ const COURSE_OPTIONS = [
   "BSMLS",
   "BS BIO",
 ] as const;
+
+const ALL_COURSE_OPTION = "ALL PROGRAM";
 
 function CalendarIcon() {
   return (
@@ -199,7 +217,13 @@ export function CreateEventView() {
   const programInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(0);
-  const [error, setError] = useState("");
+  const [toast, setToast] = useState<{
+    id: number;
+    message: string;
+    tone: "error" | "success";
+  } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigateAfterToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAiBanner, setShowAiBanner] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiNote, setAiNote] = useState("");
@@ -248,7 +272,7 @@ export function CreateEventView() {
   const [certificateName, setCertificateName] = useState("");
   const [certificateTemplateBase64, setCertificateTemplateBase64] = useState("");
   const [certificateTemplateMimeType, setCertificateTemplateMimeType] = useState("");
-  const [eCertificateEnabled, setECertificateEnabled] = useState(false);
+  const [eCertificateEnabled, setECertificateEnabled] = useState(true);
   const [hasExistingCertificate, setHasExistingCertificate] = useState(false);
   const [programFileName, setProgramFileName] = useState("");
   const [programFileBase64, setProgramFileBase64] = useState("");
@@ -371,36 +395,171 @@ export function CreateEventView() {
     setRequiredFileDraft("");
   };
 
-  const validateDetails = () => {
-    if (!eventName.trim()) return "Event Name is required.";
-    if (!eventType.trim()) return "Event Type is required.";
-    if (!description.trim()) return "Event Description is required.";
-    if (!startDate || !endDate) return "Start & End Date are required.";
-    if (!startTime || !endTime) return "Start & End Time are required.";
-    if (!venue.trim()) return "Venue is required.";
-    if (!venueType) return "Venue Type is required.";
-    return "";
+  const validateDetails = (): MissingField[] => {
+    const missing: MissingField[] = [];
+    if (!eventName.trim()) missing.push({ label: "Event Name", focusId: "event-name", step: 0 });
+    if (!eventType.trim()) missing.push({ label: "Event Type", focusId: "event-type", step: 0 });
+    if (!description.trim()) {
+      missing.push({ label: "Event Description", focusId: "event-description", step: 0 });
+    }
+    if (!bannerBase64 && !bannerPreview) {
+      missing.push({ label: "Event Banner", focusId: "event-banner-upload", step: 0 });
+    }
+    if (!startDate || !endDate) {
+      missing.push({
+        label: "Start & End Date",
+        focusId: !startDate ? "start-date" : "end-date",
+        step: 0,
+      });
+    }
+    if (!startTime || !endTime) {
+      missing.push({
+        label: "Start & End Time",
+        focusId: !startTime ? "start-time" : "end-time",
+        step: 0,
+      });
+    }
+    if (!venue.trim()) missing.push({ label: "Venue", focusId: "venue", step: 0 });
+    if (!venueType) missing.push({ label: "Venue Type", focusId: "venue-type", step: 0 });
+    if (!activities.length && !programFileBase64 && !hasExistingProgramFile) {
+      missing.push({ label: "Event Program Flow", focusId: "activity-name", step: 0 });
+    }
+    return missing;
   };
 
-  const validateAttendance = () => {
-    if (!minAttendance.trim()) return "Minimum Attendance Time Required is required.";
-    if (!gracePeriod.trim()) return "Grace Period is required.";
-    if (!attendTags.length && !attendSelect) return "Select who can attend this event.";
-    return "";
+  const validateAttendance = (
+    nextAttendTags = attendTags,
+    nextCollabTags = collabTags,
+    nextSpeakers = speakers,
+  ): MissingField[] => {
+    const missing: MissingField[] = [];
+    if (!minAttendance.trim()) {
+      missing.push({
+        label: "Minimum Attendance Time Required",
+        focusId: "min-attendance",
+        step: 1,
+      });
+    }
+    if (!gracePeriod.trim()) {
+      missing.push({ label: "Grace Period", focusId: "grace-period", step: 1 });
+    }
+    if (!nextAttendTags.length) {
+      missing.push({
+        label: "Who can attend this Event",
+        focusId: "attend-select",
+        step: 1,
+      });
+    }
+    if (collaboration === "yes" && !nextCollabTags.length) {
+      missing.push({
+        label: "Collaborating organization/course",
+        focusId: "collab-select",
+        step: 1,
+      });
+    }
+    if (hasSpeakers === "yes" && nextSpeakers.length === 0) {
+      missing.push({ label: "Speaker name", focusId: "speaker-name", step: 1 });
+    }
+    return missing;
   };
 
-  const validateRequirements = () => {
+  const validateRequirements = (): MissingField[] => {
+    const missing: MissingField[] = [];
     if (!conceptPaperBase64 && !hasExistingConceptPaper) {
-      return "Approved Concept Paper is required.";
+      missing.push({
+        label: "Approved Concept Paper",
+        focusId: "concept-paper-choose",
+        step: 2,
+      });
     }
     if (eCertificateEnabled && !certificateTemplateBase64 && !hasExistingCertificate) {
-      return "E-Certificate Template is required.";
+      missing.push({
+        label: "E-Certificate Template",
+        focusId: "certificate-choose",
+        step: 2,
+      });
     }
     if (filesRequired === "yes" && requiredFiles.length === 0 && !requiredFileDraft.trim()) {
-      return "Add at least one required file name.";
+      missing.push({
+        label: "Required file name",
+        focusId: "required-file-name",
+        step: 2,
+      });
     }
-    return "";
+    return missing;
   };
+
+  const formatMissingToast = (missing: MissingField[], requiredCount: number) => {
+    if (!missing.length) return "";
+    if (missing.length >= requiredCount) {
+      return "Please answer all fields.";
+    }
+    const labels = missing.map((field) => field.label);
+    if (labels.length === 1) {
+      return `Please complete the required field: ${labels[0]}.`;
+    }
+    return `Please complete the required fields: ${labels.join(", ")}.`;
+  };
+
+  const showToast = (
+    message: string,
+    tone: "error" | "success" = "error",
+    options?: { durationMs?: number },
+  ) => {
+    if (!message) return;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ id: Date.now(), message, tone });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, options?.durationMs ?? TOAST_DURATION_MS);
+  };
+
+  const focusMissingField = (field: MissingField | undefined) => {
+    if (!field) return;
+    const goToField = () => {
+      const el = document.getElementById(field.focusId);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        el instanceof HTMLButtonElement
+      ) {
+        try {
+          el.focus({ preventScroll: true });
+        } catch {
+          el.focus();
+        }
+      }
+    };
+
+    if (field.step !== step) {
+      setStep(field.step);
+      window.setTimeout(goToField, 120);
+      return;
+    }
+    goToField();
+  };
+
+  const failValidation = (missing: MissingField[], requiredCount: number) => {
+    showToast(formatMissingToast(missing, requiredCount), "error");
+    focusMissingField(missing[0]);
+  };
+
+  const detailsRequiredCount = 9;
+  const attendanceRequiredCount =
+    3 + (collaboration === "yes" ? 1 : 0) + (hasSpeakers === "yes" ? 1 : 0);
+  const requirementsRequiredCount =
+    1 + (eCertificateEnabled ? 1 : 0) + (filesRequired === "yes" ? 1 : 0);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (navigateAfterToastRef.current) clearTimeout(navigateAfterToastRef.current);
+    };
+  }, []);
 
   const addActivity = () => {
     const value = activityDraft.trim();
@@ -474,8 +633,21 @@ export function CreateEventView() {
 
   const saveEvent = async () => {
     if (saving) return;
+
+    const missing = [
+      ...validateDetails(),
+      ...validateAttendance(),
+      ...validateRequirements(),
+    ];
+    if (missing.length) {
+      failValidation(
+        missing,
+        detailsRequiredCount + attendanceRequiredCount + requirementsRequiredCount,
+      );
+      return;
+    }
+
     setSaving(true);
-    setError("");
 
     const next: OrganizedEvent = {
       id: editingId || `evt-${Date.now()}`,
@@ -557,11 +729,20 @@ export function CreateEventView() {
         throw new Error(data.error || "Failed to save event to the server.");
       }
 
-      const savedId = String(data.event?.id || editingId || next.id);
       window.dispatchEvent(new Event("dc-organized-changed"));
-      router.push(savedId ? "/organized" : "/organized");
+      showToast(
+        editingId ? "Event updated successfully." : "Event created successfully.",
+        "success",
+        { durationMs: 1800 },
+      );
+      if (navigateAfterToastRef.current) clearTimeout(navigateAfterToastRef.current);
+      navigateAfterToastRef.current = setTimeout(() => {
+        navigateAfterToastRef.current = null;
+        router.push("/organized");
+      }, 1400);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to save event.");
+      const message = error instanceof Error ? error.message : "Failed to save event.";
+      showToast(message, "error");
     } finally {
       setSaving(false);
     }
@@ -590,38 +771,60 @@ export function CreateEventView() {
 
   const onContinue = (event: FormEvent) => {
     event.preventDefault();
-    setError("");
 
     if (step === 0) {
-      const validationError = validateDetails();
-      if (validationError) {
-        setError(validationError);
+      const missing = validateDetails();
+      if (missing.length) {
+        failValidation(missing, detailsRequiredCount);
         return;
       }
+      showToast("Saved successfully.", "success");
       setStep(1);
       return;
     }
 
     if (step === 1) {
-      const validationError = validateAttendance();
-      if (validationError) {
-        setError(validationError);
+      const nextAttendTags =
+        attendSelect && !attendTags.includes(attendSelect)
+          ? [...attendTags, attendSelect]
+          : attendTags;
+      const nextCollabTags =
+        collaboration === "yes" && collabSelect && !collabTags.includes(collabSelect)
+          ? [...collabTags, collabSelect]
+          : collabTags;
+      const nextSpeakers =
+        hasSpeakers === "yes" && speakerDraft.trim()
+          ? [...speakers, speakerDraft.trim()]
+          : speakers;
+
+      if (nextAttendTags !== attendTags) setAttendTags(nextAttendTags);
+      if (nextCollabTags !== collabTags) setCollabTags(nextCollabTags);
+      if (nextSpeakers !== speakers) {
+        setSpeakers(nextSpeakers);
+        setSpeakerDraft("");
+      }
+
+      const missing = validateAttendance(nextAttendTags, nextCollabTags, nextSpeakers);
+      if (missing.length) {
+        failValidation(missing, attendanceRequiredCount);
         return;
       }
+      showToast("Saved successfully.", "success");
       setStep(2);
       return;
     }
 
     if (step === 2) {
-      const validationError = validateRequirements();
-      if (validationError) {
-        setError(validationError);
+      const missing = validateRequirements();
+      if (missing.length) {
+        failValidation(missing, requirementsRequiredCount);
         return;
       }
       if (filesRequired === "yes" && requiredFileDraft.trim()) {
         setRequiredFiles((current) => [...current, requiredFileDraft.trim()]);
         setRequiredFileDraft("");
       }
+      showToast("Saved successfully.", "success");
       setStep(3);
       return;
     }
@@ -638,15 +841,35 @@ export function CreateEventView() {
     <div className={styles.page}>
       <h2 className={styles.subtitle}>Create an Event with DC Space</h2>
 
+      {toast ? (
+        <div
+          key={toast.id}
+          className={`${styles.toast}${toast.tone === "success" ? ` ${styles.toastSuccess}` : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className={styles.toastIcon} aria-hidden="true">
+            {toast.tone === "success" ? "✓" : "!"}
+          </span>
+          <p className={styles.toastMessage}>{toast.message}</p>
+          <button
+            type="button"
+            className={styles.toastClose}
+            aria-label="Dismiss notification"
+            onClick={() => {
+              if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+              toastTimerRef.current = null;
+              setToast(null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
       <ProgressMeter currentStep={step} />
 
       <form onSubmit={onContinue}>
-        {error ? (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        ) : null}
-
         {step === 0 ? (
           <>
             <section className={styles.section} aria-labelledby="basic-info">
@@ -657,7 +880,7 @@ export function CreateEventView() {
                 <div className={styles.stack}>
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="event-name">
-                      Event Name*
+                      Event Name<RequiredMark />
                     </label>
                     <input
                       id="event-name"
@@ -669,7 +892,7 @@ export function CreateEventView() {
 
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="event-type">
-                      Event Type*
+                      Event Type<RequiredMark />
                     </label>
                     <input
                       id="event-type"
@@ -682,7 +905,7 @@ export function CreateEventView() {
 
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="event-description">
-                      Event Description*
+                      Event Description<RequiredMark />
                     </label>
                     <textarea
                       id="event-description"
@@ -694,7 +917,7 @@ export function CreateEventView() {
 
                   <div className={styles.bannerRow}>
                     <div>
-                      <span className={styles.fieldLabel}>Event Banner*</span>
+                      <span className={styles.fieldLabel}>Event Banner<RequiredMark /></span>
                       <span className={styles.hint}>
                         Files must be in acceptable format, such as PNG, JPEG, PDF, or similar
                         supported types.
@@ -705,6 +928,7 @@ export function CreateEventView() {
                     </div>
                     <button
                       type="button"
+                      id="event-banner-upload"
                       className={styles.iconBtn}
                       aria-label="Upload event banner"
                       onClick={() => bannerInputRef.current?.click()}
@@ -754,6 +978,93 @@ export function CreateEventView() {
                       </select>
                     </div>
                   </div>
+                </div>
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="schedule-venue">
+              <h3 className={styles.sectionTitle} id="schedule-venue">
+                Schedule &amp; Venue
+              </h3>
+              <div className={styles.card}>
+                <div className={styles.stack}>
+                  <div className={styles.row}>
+                    <span className={styles.fieldLabel}>Start &amp; End Date<RequiredMark /></span>
+                    <div className={styles.rowEnd}>
+                      <div className={styles.dateField}>
+                        <span className={styles.dateIcon}>
+                          <CalendarIcon />
+                        </span>
+                        <input
+                          id="start-date"
+                          className={styles.dateInput}
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => {
+                            const nextStart = e.target.value;
+                            setStartDate(nextStart);
+                            // Clear end only if it becomes before start
+                            if (endDate && nextStart && endDate < nextStart) {
+                              setEndDate("");
+                            }
+                          }}
+                          aria-label="Start date"
+                        />
+                      </div>
+                      <span className={styles.rangeSep} aria-hidden="true">
+                        →
+                      </span>
+                      <div className={styles.dateField}>
+                        <input
+                          id="end-date"
+                          className={styles.dateInput}
+                          type="date"
+                          value={endDate}
+                          min={startDate || undefined}
+                          onFocus={() => {
+                            // Seed start date so the calendar opens on that day (same-day events allowed).
+                            if (!endDate && startDate) {
+                              setEndDate(startDate);
+                            }
+                          }}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          aria-label="End date"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={styles.row}>
+                    <span className={styles.fieldLabel}>Start &amp; End Time<RequiredMark /></span>
+                    <div className={styles.rowEnd}>
+                      <div className={styles.timeField}>
+                        <span className={styles.timeIcon}>
+                          <ClockIcon />
+                        </span>
+                        <input
+                          id="start-time"
+                          className={styles.timeInput}
+                          type="time"
+                          value={startTime}
+                          onChange={(e) => setStartTime(e.target.value)}
+                          aria-label="Start time"
+                        />
+                      </div>
+                      <span className={styles.rangeSep} aria-hidden="true">
+                        →
+                      </span>
+                      <div className={styles.timeField}>
+                        <input
+                          id="end-time"
+                          className={styles.timeInput}
+                          type="time"
+                          value={endTime}
+                          onChange={(e) => setEndTime(e.target.value)}
+                          aria-label="End time"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
                   <div className={styles.row}>
                     <label className={styles.fieldLabel} htmlFor="registration-deadline">
@@ -775,79 +1086,10 @@ export function CreateEventView() {
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </section>
-
-            <section className={styles.section} aria-labelledby="schedule-venue">
-              <h3 className={styles.sectionTitle} id="schedule-venue">
-                Schedule &amp; Venue
-              </h3>
-              <div className={styles.card}>
-                <div className={styles.stack}>
-                  <div className={styles.row}>
-                    <span className={styles.fieldLabel}>Start &amp; End Date*</span>
-                    <div className={styles.rowEnd}>
-                      <div className={styles.dateField}>
-                        <span className={styles.dateIcon}>
-                          <CalendarIcon />
-                        </span>
-                        <input
-                          className={styles.dateInput}
-                          type="date"
-                          value={startDate}
-                          onChange={(e) => setStartDate(e.target.value)}
-                          aria-label="Start date"
-                        />
-                      </div>
-                      <span className={styles.rangeSep} aria-hidden="true">
-                        →
-                      </span>
-                      <div className={styles.dateField}>
-                        <input
-                          className={styles.dateInput}
-                          type="date"
-                          value={endDate}
-                          onChange={(e) => setEndDate(e.target.value)}
-                          aria-label="End date"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.row}>
-                    <span className={styles.fieldLabel}>Start &amp; End Time*</span>
-                    <div className={styles.rowEnd}>
-                      <div className={styles.timeField}>
-                        <span className={styles.timeIcon}>
-                          <ClockIcon />
-                        </span>
-                        <input
-                          className={styles.timeInput}
-                          type="time"
-                          value={startTime}
-                          onChange={(e) => setStartTime(e.target.value)}
-                          aria-label="Start time"
-                        />
-                      </div>
-                      <span className={styles.rangeSep} aria-hidden="true">
-                        →
-                      </span>
-                      <div className={styles.timeField}>
-                        <input
-                          className={styles.timeInput}
-                          type="time"
-                          value={endTime}
-                          onChange={(e) => setEndTime(e.target.value)}
-                          aria-label="End time"
-                        />
-                      </div>
-                    </div>
-                  </div>
 
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="venue">
-                      Venue*
+                      Venue<RequiredMark />
                     </label>
                     <input
                       id="venue"
@@ -859,7 +1101,7 @@ export function CreateEventView() {
 
                   <div className={styles.row}>
                     <label className={styles.fieldLabel} htmlFor="venue-type">
-                      Venue Type*
+                      Venue Type<RequiredMark />
                     </label>
                     <div className={styles.rowEnd}>
                       <select
@@ -899,7 +1141,7 @@ export function CreateEventView() {
                   <div id="event-program-flow">
                     <div className={styles.programHead}>
                       <div>
-                        <span className={styles.fieldLabel}>Event Program Flow*</span>
+                        <span className={styles.fieldLabel}>Event Program Flow<RequiredMark /></span>
                         <span className={styles.hint}>
                           Files must be in acceptable format, such as PNG, JPEG, PDF, or similar
                           supported types.
@@ -968,6 +1210,7 @@ export function CreateEventView() {
                           Add Activity
                         </button>
                         <input
+                          id="activity-name"
                           className={styles.activityInput}
                           value={activityDraft}
                           onChange={(e) => setActivityDraft(e.target.value)}
@@ -1056,7 +1299,7 @@ export function CreateEventView() {
               <div className={styles.stack}>
                 <div className={styles.field}>
                   <label className={styles.fieldLabel} htmlFor="min-attendance">
-                    Minimum Attendance Time Required*
+                    Minimum Attendance Time Required<RequiredMark />
                   </label>
                   <input
                     id="min-attendance"
@@ -1069,7 +1312,7 @@ export function CreateEventView() {
 
                 <div className={styles.field}>
                   <label className={styles.fieldLabel} htmlFor="grace-period">
-                    Grace Period*
+                    Grace Period<RequiredMark />
                   </label>
                   <input
                     id="grace-period"
@@ -1083,7 +1326,7 @@ export function CreateEventView() {
                 <div className={styles.field}>
                   <div className={styles.attendHead}>
                     <label className={styles.fieldLabel} htmlFor="attend-select">
-                      Who can attend this Event?*
+                      Who can attend this Event?<RequiredMark />
                     </label>
                     <select
                       id="attend-select"
@@ -1091,20 +1334,35 @@ export function CreateEventView() {
                       value={attendSelect}
                       onChange={(e) => {
                         const value = e.target.value;
-                        if (value && !attendTags.includes(value)) {
-                          setAttendTags((current) => [...current, value]);
+                        if (!value) {
+                          setAttendSelect("");
+                          return;
+                        }
+                        if (value === ALL_COURSE_OPTION) {
+                          setAttendTags([ALL_COURSE_OPTION]);
+                        } else {
+                          setAttendTags((current) => {
+                            const withoutAll = current.filter((tag) => tag !== ALL_COURSE_OPTION);
+                            if (withoutAll.includes(value)) return withoutAll;
+                            return [...withoutAll, value];
+                          });
                         }
                         setAttendSelect("");
                       }}
                     >
                       <option value="">Select</option>
-                      {COURSE_OPTIONS.filter((option) => !attendTags.includes(option)).map(
-                        (option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        )
-                      )}
+                      {!attendTags.includes(ALL_COURSE_OPTION) ? (
+                        <option value={ALL_COURSE_OPTION}>{ALL_COURSE_OPTION}</option>
+                      ) : null}
+                      {!attendTags.includes(ALL_COURSE_OPTION)
+                        ? COURSE_OPTIONS.filter((option) => !attendTags.includes(option)).map(
+                            (option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            )
+                          )
+                        : null}
                     </select>
                   </div>
                   <div className={styles.tagRow}>
@@ -1124,7 +1382,7 @@ export function CreateEventView() {
 
                 <div className={styles.field}>
                   <span className={styles.fieldLabel}>
-                    Will this event be conducted in collaboration with another organization/course?*
+                    Will this event be conducted in collaboration with another organization/course?<RequiredMark />
                   </span>
                   <div className={styles.radioRow} role="radiogroup" aria-label="Collaboration">
                     <label className={styles.radio}>
@@ -1148,6 +1406,7 @@ export function CreateEventView() {
                   </div>
                   <div className={styles.collabRow}>
                     <select
+                      id="collab-select"
                       className={styles.selectCompact}
                       value={collabSelect}
                       disabled={collaboration === "no"}
@@ -1187,7 +1446,7 @@ export function CreateEventView() {
                 </div>
 
                 <div className={styles.field}>
-                  <span className={styles.fieldLabel}>Are there any speakers for this event?*</span>
+                  <span className={styles.fieldLabel}>Are there any speakers for this event?<RequiredMark /></span>
                   <div className={styles.radioRow} role="radiogroup" aria-label="Speakers">
                     <label className={styles.radio}>
                       <input
@@ -1211,6 +1470,7 @@ export function CreateEventView() {
 
                   <div className={styles.speakerField}>
                     <input
+                      id="speaker-name"
                       className={`${styles.input} ${styles.inputPill} ${styles.speakerInput}`}
                       value={speakerDraft}
                       onChange={(e) => setSpeakerDraft(e.target.value)}
@@ -1276,11 +1536,12 @@ export function CreateEventView() {
                 <div className={styles.stack}>
                   <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor="concept-paper-file">
-                      Approved Concept Paper*
+                      Approved Concept Paper<RequiredMark />
                     </label>
                     <div className={styles.filePicker}>
                       <button
                         type="button"
+                        id="concept-paper-choose"
                         className={styles.chooseFileBtn}
                         onClick={() => conceptPaperRef.current?.click()}
                       >
@@ -1318,10 +1579,11 @@ export function CreateEventView() {
                   <div className={styles.field}>
                     <div className={styles.docHead}>
                       <label className={styles.fieldLabel} htmlFor="certificate-file">
-                        E-Certificate Template*
+                        E-Certificate Template{eCertificateEnabled ? <RequiredMark /> : null}
                       </label>
                       <button
                         type="button"
+                        id="certificate-toggle"
                         role="switch"
                         aria-checked={eCertificateEnabled}
                         aria-label="Enable E-Certificate Template"
@@ -1334,6 +1596,7 @@ export function CreateEventView() {
                     <div className={styles.filePicker}>
                       <button
                         type="button"
+                        id="certificate-choose"
                         className={styles.chooseFileBtn}
                         disabled={!eCertificateEnabled}
                         onClick={() => certificateRef.current?.click()}
@@ -1371,15 +1634,20 @@ export function CreateEventView() {
                   </div>
 
                   <div className={styles.docHead}>
-                    <span className={styles.fieldLabel}>Room Reservation Form*</span>
-                    <button type="button" className={styles.iroomBtn}>
-                      iRoom Reserve
+                    <span className={styles.fieldLabel}>Room Reservation Form<RequiredMark /></span>
+                    <a
+                      className={styles.iroomBtn}
+                      href="https://eroomreserve.vercel.app/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      e-RoomReserve
                       <span className={styles.iroomArrow} aria-hidden="true">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                           <path d="M9 18l6-6-6-6" />
                         </svg>
                       </span>
-                    </button>
+                    </a>
                   </div>
                 </div>
               </div>
@@ -1394,7 +1662,7 @@ export function CreateEventView() {
                   <div className={styles.field}>
                     <div className={styles.questionRow}>
                       <span className={styles.fieldLabel}>
-                        Are participants required to submit any files before joining the event?*
+                        Are participants required to submit any files before joining the event?<RequiredMark />
                       </span>
                       <div className={styles.radioRow} role="radiogroup" aria-label="Files required">
                         <label className={styles.radio}>
@@ -1422,6 +1690,7 @@ export function CreateEventView() {
                       <>
                         <div className={styles.speakerField}>
                           <input
+                            id="required-file-name"
                             className={`${styles.input} ${styles.inputPill} ${styles.speakerInput}`}
                             value={requiredFileDraft}
                             onChange={(e) => setRequiredFileDraft(e.target.value)}
@@ -1488,7 +1757,7 @@ export function CreateEventView() {
                   <div className={styles.field}>
                     <div className={styles.questionRow}>
                       <span className={styles.fieldLabel}>
-                        Allow participants to share photos from the event?*
+                        Allow participants to share photos from the event?<RequiredMark />
                       </span>
                       <div
                         className={styles.visibilityToggle}
@@ -1686,7 +1955,6 @@ export function CreateEventView() {
               type="button"
               className={styles.goBackBtn}
               onClick={() => {
-                setError("");
                 setStep(2);
               }}
             >
@@ -1707,7 +1975,6 @@ export function CreateEventView() {
                 type="button"
                 className={styles.backLink}
                 onClick={() => {
-                  setError("");
                   setStep((current) => Math.max(0, current - 1));
                 }}
               >
