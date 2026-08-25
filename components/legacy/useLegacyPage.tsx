@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { LegacyPageData } from "@/lib/navigation";
 import { bindPasswordToggles } from "@/components/legacy/bindPasswordToggles";
 
@@ -71,7 +71,14 @@ export function LegacyContent({
   data: LegacyPageData;
   className?: string;
 }) {
-  useLegacyScripts(data.scripts, data.id);
+  // Legacy HTML is patched client-side (profile name, event grids). Defer innerHTML
+  // until mount so server HTML and the first client render stay identical.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useLegacyScripts(mounted ? data.scripts : [], mounted ? data.id : undefined);
   const pageStyles = data.styles.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const pageHtml = data.html.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -80,18 +87,24 @@ export function LegacyContent({
   }, [data.title]);
 
   useEffect(() => {
+    if (!mounted) return;
     const host = document.querySelector("[data-legacy-content]");
     if (!host) return;
     return bindPasswordToggles(host);
-  }, [data.id]);
+  }, [data.id, mounted]);
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: pageStyles }} />
+      {mounted ? (
+        <style dangerouslySetInnerHTML={{ __html: pageStyles }} />
+      ) : null}
       <div
         data-legacy-content=""
         className={className}
-        dangerouslySetInnerHTML={{ __html: pageHtml }}
+        suppressHydrationWarning
+        {...(mounted
+          ? { dangerouslySetInnerHTML: { __html: pageHtml } }
+          : { "aria-busy": "true" })}
       />
     </>
   );

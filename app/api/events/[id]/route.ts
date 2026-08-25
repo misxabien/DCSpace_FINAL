@@ -8,8 +8,12 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { findEventById } from "@/lib/events/find-event";
+import { escapeRegex } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { attendanceCollection } from "@/lib/user-server/activity";
+import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
 
 const REVIEW_STATUSES: EventStatus[] = [
   "pending",
@@ -22,6 +26,16 @@ const REVIEW_STATUSES: EventStatus[] = [
 ];
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+async function userHasEventContext(userDb: Awaited<ReturnType<typeof getUserDb>>, email: string, eventId: string) {
+  const emailFilter = { $regex: `^${escapeRegex(email.trim().toLowerCase())}$`, $options: "i" };
+  const [registration, invitation, attendance] = await Promise.all([
+    registrationsCollection(userDb).findOne({ eventId, email: emailFilter }, { projection: { _id: 1 } }),
+    invitationsCollection(userDb).findOne({ eventId, email: emailFilter }, { projection: { _id: 1 } }),
+    attendanceCollection(userDb).findOne({ eventId, email: emailFilter }, { projection: { _id: 1 } }),
+  ]);
+  return Boolean(registration || invitation || attendance);
+}
 
 /** Fetch one event for student/organizer detail pages. */
 export async function GET(request: Request, context: RouteContext) {
@@ -38,8 +52,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    const { event: doc, userDb, source } = await findEventById(id);
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -50,7 +63,10 @@ export async function GET(request: Request, context: RouteContext) {
         doc.organizerEmail === actor.email ||
         doc.organizerId === actor.userId;
       if (!visible) {
-        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+        const hasContext = await userHasEventContext(userDb, actor.email, id);
+        if (!hasContext) {
+          return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+        }
       }
     }
 
@@ -58,7 +74,7 @@ export async function GET(request: Request, context: RouteContext) {
     const { findReservationForEvent } = await import(
       "@/lib/integrations/reservation-status"
     );
-    const reservation = await findReservationForEvent(db, {
+    const reservation = await findReservationForEvent(userDb, {
       id: String(doc._id),
       reservationId: String(doc.reservationId || ""),
       location: String(doc.location || ""),
@@ -74,6 +90,7 @@ export async function GET(request: Request, context: RouteContext) {
 
     return NextResponse.json({
       event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includeMedia: true }),
+      source: source || undefined,
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
@@ -139,11 +156,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const existing = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    const { event: existing, adminDb, userDb, source } = await findEventById(id);
     if (!existing) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
+    const writeDb = source === "user" ? userDb : adminDb;
 
     if (!isAdmin) {
       const owns =
@@ -257,7 +274,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         findReservationForEvent,
         isRoomValidatedForEventApproval,
       } = await import("@/lib/integrations/reservation-status");
-      const reservation = await findReservationForEvent(db, {
+      const reservation = await findReservationForEvent(userDb, {
         id,
         reservationId: String(
           (update.reservationId as string | undefined) || existing.reservationId || "",
@@ -288,7 +305,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    const result = await eventsCollection(db).findOneAndUpdate(
+    const result = await eventsCollection(writeDb).findOneAndUpdate(
       { _id: new ObjectId(id) },
       { $set: update },
       { returnDocument: "after" },
@@ -357,7 +374,7 @@ export async function PATCH(request: Request, context: RouteContext) {
               generatedByEmail: actorEmail,
               generatedByName: actorName,
               trigger: "status_completed",
-              db,
+              db: writeDb,
             }),
           )
           .catch((error) => {

@@ -63,12 +63,35 @@ function setRecentActivity(items: string[]) {
   });
 }
 
+function activityLabel(type: string, targetTitle: string) {
+  const title = targetTitle || "an event";
+  switch (type) {
+    case "user_login":
+      return "Signed in to DC Space";
+    case "event_submitted":
+      return `Registered for ${title}`;
+    case "attendance_recorded":
+      return `Recorded attendance for ${title}`;
+    case "feedback_submitted":
+      return `Submitted feedback for ${title}`;
+    case "certificate_generated":
+      return `Received certificate for ${title}`;
+    default:
+      return targetTitle ? `Activity: ${title}` : "Account activity";
+  }
+}
+
 function buildActivityFeed(input: {
   attendance: AttendanceRow[];
   certificates: CertificateRow[];
   feedback: FeedbackRow[];
+  activities?: Array<{ type?: string; targetTitle?: string; createdAt?: string }>;
 }) {
   const feed = [
+    ...(input.activities || []).map((row) => ({
+      at: row.createdAt || "",
+      text: activityLabel(String(row.type || ""), String(row.targetTitle || "")),
+    })),
     ...input.attendance.map((row) => ({
       at: row.createdAt || "",
       text: `${row.action === "out" ? "Tapped out from" : "Tapped into"} ${
@@ -149,10 +172,11 @@ export function ProfileDataBridge() {
           saveAuthSession(authSession.token, profile);
         }
 
-        const [attendanceRes, certificatesRes, feedbackRes] = await Promise.all([
+        const [attendanceRes, certificatesRes, feedbackRes, activityRes] = await Promise.all([
           fetch("/api/user/attendance", { cache: "no-store" }),
           fetch("/api/user/certificates", { cache: "no-store" }),
           fetch("/api/user/feedback?mine=1", { cache: "no-store" }),
+          fetch("/api/user/activity?limit=20", { cache: "no-store" }),
         ]);
 
         if (cancelled) return;
@@ -166,11 +190,16 @@ export function ProfileDataBridge() {
         const feedback = feedbackRes.ok
           ? ((await feedbackRes.json()) as { feedback?: FeedbackRow[] }).feedback || []
           : [];
+        const activities = activityRes.ok
+          ? ((await activityRes.json()) as {
+              activities?: Array<{ type?: string; targetTitle?: string; createdAt?: string }>;
+            }).activities || []
+          : [];
 
         setStatValue("Events Attended", new Set(attendance.map((row) => row.eventTitle || "").filter(Boolean)).size);
         setStatValue("Certificates Earned", certificates.length);
         setStatValue("Feedback Submitted", feedback.length);
-        setRecentActivity(buildActivityFeed({ attendance, certificates, feedback }));
+        setRecentActivity(buildActivityFeed({ attendance, certificates, feedback, activities }));
 
         wireProfileSave();
       } catch {

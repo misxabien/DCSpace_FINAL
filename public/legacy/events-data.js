@@ -72,15 +72,9 @@
   }
 
   var DEFAULT_RFID = {
-    graceRemaining: '00:00',
+    graceRemaining: '—',
     progress: 0,
-    logs: [
-      { tapIn: '00:00 AM', tapOut: '00:00 PM' },
-      { tapIn: '00:00 AM', tapOut: '00:00 PM' },
-      { tapIn: '00:00 AM', tapOut: '00:00 PM' },
-      { tapIn: '00:00 AM', tapOut: '00:00 PM' },
-      { tapIn: '00:00 AM', tapOut: '00:00 PM' }
-    ],
+    logs: [],
     page: { current: 0, total: 0 }
   };
 
@@ -263,6 +257,24 @@
     getEventSubmitUrl: getEventSubmitUrl,
     getAttendanceRfid: getAttendanceRfid,
     upsertEvent: upsertEvent,
-    renderDetailContent: renderDetailContent
+    renderDetailContent: renderDetailContent,
+    bindDetailBack: function bindDetailBack(fallbackHref) {
+      var btn = document.getElementById('detail-back');
+      if (!btn || btn.dataset.dcWired === '1') return;
+      btn.dataset.dcWired = '1';
+      var fallback = fallbackHref || btn.getAttribute('data-fallback') || '/attendance';
+      btn.addEventListener('click', function (event) {
+        event.preventDefault();
+        if (window.history.length > 1) {
+          window.history.back();
+          return;
+        }
+        if (typeof window.__dcNavigate === 'function') {
+          window.__dcNavigate(fallback);
+          return;
+        }
+        window.location.assign(fallback);
+      });
+    }
   };
 })(window);

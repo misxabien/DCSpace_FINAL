@@ -5,6 +5,7 @@ import type { LegacyPageData } from "@/lib/navigation";
 import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { LegacyContent } from "@/components/legacy/useLegacyPage";
 import { useProfileHydration } from "@/components/legacy/useProfileHydration";
+import { ProfileDataBridge } from "@/components/legacy/ProfileDataBridge";
 import { ChangePasswordModal } from "@/components/legacy/ChangePasswordModal";
 import { ProfileOrganizerBadge } from "@/components/auth/OrganizerCues";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -34,6 +35,7 @@ export default function ProfilePage() {
       <main className="main">
         <ProfileOrganizerBadge />
         <LegacyContent data={profile} />
+        <ProfileDataBridge />
         <SyncProfileName />
         <ChangePasswordModal />
       </main>

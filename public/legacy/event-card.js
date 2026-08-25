@@ -427,6 +427,63 @@
     });
   }
 
+  function wireDetailActions(eventId) {
+    var actions = document.querySelector('.detail-actions');
+    if (!actions) return;
+    var buttons = actions.querySelectorAll('.detail-icon-btn');
+    var saveBtn = buttons[0];
+    var shareBtn = buttons[1];
+
+    if (saveBtn && !saveBtn.dataset.dcWired) {
+      saveBtn.dataset.dcWired = '1';
+      initBookmarkButton(saveBtn, eventId);
+    }
+
+    if (shareBtn && !shareBtn.dataset.dcWired) {
+      shareBtn.dataset.dcWired = '1';
+      shareBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var card = DCEvents.getEventById(eventId);
+        var url = window.location.href;
+        var title = card ? card.name : 'Event';
+        if (navigator.share) {
+          navigator.share({ title: title, url: url }).catch(function () {});
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            window.alert('Event link copied to clipboard.');
+          }).catch(function () {
+            window.prompt('Copy this link:', url);
+          });
+          return;
+        }
+        window.prompt('Copy this link:', url);
+      });
+    }
+  }
+
+  function wireEventGridSearch() {
+    var input = document.querySelector('.search-bar input[type="search"]');
+    var grid = document.getElementById('event-grid');
+    if (!input || !grid || input.dataset.dcWired === '1') return;
+    input.dataset.dcWired = '1';
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      var cards = grid.querySelectorAll('.event-card');
+      var visible = 0;
+      cards.forEach(function (card) {
+        var text = (card.textContent || '').toLowerCase();
+        var show = !q || text.indexOf(q) !== -1;
+        card.style.display = show ? '' : 'none';
+        if (show) visible += 1;
+      });
+      var empty = grid.querySelector('.dc-empty-state, .home-empty-state');
+      if (empty) empty.hidden = visible > 0;
+    });
+  }
+
   injectBookmarkStyles();
 
   DCEvents.createEventCard = createEventCard;
@@ -438,4 +495,6 @@
   DCEvents.getSavedIds = getSavedIds;
   DCEvents.isEventSaved = isEventSaved;
   DCEvents.toggleSaved = toggleSaved;
+  DCEvents.wireDetailActions = wireDetailActions;
+  DCEvents.wireEventGridSearch = wireEventGridSearch;
 })(window);

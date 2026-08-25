@@ -1,5 +1,6 @@
 import type { Db } from "mongodb";
 import { ObjectId } from "mongodb";
+import { getAdminDb } from "@/lib/db/get-db";
 import { eventsCollection } from "@/lib/events/types";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
@@ -128,7 +129,7 @@ export async function findConcurrentEventConflict(
     if (later && String(later.action) === "out") continue;
 
     const event = ObjectId.isValid(otherEventId)
-      ? await eventsCollection(db).findOne(
+      ? await eventsCollection(await getAdminDb()).findOne(
           { _id: new ObjectId(otherEventId) },
           { projection: { title: 1 } },
         )

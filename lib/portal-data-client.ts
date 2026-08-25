@@ -3,9 +3,21 @@ import type { SanitizedEvent } from "@/lib/events/map-event";
 
 export type PortalPayload = {
   events: SanitizedEvent[];
-  registrations: Array<{ eventId: string; status: string }>;
+  registrations: Array<{ eventId: string; status: string; eventTitle?: string }>;
   invitations: Array<{ eventId: string; status: string; eventTitle?: string }>;
   savedEventIds: string[];
+  attendance?: Array<{
+    id: string;
+    eventId: string;
+    eventTitle: string;
+    action: string;
+    scannedAt: string;
+    createdAt: string;
+    attendanceMinutes: number;
+    qualifiedForCertificate: boolean;
+    source?: string;
+  }>;
+  accountEmail?: string;
 };
 
 const MEMORY_TTL_MS = 45_000;

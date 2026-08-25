@@ -1,0 +1,232 @@
+================================================================================
+DC SPACE  ↔  eRoomReserve
+Integration Handoff / Connection Guide
+================================================================================
+
+Purpose
+-------
+Connect eRoomReserve room reservations with DC Space event approval in near
+real time. When a reservation is approved, rejected, cancelled, or completed
+in eRoomReserve, DC Space should receive that update immediately so admins can
+validate venues and approve campus events.
+
+This document describes ONLY what eRoomReserve needs to connect TO DC Space
+(inbound webhook). Please implement the client/webhook on your side using the
+contract below.
+
+
+================================================================================
+1. ENDPOINT
+================================================================================
+
+Production URL:
+  POST https://dcspace-final.vercel.app/api/integrations/reservation-info
+
+Headers (required):
+  Content-Type: application/json
+  Authorization: Bearer <SHARED_SECRET>
+
+Notes:
+  - Method must be POST.
+  - HTTPS only.
+  - The shared secret will be provided separately through a secure channel
+    (do not commit secrets to git or public docs).
+  - Expected auth format is exactly:
+      Authorization: Bearer <SHARED_SECRET>
+
+
+================================================================================
+2. WHEN TO CALL (REAL-TIME REQUIREMENT)
+================================================================================
+
+Call this endpoint whenever a reservation changes in a way that affects DC
+Space event validation, especially on every status transition:
+
+  - approved
+  - rejected
+  - cancelled
+  - completed
+
+Also send an update if room identity/name/capacity changes for an active
+reservation.
+
+Preferred model: event-driven webhook (near real-time), not daily batch sync.
+
+
+================================================================================
+3. REQUEST BODY CONTRACT
+================================================================================
+
+Required JSON fields:
+
+{
+  "reservationId": "ERR-2026-000123",
+  "status": "approved",
+  "room": {
+    "id": "room-dra-hall",
+    "name": "DRA HALL",
+    "capacity": 200
+  },
+  "updatedAt": "2026-08-25T06:30:00.000Z",
+  "eventId": "68a8bf6e67b17dfa35d6448af"
+}
+
+Field reference
+---------------
+reservationId   (string, required)
+  Stable unique reservation ID from eRoomReserve.
+
+status          (string, required)
+  Must be one of:
+    - "approved"
+    - "rejected"
+    - "cancelled"
+    - "completed"
+
+room.id         (string, required)
+  Stable room identifier in eRoomReserve.
+
+room.name       (string, required)
+  Human-readable room / venue name.
+  DC Space uses this as the event venue/location when linking.
+
+room.capacity   (number, required)
+  Non-negative integer/float capacity of the room.
+  Used by DC Space for occupancy and crowd analytics.
+
+updatedAt       (string, required)
+  ISO-8601 timestamp of the change (UTC preferred), e.g.
+  "2026-08-25T06:30:00.000Z"
+
+eventId         (string, optional)
+  OR alias: dcSpaceEventId
+  DC Space MongoDB event document ID.
+  Strongly recommended when known so the reservation links to the correct
+  pending event.
+
+
+================================================================================
+4. SUCCESS / ERROR RESPONSES
+================================================================================
+
+200 OK
+  {
+    "ok": true,
+    "reservation": {
+      "reservationId": "...",
+      "status": "approved",
+      "room": { "id": "...", "name": "...", "capacity": 200 },
+      "eventId": "..."
+    }
+  }
+
+401 Unauthorized
+  Missing/invalid Authorization Bearer token.
+
+400 Bad Request
+  Payload failed validation (missing fields, wrong status, bad room shape).
+
+500 Internal Server Error
+  DC Space could not store the update.
+
+
+================================================================================
+5. WHAT DC SPACE DOES WITH YOUR UPDATE
+================================================================================
+
+On a valid POST, DC Space will:
+
+  1) Upsert the reservation into collection: reservationStatuses
+  2) Link / update the related campus event with:
+       - reservationId
+       - reservationStatus
+       - reservationRoomId / reservationRoomName / reservationCapacity
+       - location (from room.name when applicable)
+  3) Unlock admin "Approve Event" only after room status is
+       "approved" or "completed"
+  4) Notify DC Space admins when status becomes "approved"
+
+
+Linking strategy (if eventId is omitted)
+----------------------------------------
+  1) Prefer events already tagged with the same reservationId
+  2) Otherwise attach to a pending event whose venue matches room.name
+  3) Best practice: always send eventId when available
+
+
+================================================================================
+6. EXAMPLE CURL (SMOKE TEST)
+================================================================================
+
+Replace YOUR_SHARED_SECRET with the agreed secret:
+
+curl -X POST "https://dcspace-final.vercel.app/api/integrations/reservation-info" \
+  -H "Authorization: Bearer YOUR_SHARED_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reservationId": "TEST-001",
+    "status": "approved",
+    "room": {
+      "id": "r1",
+      "name": "DRA HALL",
+      "capacity": 200
+    },
+    "updatedAt": "2026-08-25T06:30:00.000Z"
+  }'
+
+
+Expected on success:
+  HTTP 200 and JSON with "ok": true
+
+
+================================================================================
+7. CHECKLIST FOR eRoomReserve TEAM
+================================================================================
+
+[ ] Can POST to the production URL above over HTTPS
+[ ] Can send Authorization: Bearer <SHARED_SECRET>
+[ ] Will emit updates on status change (approved/rejected/cancelled/completed)
+[ ] Status values map exactly to the allowed set above
+[ ] Payload always includes room.id, room.name, room.capacity
+[ ] updatedAt is always an ISO-8601 string
+[ ] Can optionally store and send DC Space eventId / dcSpaceEventId
+[ ] Retry policy recommended on non-2xx (e.g. exponential backoff)
+
+
+================================================================================
+8. CHECKLIST FOR DC SPACE TEAM (OUR SIDE)
+================================================================================
+
+[ ] RESERVATION_STATUS_SYNC_SECRET configured in Vercel Production env
+[ ] Same secret shared securely with eRoomReserve
+[ ] Confirm endpoint returns 200 on a test reservation
+[ ] Confirm pending event shows "Validated" after approved sync
+[ ] Confirm Approve Event unlocks only after approved/completed
+
+
+================================================================================
+9. MEETING / ALIGNMENT ITEMS ("MEET IN BETWEEN")
+================================================================================
+
+Please confirm together:
+
+  A) Shared secret exchange channel (secure)
+  B) Exact status vocabulary mapping from eRoomReserve → DC Space
+  C) Whether eRoomReserve can receive/store DC Space eventId at booking time
+  D) Webhook retry behavior and timeout expectations
+  E) Staging vs production URLs (if eRoomReserve has a sandbox)
+  F) Sample real payload from one approved reservation for end-to-end test
+
+
+================================================================================
+10. CONTACT / OWNERSHIP
+================================================================================
+
+System:        DC Space (Administrator Portal + Event Approval)
+Production:    https://dcspace-final.vercel.app
+Integration:   POST /api/integrations/reservation-info
+Auth model:    Shared Bearer token (RESERVATION_STATUS_SYNC_SECRET)
+Direction:     eRoomReserve  →  DC Space (push / webhook)
+
+Prepared for integration coordination between DC Space and eRoomReserve.
+================================================================================

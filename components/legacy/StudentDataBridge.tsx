@@ -9,6 +9,8 @@ import {
   type SanitizedEvent,
 } from "@/lib/events/map-event";
 import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
+import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
+import { authFetch } from "@/lib/user-api";
 
 declare global {
   interface Window {
@@ -34,6 +36,9 @@ declare global {
       renderExploreDetails?: () => void;
       renderAttendanceDetails?: () => void;
       renderSubmitPage?: () => void;
+      bindDetailBack?: (fallbackHref?: string) => void;
+      wireDetailActions?: (eventId: string) => void;
+      wireEventGridSearch?: () => void;
     };
     DCFeedback?: {
       FEEDBACK_ITEMS: unknown[];
@@ -103,7 +108,7 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
 
 async function fetchAttendanceBuckets() {
   try {
-    const res = await fetch("/api/user/attendance", { cache: "no-store", credentials: "include" });
+    const res = await authFetch("/api/user/attendance", { cache: "no-store" });
     if (!res.ok) return new Map<string, "attendance-completed" | "attendance-incomplete" | "attendance-today">();
     const data = (await res.json()) as {
       attendance?: Array<{
@@ -116,11 +121,9 @@ async function fetchAttendanceBuckets() {
       string,
       "attendance-completed" | "attendance-incomplete" | "attendance-today"
     >();
-    const seen = new Set<string>();
     for (const row of data.attendance || []) {
       const eventId = String(row.eventId || "");
       if (!eventId) continue;
-      seen.add(eventId);
       if (row.qualifiedForCertificate || row.action === "out") {
         buckets.set(eventId, "attendance-completed");
         continue;
@@ -160,6 +163,81 @@ function joinedTagForEvent(event: LegacyCardEvent) {
   return "joined-past";
 }
 
+function fallbackAttendanceCard(
+  eventId: string,
+  title: string,
+  category: string,
+): LegacyCardEvent {
+  return {
+    id: eventId,
+    name: title || "Event",
+    venue: "—",
+    time: "TBA",
+    date: new Date().toISOString().slice(0, 10),
+    category,
+    status: "joined",
+    venueType: "",
+    eventType: "",
+    organization: "",
+    course: "",
+    department: "",
+    attendanceRequired: "",
+    gracePeriod: "",
+    requiresFiles: false,
+    requiredFiles: [],
+    filesApproved: true,
+    description: "",
+    announcements: "",
+    speakers: [],
+    programActivities: [],
+    collaboratingDepartments: [],
+    audienceSchools: [],
+    organizerEmail: "",
+    reviewNote: "",
+    dbStatus: "completed",
+    attachmentFiles: [],
+  };
+}
+
+function titleForMissingEvent(
+  eventId: string,
+  registrations: Array<{ eventId?: string; eventTitle?: string }>,
+  portalAttendance: Array<{ eventId?: string; eventTitle?: string }>,
+) {
+  const fromReg = registrations.find((row) => String(row.eventId || "") === eventId);
+  if (fromReg?.eventTitle) return String(fromReg.eventTitle);
+  const fromAtt = portalAttendance.find((row) => String(row.eventId || "") === eventId);
+  if (fromAtt?.eventTitle) return String(fromAtt.eventTitle);
+  return "Event";
+}
+
+/** Load full Mongo event fields (description, poster, requirements) for detail pages. */
+async function ensureFullEventInList(eventId: string): Promise<LegacyCardEvent | null> {
+  if (!window.DCEvents || !eventId) return null;
+  try {
+    const res = await authFetch(`/api/events/${encodeURIComponent(eventId)}`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const payload = (await res.json()) as { event?: SanitizedEvent };
+      if (payload.event) {
+        const card = mapDbEventToCard(payload.event, bucketCategory(payload.event));
+        const list = Array.isArray(window.DCEvents.list)
+          ? ([...window.DCEvents.list] as LegacyCardEvent[])
+          : [];
+        const idx = list.findIndex((item) => String(item.id) === eventId);
+        if (idx >= 0) list[idx] = { ...list[idx], ...card };
+        else list.unshift(card);
+        window.DCEvents.list = list;
+        return card;
+      }
+    }
+  } catch {
+    /* fall back to portal card */
+  }
+  return (window.DCEvents.getEventById?.(eventId) as LegacyCardEvent | undefined) || null;
+}
+
 function refreshLegacyEventViews(pathname: string) {
   if (!window.DCEvents) return;
 
@@ -194,6 +272,10 @@ function refreshLegacyEventViews(pathname: string) {
   if (pathname.startsWith("/attendance/details") && window.DCEvents.renderAttendanceDetails) {
     window.DCEvents.renderAttendanceDetails();
   }
+  if (pathname.startsWith("/attendance")) {
+    window.DCEvents.bindDetailBack?.("/attendance");
+    window.DCEvents.wireEventGridSearch?.();
+  }
   if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
     window.DCEvents.renderSubmitPage();
   }
@@ -212,8 +294,79 @@ function refreshLegacyEventViews(pathname: string) {
 
 function formatClock(iso: string) {
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "00:00 AM";
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatAttendanceStamp(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function buildTapLogsFromAttendance(
+  attendance: Array<{
+    action?: string;
+    scannedAt?: string;
+    createdAt?: string;
+  }>,
+  sessions: Array<{
+    tapInAt?: string;
+    tapOutAt?: string;
+    open?: boolean;
+  }>,
+) {
+  if (sessions.length) {
+    return sessions
+      .map((session) => ({
+        tapIn: session.tapInAt ? formatAttendanceStamp(session.tapInAt) : "—",
+        tapOut: session.tapOutAt ? formatAttendanceStamp(session.tapOutAt) : "—",
+      }))
+      .filter((row) => row.tapIn !== "—" || row.tapOut !== "—");
+  }
+
+  const chronological = [...attendance].sort(
+    (a, b) =>
+      new Date(String(a.scannedAt || a.createdAt || "")).getTime() -
+      new Date(String(b.scannedAt || b.createdAt || "")).getTime(),
+  );
+
+  const logs: Array<{ tapIn: string; tapOut: string }> = [];
+  let openIn = "";
+
+  for (const row of chronological) {
+    const stamp = String(row.scannedAt || row.createdAt || "");
+    if (String(row.action || "in") === "in") {
+      if (openIn) {
+        logs.push({ tapIn: formatAttendanceStamp(openIn), tapOut: "—" });
+      }
+      openIn = stamp;
+    } else if (openIn) {
+      logs.push({
+        tapIn: formatAttendanceStamp(openIn),
+        tapOut: formatAttendanceStamp(stamp),
+      });
+      openIn = "";
+    } else {
+      logs.push({ tapIn: "—", tapOut: formatAttendanceStamp(stamp) });
+    }
+  }
+  if (openIn) {
+    logs.push({ tapIn: formatAttendanceStamp(openIn), tapOut: "—" });
+  }
+
+  return logs;
 }
 
 function timeAgo(iso: string) {
@@ -251,7 +404,9 @@ function notifIconClass(type: string) {
 
 function studentNotifBellTargets() {
   return Array.from(
-    document.querySelectorAll<HTMLElement>('a.tool-btn--notif[href="/notifications"]'),
+    document.querySelectorAll<HTMLElement>(
+      'a.tool-btn--notif[href="/notifications"], a.tool-btn[href="/notifications"]',
+    ),
   );
 }
 
@@ -345,24 +500,56 @@ export function StudentDataBridge() {
       if (!window.DCEvents) return;
 
       try {
-        const [eventsRes, registrationsRes, invitationsRes] = await Promise.all([
-          fetch("/api/events?limit=200", { cache: "no-store" }),
-          fetch("/api/user/registrations", { cache: "no-store" }),
-          fetch("/api/user/invitations", { cache: "no-store" }),
-        ]);
-        if (!eventsRes.ok || cancelled) return;
+        let events: SanitizedEvent[] = [];
+        let registrations: Array<{ eventId?: string; status?: string; eventTitle?: string }> = [];
+        let invitations: Array<{ eventId?: string; status?: string }> = [];
+        let portalAttendance: Array<{
+          eventId?: string;
+          action?: string;
+          qualifiedForCertificate?: boolean;
+          eventTitle?: string;
+        }> = [];
 
-        const data = (await eventsRes.json()) as { events?: SanitizedEvent[] };
-        const registrations = registrationsRes.ok
-          ? ((await registrationsRes.json()) as {
-              registrations?: Array<{ eventId?: string; status?: string }>;
-            }).registrations || []
-          : [];
-        const invitations = invitationsRes.ok
-          ? ((await invitationsRes.json()) as {
-              invitations?: Array<{ eventId?: string; status?: string }>;
-            }).invitations || []
-          : [];
+        const forcePortal = pathname.startsWith("/attendance") || pathname === "/home";
+        const portal = await fetchPortalData(forcePortal);
+        if (portal?.events) {
+          events = portal.events;
+          registrations = portal.registrations;
+          invitations = portal.invitations;
+          portalAttendance = portal.attendance || [];
+          if (portal.savedEventIds?.length) {
+            setSavedEventIds(portal.savedEventIds);
+          }
+        } else {
+          const cached = readCachedPortalData();
+          if (cached?.events) {
+            events = cached.events;
+            registrations = cached.registrations;
+            invitations = cached.invitations;
+            portalAttendance = cached.attendance || [];
+          } else {
+            const [eventsRes, registrationsRes, invitationsRes] = await Promise.all([
+              authFetch("/api/events?limit=200", { cache: "no-store" }),
+              authFetch("/api/user/registrations", { cache: "no-store" }),
+              authFetch("/api/user/invitations", { cache: "no-store" }),
+            ]);
+            if (!eventsRes.ok || cancelled) return;
+            const data = (await eventsRes.json()) as { events?: SanitizedEvent[] };
+            events = data.events || [];
+            registrations = registrationsRes.ok
+              ? ((await registrationsRes.json()) as {
+                  registrations?: Array<{ eventId?: string; status?: string }>;
+                }).registrations || []
+              : [];
+            invitations = invitationsRes.ok
+              ? ((await invitationsRes.json()) as {
+                  invitations?: Array<{ eventId?: string; status?: string }>;
+                }).invitations || []
+              : [];
+          }
+        }
+
+        if (cancelled) return;
 
         const joined = new Map(
           registrations.map((row) => [String(row.eventId || ""), String(row.status || "joined")]),
@@ -373,7 +560,7 @@ export function StudentDataBridge() {
             .map((row) => String(row.eventId || "")),
         );
 
-        let live: LegacyCardEvent[] = (data.events || [])
+        let live: LegacyCardEvent[] = events
           .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
           .map((event) => {
             const card = mapDbEventToCard(event, bucketCategory(event));
@@ -394,13 +581,63 @@ export function StudentDataBridge() {
               .filter((row) => ["joined", "approved"].includes(String(row.status || "joined")))
               .map((row) => String(row.eventId || "")),
           );
+          for (const row of portalAttendance) {
+            if (row.eventId) registeredIds.add(String(row.eventId));
+          }
+          // Always include this account's attendance event ids from MongoDB.
+          const liveBuckets =
+            portalAttendance.length > 0
+              ? (() => {
+                  const buckets = new Map<
+                    string,
+                    "attendance-completed" | "attendance-incomplete" | "attendance-today"
+                  >();
+                  for (const row of portalAttendance) {
+                    const eventId = String(row.eventId || "");
+                    if (!eventId) continue;
+                    if (row.qualifiedForCertificate || row.action === "out") {
+                      buckets.set(eventId, "attendance-completed");
+                    } else if (
+                      row.action === "in" &&
+                      buckets.get(eventId) !== "attendance-completed"
+                    ) {
+                      buckets.set(eventId, "attendance-incomplete");
+                    }
+                  }
+                  return buckets;
+                })()
+              : await fetchAttendanceBuckets();
+
+          for (const eventId of liveBuckets.keys()) registeredIds.add(eventId);
+
           live = live.filter((event) => registeredIds.has(String(event.id)));
-          const buckets = await fetchAttendanceBuckets();
-          live = applyAttendanceCategories(live, buckets);
+          // Build cards for attendance/registration events missing from the browse list.
+          const missingIds = [...registeredIds].filter(
+            (id) => id && !live.some((event) => String(event.id) === id),
+          );
+          for (const missingId of missingIds.slice(0, 20)) {
+            const bucket =
+              liveBuckets.get(missingId) ||
+              ("attendance-completed" as const);
+            const fromPortal = events.find((event) => String(event.id) === missingId);
+            if (fromPortal) {
+              live.push(mapDbEventToCard(fromPortal, bucket));
+            } else {
+              live.push(
+                fallbackAttendanceCard(
+                  missingId,
+                  titleForMissingEvent(missingId, registrations, portalAttendance),
+                  bucket,
+                ),
+              );
+            }
+          }
+
+          live = applyAttendanceCategories(live, liveBuckets);
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           live = live.map((event) => {
-            if (buckets.has(String(event.id))) return event;
+            if (liveBuckets.has(String(event.id))) return event;
             const day = new Date(`${event.date}T12:00:00`);
             if (Number.isNaN(day.getTime())) return event;
             day.setHours(0, 0, 0, 0);
@@ -414,21 +651,25 @@ export function StudentDataBridge() {
         const params = new URLSearchParams(window.location.search);
         const detailId = params.get("id");
         if (detailId && !live.some((event) => String(event.id) === detailId)) {
-          const one = await fetch(`/api/events/${encodeURIComponent(detailId)}`, {
-            cache: "no-store",
-          });
-          if (one.ok) {
-            const payload = (await one.json()) as { event?: SanitizedEvent };
-            if (payload.event) {
-              live = [
-                mapDbEventToCard(payload.event, bucketCategory(payload.event)),
-                ...live,
-              ];
-            }
+          const existing = events.find((event) => String(event.id) === detailId);
+          if (existing) {
+            live = [mapDbEventToCard(existing, bucketCategory(existing)), ...live];
+          } else {
+            live = [
+              fallbackAttendanceCard(
+                detailId,
+                titleForMissingEvent(detailId, registrations, portalAttendance),
+                "attendance-completed",
+              ),
+              ...live,
+            ];
           }
         }
 
         window.DCEvents.list = live;
+        if (pathname.startsWith("/attendance/details")) {
+          window.DCEvents.renderAttendanceDetails?.();
+        }
         if (pathname.startsWith("/attendance") && !pathname.startsWith("/attendance/details")) {
           const grids = ["attendance-today-grid", "attendance-completed-grid", "attendance-incomplete-grid"];
           const hasAny = grids.some((id) => {
@@ -461,7 +702,7 @@ export function StudentDataBridge() {
 
     const syncSaved = async () => {
       try {
-        const res = await fetch("/api/user/saved-events", { cache: "no-store" });
+        const res = await authFetch("/api/user/saved-events", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { eventIds?: string[] };
         if (Array.isArray(data.eventIds)) {
@@ -497,7 +738,7 @@ export function StudentDataBridge() {
     const persistSaved = async () => {
       const ids = getSavedEventIds();
       try {
-        await fetch("/api/user/saved-events", {
+        await authFetch("/api/user/saved-events", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ eventIds: ids }),
@@ -625,8 +866,10 @@ export function StudentDataBridge() {
             } catch {
               /* ignore */
             }
+            invalidatePortalCache();
             void injectAttendanceRfid();
             void injectEvents();
+            window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
           } catch {
             window.alert(`Failed to tap ${action}.`);
           } finally {
@@ -653,22 +896,34 @@ export function StudentDataBridge() {
       if (pathname !== "/attendance/details" || !window.DCEvents) return;
       const eventId = new URLSearchParams(window.location.search).get("id");
       if (!eventId) return;
+      document.getElementById("dc-attendance-history")?.remove();
       try {
-        const res = await fetch(
+        await ensureFullEventInList(eventId);
+
+        const attendanceRes = await authFetch(
           `/api/user/attendance?eventId=${encodeURIComponent(eventId)}`,
-          {
-            cache: "no-store",
-            credentials: "include",
-          },
+          { cache: "no-store" },
         );
-        if (!res.ok) return;
-        const data = (await res.json()) as {
+
+        const existingEvent = window.DCEvents.getEventById?.(eventId);
+
+        if (!attendanceRes.ok) {
+          if (!existingEvent) {
+            const list = Array.isArray(window.DCEvents.list) ? [...window.DCEvents.list] : [];
+            list.unshift(fallbackAttendanceCard(eventId, "Event", "attendance-completed"));
+            window.DCEvents.list = list;
+          }
+          return;
+        }
+        const data = (await attendanceRes.json()) as {
           attendance?: Array<{
             action?: string;
             createdAt?: string;
             scannedAt?: string;
             attendanceMinutes?: number;
             qualifiedForCertificate?: boolean;
+            source?: string;
+            eventTitle?: string;
           }>;
           sessions?: Array<{
             tapInAt?: string;
@@ -676,73 +931,74 @@ export function StudentDataBridge() {
             attendanceMinutes?: number;
             qualifiedForCertificate?: boolean;
             open?: boolean;
+            eventTitle?: string;
           }>;
         };
 
+        if (!window.DCEvents.getEventById?.(eventId)) {
+          const title =
+            String(data.sessions?.[0]?.eventTitle || "").trim() ||
+            String(data.attendance?.[0]?.eventTitle || "").trim() ||
+            "Event";
+          const list = Array.isArray(window.DCEvents.list) ? [...window.DCEvents.list] : [];
+          list.unshift(fallbackAttendanceCard(eventId, title, "attendance-completed"));
+          window.DCEvents.list = list;
+        }
+
         const sessions = data.sessions || [];
-        const rows = [...(data.attendance || [])].reverse();
-        let logs: Array<{ tapIn: string; tapOut: string }> = [];
+        const attendanceRows = data.attendance || [];
+        const logs = buildTapLogsFromAttendance(attendanceRows, sessions);
+
         let openIn = "";
         let lastMinutes = 0;
         let qualified = false;
 
-        if (sessions.length) {
-          logs = sessions.map((session) => ({
-            tapIn: session.tapInAt ? formatClock(session.tapInAt) : "—",
-            tapOut: session.tapOutAt ? formatClock(session.tapOutAt) : "—",
-          }));
-          const open = sessions.find((session) => session.open);
-          openIn = open?.tapInAt || "";
-          lastMinutes = sessions.find((session) => session.attendanceMinutes)?.attendanceMinutes || 0;
-          qualified = sessions.some((session) => session.qualifiedForCertificate);
-        } else {
-          for (const row of rows) {
-            const stamp = String(row.scannedAt || row.createdAt || "");
-            if (row.action === "in") {
-              if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
-              openIn = stamp;
-            } else {
-              logs.push({
-                tapIn: formatClock(openIn || stamp),
-                tapOut: formatClock(stamp),
-              });
-              openIn = "";
-              lastMinutes = Number(row.attendanceMinutes || lastMinutes);
-              qualified = Boolean(row.qualifiedForCertificate || qualified);
-            }
-          }
-          if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
+        const openSession = sessions.find((session) => session.open);
+        if (openSession?.tapInAt) {
+          openIn = openSession.tapInAt;
+        } else if (sessions.length) {
+          const last = sessions[0];
+          if (last.tapInAt && !last.tapOutAt) openIn = last.tapInAt;
         }
-        if (!logs.length) logs.push({ tapIn: "—", tapOut: "—" });
 
-        const statusEl = document.getElementById("dc-attendance-status");
-        if (!statusEl) {
-          const host =
-            document.querySelector(".rfid-panel__header") ||
-            document.querySelector(".rfid-panel");
-          if (host) {
-            const banner = document.createElement("p");
-            banner.id = "dc-attendance-status";
-            banner.style.cssText =
-              "margin:0 0 12px;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.4;";
-            host.prepend(banner);
+        for (const session of sessions) {
+          if (session.qualifiedForCertificate) qualified = true;
+          if (Number(session.attendanceMinutes || 0) > 0) {
+            lastMinutes = Number(session.attendanceMinutes);
           }
         }
-        const banner = document.getElementById("dc-attendance-status");
+        for (const row of attendanceRows) {
+          if (row.qualifiedForCertificate) qualified = true;
+          if (Number(row.attendanceMinutes || 0) > 0) {
+            lastMinutes = Number(row.attendanceMinutes);
+          }
+        }
+
+        const statusHost =
+          document.querySelector(".rfid-panel__stats") ||
+          document.querySelector(".rfid-panel");
+        let banner = document.getElementById("dc-attendance-status");
+        if (!banner && statusHost) {
+          banner = document.createElement("p");
+          banner.id = "dc-attendance-status";
+          banner.style.cssText =
+            "margin:0 0 12px;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.4;";
+          statusHost.prepend(banner);
+        }
         if (banner) {
           if (openIn) {
             banner.style.background = "#ecfdf5";
             banner.style.color = "#047857";
-            banner.textContent = `You are currently tapped in (since ${formatClock(openIn)}). Tap out when you leave.`;
+            banner.textContent = `You are currently tapped in (since ${formatAttendanceStamp(openIn)}). Tap out when you leave.`;
           } else if (qualified) {
             banner.style.background = "#eff6ff";
             banner.style.color = "#1d4ed8";
             banner.textContent =
               "Attendance completed for this event. Check Certificates if you qualified.";
-          } else if (rows.length > 0 || sessions.length > 0) {
+          } else if (logs.length > 0) {
             banner.style.background = "#f8fafc";
             banner.style.color = "#475569";
-            banner.textContent = "Your tap records are synced from MongoDB in real time.";
+            banner.textContent = `${logs.length} tap record${logs.length === 1 ? "" : "s"} loaded from your account.`;
           } else {
             banner.style.background = "#fffbeb";
             banner.style.color = "#b45309";
@@ -752,10 +1008,16 @@ export function StudentDataBridge() {
         }
 
         const event = window.DCEvents.getEventById?.(eventId) as
-          | { attendanceRequired?: string; gracePeriod?: string; name?: string }
+          | {
+              attendanceRequired?: string;
+              gracePeriod?: string;
+              name?: string;
+              venue?: string;
+              time?: string;
+              date?: string;
+            }
           | undefined;
-        const detailName = document.getElementById("detail-name");
-        if (detailName && event?.name) detailName.textContent = event.name;
+
         const required =
           Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
         const progress = qualified
@@ -765,13 +1027,28 @@ export function StudentDataBridge() {
         window.DCEvents.attendanceRfid = {
           ...(window.DCEvents.attendanceRfid || {}),
           [eventId]: {
-            graceRemaining: openIn ? event?.gracePeriod || "15 minutes" : "Complete",
+            graceRemaining: openIn
+              ? `Tap in active · grace ${event?.gracePeriod || "15 minutes"}`
+              : qualified
+                ? "Complete"
+                : lastMinutes > 0
+                  ? `${lastMinutes} of ${required} min`
+                  : event?.gracePeriod || "—",
             progress,
-            logs: logs.slice(0, 12),
-            page: { current: logs.some((row) => row.tapIn !== "—") ? 1 : 0, total: 1 },
+            logs,
+            qualified,
+            openTapIn: Boolean(openIn),
+            attendanceMinutes: lastMinutes,
+            requiredMinutes: required,
+            page: {
+              current: logs.length ? 1 : 0,
+              total: Math.max(1, Math.ceil(logs.length / 10)),
+            },
           },
         };
+
         window.DCEvents.renderAttendanceDetails?.();
+        window.DCEvents.wireDetailActions?.(eventId);
       } catch {
         /* keep static panel */
       }
@@ -780,7 +1057,7 @@ export function StudentDataBridge() {
     const injectFeedbackList = async () => {
       if (!pathname.startsWith("/feedback")) return;
       try {
-        const res = await fetch("/api/user/feedback?mine=1", { cache: "no-store" });
+        const res = await authFetch("/api/user/feedback?mine=1", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           feedback?: Array<{
@@ -849,7 +1126,7 @@ export function StudentDataBridge() {
     const injectCertificates = async () => {
       if (!pathname.startsWith("/certificates")) return;
       try {
-        const res = await fetch("/api/user/certificates", { cache: "no-store" });
+        const res = await authFetch("/api/user/certificates", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           certificates?: Array<{
@@ -990,7 +1267,9 @@ export function StudentDataBridge() {
           actionBtn.textContent = "Registration Successful";
           actionBtn.className = "detail-action detail-action--joined";
         }
+        invalidatePortalCache();
         void injectEvents();
+        window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to join event.");
         if (actionBtn) {
@@ -1069,19 +1348,28 @@ export function StudentDataBridge() {
       ? 1500
       : pathname.startsWith("/attendance")
         ? 3000
-        : 10000;
+        : pathname === "/home" || pathname.startsWith("/events")
+          ? 5000
+          : 8000;
     const poll = window.setInterval(run, pollMs);
     const notifBadgePoll = window.setInterval(() => void updateStudentNotifBadge(), 4000);
     const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
 
     const onFocusRefresh = () => {
+      void injectEvents();
       if (pathname.startsWith("/attendance")) {
         void injectAttendanceRfid();
-        void injectEvents();
       }
+      if (pathname.startsWith("/feedback")) void injectFeedbackList();
+      if (pathname.startsWith("/certificates")) void injectCertificates();
+      void updateStudentNotifBadge();
+    };
+    const onPortalInvalidated = () => {
+      void fetchPortalData(true).then(() => run());
     };
     window.addEventListener("focus", onFocusRefresh);
     document.addEventListener("visibilitychange", onFocusRefresh);
+    window.addEventListener("dc-portal-invalidated", onPortalInvalidated);
 
     return () => {
       cancelled = true;
@@ -1097,6 +1385,7 @@ export function StudentDataBridge() {
       window.removeEventListener("dc-submit-event", onSubmitEvent as EventListener);
       window.removeEventListener("focus", onFocusRefresh);
       document.removeEventListener("visibilitychange", onFocusRefresh);
+      window.removeEventListener("dc-portal-invalidated", onPortalInvalidated);
     };
   }, [pathname]);
 

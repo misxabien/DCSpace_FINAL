@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { logUserActivity, feedbackCollection } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 export async function GET(request: Request) {
-  const actor = await requireSessionActor(request);
-  if ("error" in actor) {
+  const admin = await requireAdminAuth(request);
+  const isAdmin = !("error" in admin);
+  const actor = isAdmin ? null : await requireSessionActor(request);
+  if (!isAdmin && actor && "error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
@@ -14,11 +17,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const mine = searchParams.get("mine") !== "0";
-    const email = searchParams.get("email");
+    const emailParam = searchParams.get("email");
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
-    if (email) filter.email = email.trim().toLowerCase();
-    else if (mine && !eventId) filter.email = actor.email;
+    if (isAdmin && emailParam) {
+      filter.email = emailParam.trim().toLowerCase();
+    } else if (mine && !eventId && actor && !("error" in actor)) {
+      filter.email = actor.email;
+    } else if (!isAdmin && actor && !("error" in actor)) {
+      filter.email = actor.email;
+    }
     const docs = await feedbackCollection(db)
       .find(filter)
       .sort({ createdAt: -1 })

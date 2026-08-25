@@ -1,7 +1,6 @@
 import type { Db } from "mongodb";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { eventsCollection } from "@/lib/events/types";
 import { attendanceCollection, logUserActivity } from "@/lib/user-server/activity";
 import {
   countPriorDuplicateAttempts,
@@ -228,8 +227,8 @@ export async function loadLiveEvent(eventId: string) {
   if (!ObjectId.isValid(eventId)) {
     throw new AttendanceError("Invalid event id.", 400, "invalid_event");
   }
-  const db = await getUserDb();
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+  const { findEventById } = await import("@/lib/events/find-event");
+  const { event } = await findEventById(eventId);
   if (!event) {
     throw new AttendanceError("Event not found.", 404, "event_not_found");
   }
@@ -495,10 +494,7 @@ export async function recordRfidScan(input: {
     const conflict = await findConcurrentEventConflict(userDb, email, input.eventId);
     if (conflict) {
       const currentEvent = ObjectId.isValid(input.eventId)
-        ? await eventsCollection(userDb).findOne(
-            { _id: new ObjectId(input.eventId) },
-            { projection: { title: 1 } },
-          )
+        ? (await (await import("@/lib/events/find-event")).findEventById(input.eventId)).event
         : null;
       const currentEventTitle = String(currentEvent?.title || "this event");
       await reject(
@@ -615,10 +611,9 @@ export async function buildLiveAttendanceFeed(
   const userDb = await getUserDb();
   const light = Boolean(options?.light);
 
-  const [event, attendanceDocs, registrationDocs] = await Promise.all([
-    ObjectId.isValid(eventId)
-      ? eventsCollection(userDb).findOne({ _id: new ObjectId(eventId) })
-      : null,
+  const { findEventById } = await import("@/lib/events/find-event");
+  const [found, attendanceDocs, registrationDocs] = await Promise.all([
+    ObjectId.isValid(eventId) ? findEventById(eventId) : Promise.resolve({ event: null }),
     attendanceCollection(userDb)
       .find({ eventId })
       .sort({ createdAt: -1 })
@@ -632,6 +627,7 @@ export async function buildLiveAttendanceFeed(
           .limit(500)
           .toArray(),
   ]);
+  const event = found.event;
 
   const registeredEmails = light
     ? []

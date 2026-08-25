@@ -730,6 +730,12 @@ export function CreateEventView() {
       }
 
       window.dispatchEvent(new Event("dc-organized-changed"));
+      try {
+        const { invalidatePortalCache } = await import("@/lib/portal-data-client");
+        invalidatePortalCache();
+      } catch {
+        /* ignore */
+      }
       showToast(
         editingId ? "Event updated successfully." : "Event created successfully.",
         "success",

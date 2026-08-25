@@ -4,7 +4,7 @@ import {
   attendanceCollection,
   certificatesCollection,
 } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { eventsCollection } from "@/lib/events/types";
@@ -103,8 +103,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
-    const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+    const userDb = await getUserDb();
+    const adminDb = await getAdminDb();
+    const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -130,8 +131,8 @@ export async function POST(request: Request) {
 
     if (uniqueRequested.length) {
       for (const email of uniqueRequested) {
-        const user = await db.collection("users").findOne({ email });
-        const attendance = await attendanceCollection(db)
+        const user = await userDb.collection("users").findOne({ email });
+        const attendance = await attendanceCollection(userDb)
           .find({ eventId, email })
           .sort({ createdAt: -1 })
           .limit(5)
@@ -156,7 +157,7 @@ export async function POST(request: Request) {
       }
     } else {
       // Bulk: attendees who tapped in (prefer those with a profile name).
-      const attendees = await attendanceCollection(db)
+      const attendees = await attendanceCollection(userDb)
         .find({ eventId, action: "in" })
         .sort({ createdAt: 1 })
         .toArray();
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
         const email = String(row.email || "").toLowerCase();
         if (!email || seen.has(email)) continue;
         seen.add(email);
-        const user = await db.collection("users").findOne({ email });
+        const user = await userDb.collection("users").findOne({ email });
         const fullName = user
           ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
           : "";
@@ -194,7 +195,7 @@ export async function POST(request: Request) {
     const created = [];
     const skipped = [];
     for (const target of targets) {
-      const existing = await certificatesCollection(db).findOne({
+      const existing = await certificatesCollection(userDb).findOne({
         eventId,
         email: target.email,
       });
@@ -208,11 +209,11 @@ export async function POST(request: Request) {
         continue;
       }
       if (existing && regenerate) {
-        await certificatesCollection(db).deleteOne({ _id: existing._id });
+        await certificatesCollection(userDb).deleteOne({ _id: existing._id });
       }
 
       const doc = await createCertificateDoc({
-        db,
+        db: userDb,
         event: {
           id: eventId,
           title: String(event.title || ""),
@@ -228,7 +229,7 @@ export async function POST(request: Request) {
       });
 
       // Enrich stored certificate with school identity fields for admin tables.
-      await certificatesCollection(db).updateOne(
+      await certificatesCollection(userDb).updateOne(
         { _id: new ObjectId(doc.id) },
         {
           $set: {

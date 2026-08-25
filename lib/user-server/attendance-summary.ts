@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
 import { attendanceCollection } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 
 export type UserAttendanceSummary = {
@@ -52,10 +52,11 @@ export async function buildUserAttendanceSummary(
   };
   if (!email) return empty;
 
-  const db = await getUserDb();
+  const userDb = await getUserDb();
+  const adminDb = await getAdminDb();
   const [attendanceDocs, registrationDocs] = await Promise.all([
-    attendanceCollection(db).find({ email }).sort({ createdAt: 1 }).limit(500).toArray(),
-    registrationsCollection(db)
+    attendanceCollection(userDb).find({ email }).sort({ createdAt: 1 }).limit(500).toArray(),
+    registrationsCollection(userDb)
       .find({ email, status: { $in: ["joined", "approved"] } })
       .project({ eventId: 1, status: 1, createdAt: 1 })
       .limit(300)
@@ -75,7 +76,7 @@ export async function buildUserAttendanceSummary(
   if (eventIds.length) {
     const objectIds = eventIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
     if (objectIds.length) {
-      const events = await eventsCollection(db)
+      const events = await eventsCollection(adminDb)
         .find({ _id: { $in: objectIds } })
         .project({
           startsAt: 1,

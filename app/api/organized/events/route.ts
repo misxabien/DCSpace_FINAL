@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
-import { eventsCollection, sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
+import { findOrganizerEvents } from "@/lib/events/find-event";
+import { getUserDb } from "@/lib/db/get-db";
 import { organizerOwnershipFilter } from "@/lib/events/ownership";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
@@ -14,12 +15,10 @@ export async function GET(request: Request) {
 
   try {
     const userDb = await getUserDb();
-    const adminDb = await getAdminDb();
-    const docs = await eventsCollection(adminDb)
-      .find(organizerOwnershipFilter(actor.email, actor.userId))
-      .sort({ updatedAt: -1 })
-      .limit(200)
-      .toArray();
+    const docs = await findOrganizerEvents(
+      organizerOwnershipFilter(actor.email, actor.userId),
+      200,
+    );
 
     const eventIds = docs.map((doc) => String(doc._id));
     const counts = eventIds.length

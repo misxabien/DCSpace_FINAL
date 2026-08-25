@@ -11,8 +11,10 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
+import { findOrganizerEvents } from "@/lib/events/find-event";
+import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { organizerOwnershipFilter } from "@/lib/events/ownership";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
-import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 
 const WRITABLE_STATUSES: EventStatus[] = [
@@ -86,12 +88,51 @@ export async function GET(request: Request) {
       ];
     }
 
-    const db = await getUserDb();
-    const docs = await eventsCollection(db)
-      .find(filter)
-      .sort({ updatedAt: -1 })
-      .limit(limit)
-      .toArray();
+    const adminDb = await getAdminDb();
+    const userDb = await getUserDb();
+
+    let docs: Array<SpaceEvent & { _id: ObjectId }>;
+    if (actor.kind === "user" || (actor.kind === "session" && !actor.session.isAdmin)) {
+      const email = actor.kind === "user" ? actor.email : actor.session.email;
+      const userId = actor.kind === "user" ? actor.id : undefined;
+      const owned = await findOrganizerEvents(organizerOwnershipFilter(email, userId), limit);
+      const publicFilter: Record<string, unknown> = {
+        status: { $in: ["approved", "live", "completed"] },
+      };
+      if (status) publicFilter.status = status;
+      if (searchParams.get("hasCertificateTemplate") === "1") {
+        publicFilter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+      }
+      const [adminPublic, userPublic] = await Promise.all([
+        eventsCollection(adminDb).find(publicFilter).sort({ updatedAt: -1 }).limit(limit).toArray(),
+        eventsCollection(userDb).find(publicFilter).sort({ updatedAt: -1 }).limit(limit).toArray(),
+      ]);
+      const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
+      for (const doc of [...userPublic, ...adminPublic, ...owned]) {
+        byId.set(String(doc._id), doc as SpaceEvent & { _id: ObjectId });
+      }
+      docs = [...byId.values()]
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+        .slice(0, limit);
+    } else {
+      const docsAdmin = await eventsCollection(adminDb)
+        .find(filter)
+        .sort({ updatedAt: -1 })
+        .limit(limit)
+        .toArray();
+      const docsUser = await eventsCollection(userDb)
+        .find(filter)
+        .sort({ updatedAt: -1 })
+        .limit(limit)
+        .toArray();
+      const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
+      for (const doc of [...docsUser, ...docsAdmin]) {
+        byId.set(String(doc._id), doc as SpaceEvent & { _id: ObjectId });
+      }
+      docs = [...byId.values()]
+        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+        .slice(0, limit);
+    }
 
     return NextResponse.json({
       events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
@@ -235,7 +276,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = await getUserDb();
+    const db = await getAdminDb();
     const result = await eventsCollection(db).insertOne(doc);
     const event = sanitizeEvent({ ...doc, _id: result.insertedId });
 
