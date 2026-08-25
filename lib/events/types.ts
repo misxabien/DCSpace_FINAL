@@ -50,6 +50,12 @@ export type SpaceEvent = {
   submittedByPortal?: "user" | "admin";
   reviewedByEmail?: string;
   reviewNote?: string;
+  /** Linked eRoomReserve reservation id (synced via /api/integrations/reservation-info). */
+  reservationId?: string;
+  reservationStatus?: string;
+  reservationRoomId?: string;
+  reservationRoomName?: string;
+  reservationCapacity?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -121,6 +127,12 @@ export function sanitizeEvent(
     submittedByPortal: doc.submittedByPortal || "user",
     reviewedByEmail: doc.reviewedByEmail || "",
     reviewNote: doc.reviewNote || "",
+    reservationId: doc.reservationId || "",
+    reservationStatus: doc.reservationStatus || "",
+    reservationRoomId: doc.reservationRoomId || "",
+    reservationRoomName: doc.reservationRoomName || "",
+    reservationCapacity:
+      typeof doc.reservationCapacity === "number" ? doc.reservationCapacity : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

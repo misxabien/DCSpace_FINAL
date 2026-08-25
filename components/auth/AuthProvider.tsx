@@ -20,7 +20,6 @@ import {
 
 type LoginOptions = {
   portal?: "admin" | "user";
-  expectedRole?: "admin" | "super-admin";
 };
 
 type AuthContextValue = {
@@ -72,7 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email,
           password,
           portal: options?.portal || "user",
-          expectedRole: options?.expectedRole,
         }),
       });
       const data = (await res.json()) as {

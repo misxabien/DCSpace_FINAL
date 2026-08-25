@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadReportAiContext } from "@/lib/ai/context";
 import { generateGeminiJson, geminiErrorResponse } from "@/lib/ai/gemini";
+import { storeSmartReport } from "@/lib/admin/admin-reports";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 
 export async function POST(request: Request) {
@@ -57,14 +58,34 @@ ${JSON.stringify(context, null, 2)}`,
       },
     );
 
-    return NextResponse.json({
+    const eventTitles = context.events.map((item) => item.event.title);
+    const draft = {
       executiveSummary: String(result.executiveSummary || ""),
       rationale: String(result.rationale || ""),
       objectives: String(result.objectives || ""),
       highlights: String(result.highlights || ""),
       recommendations: String(result.recommendations || ""),
       conclusion: String(result.conclusion || ""),
-      eventTitles: context.events.map((item) => item.event.title),
+    };
+
+    let storedReportId = "";
+    try {
+      const stored = await storeSmartReport({
+        reportType,
+        eventTitles,
+        generatedBy: auth.session.name,
+        generatedByEmail: auth.session.email,
+        draft,
+      });
+      storedReportId = stored.id;
+    } catch (error) {
+      console.warn("[DC Space] Failed to store smart report in admin_reports:", error);
+    }
+
+    return NextResponse.json({
+      ...draft,
+      eventTitles,
+      storedReportId,
     });
   } catch (error) {
     const mapped = geminiErrorResponse(error);

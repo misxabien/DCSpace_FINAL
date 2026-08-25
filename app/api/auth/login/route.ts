@@ -17,25 +17,16 @@ type LoginBody = {
   password?: string;
   /** "admin" = admin console login; omit/default = student/organizer portal */
   portal?: "admin" | "user";
-  /** When portal is admin, optionally require exact role from selection screen */
-  expectedRole?: "admin" | "super-admin";
 };
 
 function applyPortalRules(
   sessionUser: ReturnType<typeof toSessionUser>,
   portal: "admin" | "user",
-  expectedRole?: "admin" | "super-admin",
 ) {
   if (portal === "admin") {
     if (!sessionUser.isAdmin) {
       return NextResponse.json(
         { error: "This account is not authorized for the admin console." },
-        { status: 403 },
-      );
-    }
-    if (expectedRole === "super-admin" && sessionUser.role !== "super-admin") {
-      return NextResponse.json(
-        { error: "Sign in with a Super Admin account." },
         { status: 403 },
       );
     }
@@ -65,7 +56,6 @@ export async function POST(request: Request) {
   const email = body.email?.trim().toLowerCase() ?? "";
   const password = body.password ?? "";
   const portal = body.portal === "admin" ? "admin" : "user";
-  const expectedRole = body.expectedRole;
 
   if (!email || !password) {
     return NextResponse.json(
@@ -125,7 +115,7 @@ export async function POST(request: Request) {
         organizationRole: sanitized.organizationRole,
       });
 
-      const denied = applyPortalRules(sessionUser, portal, expectedRole);
+      const denied = applyPortalRules(sessionUser, portal);
       if (denied) return denied;
 
       const token = signAuthToken({
@@ -172,7 +162,7 @@ export async function POST(request: Request) {
   // Local/demo fallback when Mongo is unavailable or the account is not seeded yet
   const mockUser = authenticateKnownMockAccount(email, password);
   if (mockUser) {
-    const denied = applyPortalRules(mockUser, portal, expectedRole);
+    const denied = applyPortalRules(mockUser, portal);
     if (denied) return denied;
 
     const response = NextResponse.json({ user: mockUser });

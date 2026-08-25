@@ -99,7 +99,7 @@ export function setStatByLabel(
     if (!labelEl) return;
     const text = (labelEl.textContent || "").trim().toLowerCase();
     if (!text.includes(label.toLowerCase())) return;
-    const valueEl = card.querySelector(".stat-value, .value, .fb-stat-body .value");
+    const valueEl = card.querySelector(".stat-value, .value, .name, .fb-stat-body .value");
     if (valueEl) valueEl.textContent = String(value);
   });
 }
@@ -125,12 +125,25 @@ export function patchChildren<T>(
   const host = template.parentElement;
   if (!host) return;
 
+  const insertBeforeFooter = (el: HTMLElement) => {
+    // Keep Asc/Desc + pager (and empty-state) at the bottom of the list card.
+    const footer =
+      host.querySelector(":scope > .events-footer") ||
+      host.querySelector(":scope > .table-footer") ||
+      host.querySelector(":scope > .cd-footer") ||
+      host.querySelector(":scope > .cert-footer") ||
+      host.querySelector(":scope > .cd-sort")?.closest(".cd-footer, .cert-footer, .events-footer") ||
+      host.querySelector(`:scope > .${EMPTY_CLASS}`);
+    if (footer) host.insertBefore(el, footer);
+    else host.appendChild(el);
+  };
+
   items.forEach((item, index) => {
     let el = nodes[index];
     if (!el) {
       el = template.cloneNode(true) as HTMLElement;
       el.removeAttribute("data-dc-template");
-      host.appendChild(el);
+      insertBeforeFooter(el);
     }
     setLegacyHidden(el, false);
     patch(el, item, index);
@@ -203,6 +216,33 @@ export function hideLegacyDemoContent(root: ParentNode) {
   });
 }
 
+/** Keep Asc/Desc + pager pinned to the bottom of every list card. */
+export function ensureEventsFooterAtBottom(host: ParentNode | null) {
+  if (!host) return;
+  const panels = Array.from(
+    (host as Element).querySelectorAll?.(
+      ".events-panel, .cd-panel, .cert-table-panel, .panel-box",
+    ) || [],
+  ) as HTMLElement[];
+  const targets =
+    panels.length > 0
+      ? panels
+      : (host as Element).classList?.contains("events-panel") ||
+          (host as Element).classList?.contains("cd-panel")
+        ? [host as HTMLElement]
+        : [];
+
+  targets.forEach((panel) => {
+    const footer = panel.querySelector<HTMLElement>(
+      ":scope > .events-footer, :scope > .table-footer, :scope > .cd-footer, :scope > .cert-footer",
+    );
+    if (!footer) return;
+    if (panel.lastElementChild !== footer) {
+      panel.appendChild(footer);
+    }
+  });
+}
+
 /** Show / hide an empty-state note inside each events panel under a list host. */
 export function setEventsEmptyState(
   host: Element | null,
@@ -231,7 +271,9 @@ export function setEventsEmptyState(
         <h3 class="${EMPTY_CLASS}__title"></h3>
         <p class="${EMPTY_CLASS}__text"></p>
       `;
-      const footer = panel.querySelector(".events-footer");
+      const footer = panel.querySelector(
+        ".events-footer, .table-footer, .cd-footer, .cert-footer",
+      );
       if (footer) panel.insertBefore(note, footer);
       else panel.appendChild(note);
     }

@@ -8,6 +8,87 @@ import {
   recordAttendanceTap,
 } from "@/lib/user-server/record-attendance";
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function pairSessions(
+  docs: Array<{
+    action?: string;
+    scannedAt?: string;
+    createdAt?: string;
+    attendanceMinutes?: number;
+    qualifiedForCertificate?: boolean;
+    eventId?: string;
+    eventTitle?: string;
+    id?: string;
+  }>,
+) {
+  // Oldest → newest so pairs reconstruct correctly.
+  const chronological = [...docs].reverse();
+  const sessions: Array<{
+    eventId: string;
+    eventTitle: string;
+    tapInAt: string;
+    tapOutAt: string;
+    attendanceMinutes: number;
+    qualifiedForCertificate: boolean;
+    open: boolean;
+  }> = [];
+
+  let openIn = "";
+  let openEventId = "";
+  let openEventTitle = "";
+
+  for (const row of chronological) {
+    const stamp = String(row.scannedAt || row.createdAt || "");
+    const eventId = String(row.eventId || "");
+    const eventTitle = String(row.eventTitle || "");
+    if (String(row.action || "in") === "in") {
+      if (openIn) {
+        sessions.push({
+          eventId: openEventId,
+          eventTitle: openEventTitle,
+          tapInAt: openIn,
+          tapOutAt: "",
+          attendanceMinutes: 0,
+          qualifiedForCertificate: false,
+          open: true,
+        });
+      }
+      openIn = stamp;
+      openEventId = eventId;
+      openEventTitle = eventTitle;
+    } else {
+      sessions.push({
+        eventId: openEventId || eventId,
+        eventTitle: openEventTitle || eventTitle,
+        tapInAt: openIn || "",
+        tapOutAt: stamp,
+        attendanceMinutes: Number(row.attendanceMinutes || 0),
+        qualifiedForCertificate: Boolean(row.qualifiedForCertificate),
+        open: false,
+      });
+      openIn = "";
+      openEventId = "";
+      openEventTitle = "";
+    }
+  }
+  if (openIn) {
+    sessions.push({
+      eventId: openEventId,
+      eventTitle: openEventTitle,
+      tapInAt: openIn,
+      tapOutAt: "",
+      attendanceMinutes: 0,
+      qualifiedForCertificate: false,
+      open: true,
+    });
+  }
+  return sessions.reverse();
+}
+
+/** Load attendance from MongoDB `attendance_records` for the signed-in user (or admin filter). */
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
   const isAdmin = !("error" in admin);
@@ -20,37 +101,49 @@ export async function GET(request: Request) {
     const db = await getUserDb();
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
-    const email = searchParams.get("email");
+    const emailParam = searchParams.get("email");
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
-    if (!isAdmin && actor && !("error" in actor)) {
-      filter.email = actor.email.trim().toLowerCase();
-    } else if (isAdmin && email) {
-      filter.email = email.trim().toLowerCase();
+
+    const email =
+      !isAdmin && actor && !("error" in actor)
+        ? actor.email.trim().toLowerCase()
+        : isAdmin && emailParam
+          ? emailParam.trim().toLowerCase()
+          : "";
+    if (email) {
+      // Case-insensitive match so RFID-linked rows always show for the user account.
+      filter.email = { $regex: `^${escapeRegex(email)}$`, $options: "i" };
     }
 
     const docs = await attendanceCollection(db)
       .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(200)
+      .sort({ scannedAt: -1, createdAt: -1 })
+      .limit(500)
       .toArray();
 
+    const attendance = docs.map((doc) => ({
+      id: String(doc._id),
+      eventId: String(doc.eventId || ""),
+      eventTitle: String(doc.eventTitle || doc.eventName || ""),
+      email: String(doc.email || "").toLowerCase(),
+      participantName: String(doc.participantName || doc.userName || ""),
+      action: String(doc.action || "in"),
+      status: String(doc.status || "recorded"),
+      source: String(doc.source || "session"),
+      rfidNumber: String(doc.rfidNumber || ""),
+      createdAt: String(doc.createdAt || doc.scannedAt || ""),
+      scannedAt: String(doc.scannedAt || doc.createdAt || ""),
+      attendanceMinutes: Number(doc.attendanceMinutes || 0),
+      qualifiedForCertificate: Boolean(doc.qualifiedForCertificate),
+    }));
+
     return NextResponse.json({
-      attendance: docs.map((doc) => ({
-        id: String(doc._id),
-        eventId: String(doc.eventId || ""),
-        eventTitle: String(doc.eventTitle || doc.eventName || ""),
-        email: String(doc.email || ""),
-        participantName: String(doc.participantName || doc.userName || ""),
-        action: String(doc.action || "in"),
-        status: String(doc.status || "recorded"),
-        source: String(doc.source || "session"),
-        rfidNumber: String(doc.rfidNumber || ""),
-        createdAt: String(doc.createdAt || doc.scannedAt || ""),
-        scannedAt: String(doc.scannedAt || doc.createdAt || ""),
-        attendanceMinutes: Number(doc.attendanceMinutes || 0),
-        qualifiedForCertificate: Boolean(doc.qualifiedForCertificate),
-      })),
+      attendance,
+      sessions: pairSessions(attendance),
+      total: attendance.length,
+      source: "mongodb",
+      collection: "attendance_records",
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
@@ -61,7 +154,7 @@ export async function GET(request: Request) {
   }
 }
 
-/** Session tap in/out — only for the logged-in user who is registered for the event. */
+/** Session tap in/out — persists to MongoDB `attendance_records`. */
 export async function POST(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
@@ -93,7 +186,7 @@ export async function POST(request: Request) {
       source: "session",
       eventTitle: String(body.eventName || "").trim(),
       participant: {
-        email: actor.email,
+        email: actor.email.trim().toLowerCase(),
         name: actor.name,
         userId: actor.userId,
         studentNumber: actor.studentNumber,
@@ -101,7 +194,7 @@ export async function POST(request: Request) {
         role: actor.role,
       },
       actor: {
-        email: actor.email,
+        email: actor.email.trim().toLowerCase(),
         name: actor.name,
         role: actor.role,
       },
@@ -111,6 +204,8 @@ export async function POST(request: Request) {
       {
         attendance: result,
         duplicate: Boolean(result.duplicate),
+        persisted: true,
+        collection: "attendance_records",
         certificate: result.certificateId
           ? {
               id: result.certificateId,

@@ -3,6 +3,13 @@ import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { eventsCollection } from "@/lib/events/types";
 import { attendanceCollection, logUserActivity } from "@/lib/user-server/activity";
+import {
+  countPriorDuplicateAttempts,
+  findConcurrentEventConflict,
+  logAttendanceSecurityEvent,
+  securityKindFromCode,
+  type AttendanceSecurityKind,
+} from "@/lib/user-server/attendance-security";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { createCertificateDoc } from "@/lib/user-server/certificates";
 
@@ -40,6 +47,8 @@ export type RecordAttendanceResult = {
   duplicate?: boolean;
   certificateId?: string;
   rfidNumber?: string;
+  persisted?: boolean;
+  collection?: string;
 };
 
 export class AttendanceError extends Error {
@@ -61,6 +70,10 @@ function normalizeRfid(rfid: string) {
   return String(rfid || "").trim();
 }
 
+function rfidDigits(rfid: string) {
+  return String(rfid || "").replace(/\D/g, "");
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -73,9 +86,72 @@ export async function findUserByRfid(rfidNumber: string) {
   const rfid = normalizeRfid(rfidNumber);
   if (!rfid) return null;
   const db = await getUserDb();
-  return usersCollection(db).findOne({
-    rfidNumber: { $regex: `^${escapeRegex(rfid)}$`, $options: "i" },
+  const digits = rfidDigits(rfid);
+  const variants = [...new Set([rfid, digits].filter(Boolean))];
+  const orFilters: Array<Record<string, unknown>> = variants.flatMap((value) => [
+    { rfidNumber: value },
+    { rfidNumber: { $regex: `^${escapeRegex(value)}$`, $options: "i" } },
+  ]);
+  const matches = await usersCollection(db).find({ $or: orFilters }).limit(5).toArray();
+  if (!matches.length) return null;
+
+  // Normalize to digit-only identity so 0847593370 and 847593370 resolve consistently.
+  const targetDigits = digits || rfid;
+  const exact = matches.filter((user) => {
+    const storedDigits = rfidDigits(String(user.rfidNumber || ""));
+    return storedDigits === targetDigits || normalizeRfid(String(user.rfidNumber || "")) === rfid;
   });
+  const pool = exact.length ? exact : matches;
+  if (pool.length > 1) {
+    throw new AttendanceError(
+      "This RFID matches more than one account. Ask an admin to fix duplicate RFID registrations.",
+      409,
+      "ambiguous_rfid",
+    );
+  }
+  return pool[0];
+}
+
+function splitOrgRole(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return { role: "", position: "" };
+  if (!raw.includes(":")) return { role: raw, position: "" };
+  const [role, ...rest] = raw.split(":");
+  return { role: role.trim(), position: rest.join(":").trim() };
+}
+
+/** Public profile fields resolved from a users collection document. */
+export function profileFromUserDoc(user: Record<string, unknown> | null | undefined) {
+  if (!user) {
+    return {
+      name: "",
+      email: "",
+      studentNumber: "",
+      course: "",
+      school: "",
+      organization: "",
+      organizationRole: "",
+      organizationPosition: "",
+      rfidNumber: "",
+      photoUrl: "",
+    };
+  }
+  const org = splitOrgRole(String(user.organizationRole || ""));
+  const name =
+    `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+    String(user.fullName || user.name || user.email || "");
+  return {
+    name,
+    email: normalizeEmail(String(user.email || "")),
+    studentNumber: String(user.studentNumber || ""),
+    course: String(user.course || ""),
+    school: String(user.school || ""),
+    organization: String(user.organizationPart || user.organization || ""),
+    organizationRole: org.role,
+    organizationPosition: org.position,
+    rfidNumber: String(user.rfidNumber || "").trim(),
+    photoUrl: String(user.photoUrl || user.avatarUrl || ""),
+  };
 }
 
 export async function assertRegisteredForEvent(
@@ -99,6 +175,55 @@ export async function assertRegisteredForEvent(
   return registration;
 }
 
+/** For admin RFID desk: join the event automatically if the RFID user is not yet registered. */
+export async function ensureRegisteredForRfidScan(
+  userDb: Db,
+  input: {
+    eventId: string;
+    email: string;
+    userName: string;
+    userId?: string;
+    studentNumber?: string;
+    course?: string;
+  },
+) {
+  const normalized = normalizeEmail(input.email);
+  const existing = await registrationsCollection(userDb).findOne({
+    eventId: input.eventId,
+    email: { $regex: `^${escapeRegex(normalized)}$`, $options: "i" },
+  });
+  if (existing) {
+    if (!["joined", "approved"].includes(String(existing.status || ""))) {
+      await registrationsCollection(userDb).updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            status: "joined",
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      );
+    }
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const doc = {
+    eventId: input.eventId,
+    email: normalized,
+    userId: input.userId || "",
+    userName: input.userName || normalized,
+    studentNumber: input.studentNumber || "",
+    course: input.course || "",
+    status: "joined",
+    source: "rfid-desk",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await registrationsCollection(userDb).insertOne(doc);
+  return doc;
+}
+
 export async function loadLiveEvent(eventId: string) {
   if (!ObjectId.isValid(eventId)) {
     throw new AttendanceError("Invalid event id.", 400, "invalid_event");
@@ -108,9 +233,9 @@ export async function loadLiveEvent(eventId: string) {
   if (!event) {
     throw new AttendanceError("Event not found.", 404, "event_not_found");
   }
-  if (String(event.status || "") !== "live") {
+  if (!["live", "approved"].includes(String(event.status || ""))) {
     throw new AttendanceError(
-      "Attendance is only open while the event is live.",
+      "Attendance is only open for approved or live events. Set the event to Live first if needed.",
       403,
       "event_not_live",
     );
@@ -270,27 +395,91 @@ export async function recordAttendanceTap(
     qualifiedForCertificate: Boolean(doc.qualifiedForCertificate),
     certificateId,
     rfidNumber: String(doc.rfidNumber || ""),
+    persisted: true,
+    collection: "attendance_records",
   };
 }
 
 export async function recordRfidScan(input: {
   eventId: string;
   rfidNumber: string;
+  /** Explicit desk mode. Required for separated Tap In / Tap Out. */
+  action?: AttendanceAction;
   actor: { email: string; name: string; role: string };
 }) {
   const rfid = normalizeRfid(input.rfidNumber);
+  const requestedAction: AttendanceAction =
+    input.action === "out" ? "out" : input.action === "in" ? "in" : "in";
+
+  const reject = async (
+    message: string,
+    status: number,
+    code: string,
+    extra?: {
+      email?: string;
+      participantName?: string;
+      kind?: AttendanceSecurityKind;
+      relatedEventId?: string;
+      relatedEventTitle?: string;
+    },
+  ): Promise<never> => {
+    const kind = extra?.kind || securityKindFromCode(code);
+    await logAttendanceSecurityEvent({
+      eventId: input.eventId,
+      kind,
+      code,
+      message,
+      rfidNumber: rfid || String(input.rfidNumber || "").trim(),
+      email: extra?.email,
+      participantName: extra?.participantName,
+      requestedAction,
+      actorEmail: input.actor.email,
+      actorName: input.actor.name,
+      relatedEventId: extra?.relatedEventId,
+      relatedEventTitle: extra?.relatedEventTitle,
+    });
+    throw new AttendanceError(message, status, code);
+  };
+
   if (!rfid) {
-    throw new AttendanceError("RFID tag is required.", 400, "missing_rfid");
+    await reject("RFID tag is required.", 400, "missing_rfid");
   }
 
-  const user = await findUserByRfid(rfid);
-  if (!user) {
-    throw new AttendanceError("RFID tag is not registered in DC Space.", 404, "unknown_rfid");
+  let matchedUser;
+  try {
+    matchedUser = await findUserByRfid(rfid);
+  } catch (error) {
+    if (error instanceof AttendanceError) {
+      await reject(error.message, error.status, error.code, {
+        participantName: `RFID ${rfid}`,
+        kind: "invalid_scan",
+      });
+    }
+    throw error;
+  }
+  if (!matchedUser) {
+    await reject(
+      "This RFID is not registered in the system.",
+      404,
+      "unknown_rfid",
+      { participantName: `Unknown RFID ${rfid}`, kind: "invalid_scan" },
+    );
   }
 
-  const email = normalizeEmail(String(user.email || ""));
+  const student = matchedUser!;
+  const email = normalizeEmail(String(student.email || ""));
   const userDb = await getUserDb();
-  await assertRegisteredForEvent(userDb, input.eventId, email);
+  const userName =
+    `${student.firstName || ""} ${student.lastName || ""}`.trim() || email;
+
+  await ensureRegisteredForRfidScan(userDb, {
+    eventId: input.eventId,
+    email,
+    userName,
+    userId: String(student._id || ""),
+    studentNumber: String(student.studentNumber || ""),
+    course: String(student.course || ""),
+  });
 
   const lastRecord = await attendanceCollection(userDb)
     .find({ eventId: input.eventId, email })
@@ -298,29 +487,133 @@ export async function recordRfidScan(input: {
     .limit(1)
     .next();
 
-  const action: AttendanceAction = lastRecord?.action === "in" ? "out" : "in";
+  const alreadyInside = lastRecord?.action === "in";
+  const rfidLabel = rfidDigits(rfid) || rfid;
+
+  // Attending two events at once — tapped in elsewhere within the last minute.
+  if (requestedAction === "in" && !alreadyInside) {
+    const conflict = await findConcurrentEventConflict(userDb, email, input.eventId);
+    if (conflict) {
+      const currentEvent = ObjectId.isValid(input.eventId)
+        ? await eventsCollection(userDb).findOne(
+            { _id: new ObjectId(input.eventId) },
+            { projection: { title: 1 } },
+          )
+        : null;
+      const currentEventTitle = String(currentEvent?.title || "this event");
+      await reject(
+        `Suspicious: ${userName} is attending two events at the same time — still tapped in at "${conflict.eventTitle}" and trying to tap in at "${currentEventTitle}". They tapped in at "${conflict.eventTitle}" within the last minute. Tap out from one event before tapping in at the other.`,
+        409,
+        "concurrent_event",
+        {
+          email,
+          participantName: userName,
+          kind: "concurrent_event",
+          relatedEventId: conflict.eventId,
+          relatedEventTitle: conflict.eventTitle,
+        },
+      );
+    }
+  }
+
+  // Duplicate entry — already inside (never tapped out), trying to tap in again.
+  if (requestedAction === "in" && alreadyInside) {
+    const priorAttempts = await countPriorDuplicateAttempts(userDb, input.eventId, email);
+    if (priorAttempts === 0) {
+      await reject(
+        `Duplicate entry: ${userName} (RFID ${rfidLabel}) is already tapped in and did not tap out. Use Tap Out when they leave. Different cards/students can still tap in.`,
+        409,
+        "duplicate_warning",
+        { email, participantName: userName, kind: "duplicate_warning" },
+      );
+    }
+    await reject(
+      `Duplicate entry: ${userName} (RFID ${rfidLabel}) tried to tap in again without tapping out. If you used a different card, verify it is registered to a different student.`,
+      409,
+      "duplicate_entry",
+      { email, participantName: userName, kind: "duplicate_entry" },
+    );
+  }
+
+  // Multiple taps — same RFID tapped consecutively (same action within 1 minute).
+  const RAPID_TAP_WINDOW_MS = 60_000;
+  const rfidMatch: Array<Record<string, string>> = [{ rfidNumber: rfid }];
+  const digits = rfidDigits(rfid);
+  if (digits && digits !== rfid) {
+    rfidMatch.push({ rfidNumber: digits });
+  }
+  const recentSameRfid = await attendanceCollection(userDb)
+    .find({
+      eventId: input.eventId,
+      $or: rfidMatch,
+      createdAt: { $gte: new Date(Date.now() - RAPID_TAP_WINDOW_MS).toISOString() },
+    })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .next();
+
+  if (recentSameRfid) {
+    const recentAction = String(recentSameRfid.action || "in");
+    if (recentAction === requestedAction) {
+      await reject(
+        `Multiple taps: RFID ${rfidLabel} (${userName}) was tapped consecutively within a minute for the same action. Wait before re-scanning this card — different students can still tap one after another.`,
+        409,
+        "rapid_consecutive",
+        { email, participantName: userName, kind: "rapid_consecutive" },
+      );
+    }
+  }
+
+  if (requestedAction === "out" && !alreadyInside) {
+    await reject(
+      "Cannot tap out — this student has no open tap-in.",
+      409,
+      "no_open_tap_in",
+      { email, participantName: userName, kind: "invalid_scan" },
+    );
+  }
 
   const result = await recordAttendanceTap({
     eventId: input.eventId,
-    action,
+    action: requestedAction,
     source: "rfid",
     participant: {
       email,
-      name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || email,
-      userId: String(user._id || ""),
-      studentNumber: String(user.studentNumber || ""),
-      course: String(user.course || ""),
-      rfidNumber: String(user.rfidNumber || rfid),
-      role: String(user.role || "student"),
+      name: userName,
+      userId: String(student._id || ""),
+      studentNumber: String(student.studentNumber || ""),
+      course: String(student.course || ""),
+      rfidNumber: String(student.rfidNumber || rfid),
+      role: String(student.role || "student"),
     },
     actor: input.actor,
   });
 
-  return { ...result, user: { email, name: result.participantName, rfidNumber: rfid } };
+  if (result.duplicate) {
+    await reject(
+      "Duplicate entry detected. This participant is already tapped in.",
+      409,
+      "duplicate_entry",
+      { email, participantName: userName, kind: "duplicate_entry" },
+    );
+  }
+
+  const profile = profileFromUserDoc(student as Record<string, unknown>);
+  return {
+    ...result,
+    user: {
+      ...profile,
+      rfidNumber: profile.rfidNumber || rfid,
+    },
+  };
 }
 
-export async function buildLiveAttendanceFeed(eventId: string) {
+export async function buildLiveAttendanceFeed(
+  eventId: string,
+  options?: { light?: boolean },
+) {
   const userDb = await getUserDb();
+  const light = Boolean(options?.light);
 
   const [event, attendanceDocs, registrationDocs] = await Promise.all([
     ObjectId.isValid(eventId)
@@ -329,31 +622,59 @@ export async function buildLiveAttendanceFeed(eventId: string) {
     attendanceCollection(userDb)
       .find({ eventId })
       .sort({ createdAt: -1 })
-      .limit(100)
+      .limit(light ? 40 : 100)
       .toArray(),
-    registrationsCollection(userDb)
-      .find({ eventId, status: { $in: ["joined", "approved"] } })
-      .project({ email: 1, userName: 1, studentNumber: 1, course: 1 })
-      .limit(500)
-      .toArray(),
+    light
+      ? Promise.resolve([])
+      : registrationsCollection(userDb)
+          .find({ eventId, status: { $in: ["joined", "approved"] } })
+          .project({ email: 1, userName: 1, studentNumber: 1, course: 1 })
+          .limit(500)
+          .toArray(),
   ]);
 
-  const registeredEmails = registrationDocs.map((row) =>
-    normalizeEmail(String(row.email || "")),
-  );
+  const registeredEmails = light
+    ? []
+    : registrationDocs.map((row) => normalizeEmail(String(row.email || "")));
+
+  const lookupEmails = light
+    ? [
+        ...new Set(
+          attendanceDocs
+            .map((row) => normalizeEmail(String(row.email || "")))
+            .filter(Boolean),
+        ),
+      ].slice(0, 30)
+    : registeredEmails;
 
   const users =
-    registeredEmails.length > 0
+    lookupEmails.length > 0
       ? await usersCollection(userDb)
           .find({
             email: {
-              $in: registeredEmails,
+              $in: lookupEmails,
             },
           })
-          .project({ email: 1, rfidNumber: 1, firstName: 1, lastName: 1 })
+          .project({
+            email: 1,
+            rfidNumber: 1,
+            firstName: 1,
+            lastName: 1,
+            studentNumber: 1,
+            course: 1,
+            school: 1,
+            organizationPart: 1,
+            organization: 1,
+            organizationRole: 1,
+            photoUrl: 1,
+            avatarUrl: 1,
+          })
           .toArray()
       : [];
 
+  const userByEmail = new Map(
+    users.map((user) => [normalizeEmail(String(user.email || "")), user]),
+  );
   const rfidByEmail = new Map(
     users.map((user) => [
       normalizeEmail(String(user.email || "")),
@@ -361,19 +682,58 @@ export async function buildLiveAttendanceFeed(eventId: string) {
     ]),
   );
 
-  const latestScan = attendanceDocs[0]
+  const latestDoc = attendanceDocs[0];
+  const latestEmail = latestDoc
+    ? normalizeEmail(String(latestDoc.email || ""))
+    : "";
+  const latestUser = latestEmail ? userByEmail.get(latestEmail) : null;
+  // If attendance email isn't in the registration projection set, look up once.
+  const latestProfile = latestUser
+    ? profileFromUserDoc(latestUser as Record<string, unknown>)
+    : latestEmail
+      ? profileFromUserDoc(
+          (await usersCollection(userDb).findOne({
+            email: { $regex: `^${escapeRegex(latestEmail)}$`, $options: "i" },
+          })) as Record<string, unknown> | null,
+        )
+      : profileFromUserDoc(null);
+
+  if (latestDoc && !latestProfile.rfidNumber) {
+    latestProfile.rfidNumber = String(
+      latestDoc.rfidNumber || rfidByEmail.get(latestEmail) || "",
+    );
+  }
+  if (latestDoc && !latestProfile.email) {
+    latestProfile.email = String(latestDoc.email || "");
+  }
+  if (latestDoc && !latestProfile.name) {
+    latestProfile.name = String(
+      latestDoc.participantName || latestDoc.userName || latestProfile.email,
+    );
+  }
+  if (latestDoc && !latestProfile.studentNumber) {
+    latestProfile.studentNumber = String(latestDoc.studentNumber || "");
+  }
+  if (latestDoc && !latestProfile.course) {
+    latestProfile.course = String(latestDoc.course || "");
+  }
+
+  const latestScan = latestDoc
     ? {
-        id: String(attendanceDocs[0]._id),
-        participantName: String(
-          attendanceDocs[0].participantName || attendanceDocs[0].userName || "",
-        ),
-        email: String(attendanceDocs[0].email || ""),
-        action: String(attendanceDocs[0].action || "in"),
-        scannedAt: String(
-          attendanceDocs[0].scannedAt || attendanceDocs[0].createdAt || "",
-        ),
-        rfidNumber: String(attendanceDocs[0].rfidNumber || ""),
-        eventTitle: String(attendanceDocs[0].eventTitle || event?.title || ""),
+        id: String(latestDoc._id),
+        participantName: latestProfile.name,
+        email: latestProfile.email || String(latestDoc.email || ""),
+        action: String(latestDoc.action || "in"),
+        scannedAt: String(latestDoc.scannedAt || latestDoc.createdAt || ""),
+        rfidNumber: latestProfile.rfidNumber || String(latestDoc.rfidNumber || ""),
+        studentNumber: latestProfile.studentNumber,
+        course: latestProfile.course,
+        school: latestProfile.school,
+        organization: latestProfile.organization,
+        organizationRole: latestProfile.organizationRole,
+        organizationPosition: latestProfile.organizationPosition,
+        photoUrl: latestProfile.photoUrl,
+        eventTitle: String(latestDoc.eventTitle || event?.title || ""),
       }
     : null;
 
@@ -395,19 +755,21 @@ export async function buildLiveAttendanceFeed(eventId: string) {
     qualifiedForCertificate: Boolean(row.qualifiedForCertificate),
   }));
 
-  const registeredRfids = registrationDocs
-    .map((row) => {
-      const email = normalizeEmail(String(row.email || ""));
-      const rfid = rfidByEmail.get(email) || "";
-      return {
-        email,
-        userName: String(row.userName || ""),
-        studentNumber: String(row.studentNumber || ""),
-        course: String(row.course || ""),
-        rfidNumber: rfid,
-      };
-    })
-    .filter((row) => Boolean(row.rfidNumber));
+  const registeredRfids = light
+    ? []
+    : registrationDocs
+        .map((row) => {
+          const email = normalizeEmail(String(row.email || ""));
+          const rfid = rfidByEmail.get(email) || "";
+          return {
+            email,
+            userName: String(row.userName || ""),
+            studentNumber: String(row.studentNumber || ""),
+            course: String(row.course || ""),
+            rfidNumber: rfid,
+          };
+        })
+        .filter((row) => Boolean(row.rfidNumber));
 
   const tapInCount = attendanceDocs.filter((row) => row.action === "in").length;
   const tapOutCount = attendanceDocs.filter((row) => row.action === "out").length;
@@ -427,7 +789,7 @@ export async function buildLiveAttendanceFeed(eventId: string) {
     currentlyInside: [...openTapIns],
     registeredRfids,
     stats: {
-      registrations: registrationDocs.length,
+      registrations: light ? 0 : registrationDocs.length,
       registeredWithRfid: registeredRfids.length,
       tapIn: tapInCount,
       tapOut: tapOutCount,

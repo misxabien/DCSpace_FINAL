@@ -44,7 +44,11 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    const superOnly = pathname === "/admin/administration" || pathname === "/admin/manageadmin";
+    const superOnly =
+      pathname === "/admin/administration" ||
+      pathname === "/admin/manageadmin" ||
+      (pathname === "/admin/add40" &&
+        request.nextUrl.searchParams.get("from") === "manageadmin");
     if (superOnly && user?.role !== "super-admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/home12";

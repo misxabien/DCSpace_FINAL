@@ -6,6 +6,7 @@ import {
 } from "@/lib/admin-server/require-admin-auth";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
+import { buildUserAttendanceSummary } from "@/lib/user-server/attendance-summary";
 
 const ALLOWED_ROLES = new Set([
   "student",
@@ -53,7 +54,9 @@ export async function GET(request: Request, context: RouteContext) {
     if (!doc) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
-    return NextResponse.json({ user: asSanitized(doc) });
+    const user = asSanitized(doc);
+    const attendanceSummary = await buildUserAttendanceSummary(user.email);
+    return NextResponse.json({ user, attendanceSummary });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to load user.", details }, { status: 500 });

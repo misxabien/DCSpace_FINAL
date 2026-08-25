@@ -37,6 +37,11 @@ export type EventReportPdfInput = {
     overallSentiment: string;
     savedInterest: number;
     duplicateScans: number;
+    duplicateWarnings?: number;
+    rapidConsecutiveScans?: number;
+    concurrentEventTaps?: number;
+    invalidScans?: number;
+    securityRisk?: string;
     peakPeriod: string;
     lowestPeriod: string;
     photoCount?: number;
@@ -219,6 +224,11 @@ export async function buildEventReportPdf(input: EventReportPdfInput): Promise<s
     `Feedback responses: ${input.stats.feedbackCount} (avg ${input.stats.averageRating || "—"}/5, ${input.stats.overallSentiment})`,
     `Saved interest: ${input.stats.savedInterest}`,
     `Duplicate scan alerts: ${input.stats.duplicateScans}`,
+    `Duplicate tap warnings: ${Number(input.stats.duplicateWarnings || 0)}`,
+    `Concurrent event taps: ${Number(input.stats.concurrentEventTaps || 0)}`,
+    `Rapid consecutive scans: ${Number(input.stats.rapidConsecutiveScans || 0)}`,
+    `Invalid scans: ${Number(input.stats.invalidScans || 0)}`,
+    `Security risk: ${String(input.stats.securityRisk || "Low")}`,
     `Peak / lowest attendance: ${input.stats.peakPeriod} / ${input.stats.lowestPeriod}`,
     `Archived / gallery photos: ${photoCount} (active ${activePhotoCount}, archived ${archivedPhotoCount})`,
   ];

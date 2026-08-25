@@ -10,6 +10,7 @@ export type NotificationDoc = {
   eventId?: string;
   eventTitle?: string;
   read: boolean;
+  archived?: boolean;
   createdAt: string;
 };
 
@@ -34,6 +35,7 @@ export async function notifyUser(input: Omit<NotificationDoc, "read" | "createdA
     await notificationsCollection(db).insertOne({
       ...input,
       read: input.read ?? false,
+      archived: input.archived ?? false,
       createdAt: input.createdAt || new Date().toISOString(),
     });
   } catch (error) {

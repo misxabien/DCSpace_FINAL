@@ -1,6 +1,7 @@
 import type { Db, ObjectId } from "mongodb";
 import { loadEventAiContext } from "@/lib/ai/context";
 import { buildEventReportPdf } from "@/lib/admin/event-report-pdf";
+import { storeEventPdfReport } from "@/lib/admin/admin-reports";
 import { listEventGalleryPhotos } from "@/lib/events/event-gallery";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 
@@ -40,9 +41,11 @@ function buildSections(context: NonNullable<Awaited<ReturnType<typeof loadEventA
     ? `${stats.feedbackCount} feedback response(s), average rating ${stats.averageRating}/5 (${stats.overallSentiment}).`
     : "No feedback responses were recorded for this event yet.";
   const security =
-    stats.duplicateScans > 0
-      ? `${stats.duplicateScans} participant(s) showed unusually high scan counts. Review RFID logs for anomalies.`
-      : "No significant duplicate-scan anomalies were detected in attendance records.";
+    stats.totalSecurityEvents > 0 || stats.duplicateWarnings
+      ? stats.totalSecurityEvents > 0
+        ? `${stats.totalSecurityEvents} suspicious alert(s): ${stats.duplicateScans} repeated duplicate${stats.duplicateScans === 1 ? "" : "s"}, ${stats.concurrentEventTaps || 0} concurrent event, ${stats.invalidScans} invalid/unregistered.${stats.duplicateWarnings ? ` ${stats.duplicateWarnings} warning(s).` : ""} Risk: ${stats.securityRisk}.`
+        : `${stats.duplicateWarnings} duplicate tap warning(s). Risk: ${stats.securityRisk}.`
+      : "No RFID scan errors were recorded for this event.";
   const recommendations = [
     stats.attendanceRate < 50
       ? "Improve pre-event reminders and registration follow-up to raise attendance rate."
@@ -83,6 +86,7 @@ export function sanitizeReportMeta(doc: EventReportDoc & { _id?: ObjectId }) {
 export async function generateAndStoreEventReport(input: {
   eventId: string;
   generatedByEmail?: string;
+  generatedByName?: string;
   trigger: EventReportTrigger;
   db?: Db;
 }) {
@@ -179,6 +183,20 @@ export async function generateAndStoreEventReport(input: {
   );
 
   const stored = (result || doc) as EventReportDoc & { _id?: ObjectId };
+  await storeEventPdfReport({
+    eventId: input.eventId,
+    eventTitle: context.event.title || "Event",
+    fileName,
+    generatedBy: (input.generatedByName || input.generatedByEmail || "Admin").trim(),
+    generatedByEmail: (input.generatedByEmail || "").trim().toLowerCase(),
+    generatedAt,
+    recordCount: Number(context.stats.registrations || 0),
+    contentBase64: generatedPdfBase64,
+    contentMimeType: "application/pdf",
+    db,
+  }).catch((error) => {
+    console.warn("[DC Space] Failed to register event report in admin_reports:", error);
+  });
   return sanitizeReportMeta(stored);
 }
 

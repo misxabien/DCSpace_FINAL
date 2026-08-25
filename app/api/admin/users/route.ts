@@ -19,8 +19,38 @@ export async function GET(request: Request) {
     const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 200);
 
     const filter: Record<string, unknown> = {};
-    if (role) filter.role = role;
-    if (school) filter.school = { $regex: school, $options: "i" };
+    if (role) {
+      const roles = role
+        .split(",")
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
+      if (roles.length === 1 && (roles[0] === "admins" || roles[0] === "administrator")) {
+        filter.role = { $in: ["admin", "super-admin"] };
+      } else if (roles.length === 1 && roles[0] === "admin") {
+        // Admin directory includes Super Admin accounts
+        filter.role = { $in: ["admin", "super-admin"] };
+      } else if (roles.length > 1) {
+        filter.role = { $in: roles };
+      } else {
+        filter.role = roles[0];
+      }
+    }
+
+    const schoolKey = school.toLowerCase();
+    const schoolAliases: Record<string, string[]> = {
+      sase: ["sase", "accountancy", "science and education"],
+      scmcs: ["scmcs", "communication", "multimedia", "computer"],
+      snahs: ["snahs", "nursing", "allied health"],
+      smls: ["smls", "medical laboratory", "laboratory science"],
+      sihtm: ["sihtm", "hospitality", "tourism"],
+    };
+    if (school) {
+      const aliases = schoolAliases[schoolKey] || [school];
+      filter.school = {
+        $regex: aliases.map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+        $options: "i",
+      };
+    }
     if (q) {
       filter.$or = [
         { email: { $regex: q, $options: "i" } },
@@ -31,8 +61,9 @@ export async function GET(request: Request) {
     }
 
     const db = await getUserDb();
-    const docs = await db
-      .collection("users")
+    const collection = db.collection("users");
+    const total = await collection.countDocuments(filter);
+    const docs = await collection
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -58,7 +89,7 @@ export async function GET(request: Request) {
       ),
     );
 
-    return NextResponse.json({ users, total: users.length });
+    return NextResponse.json({ users, total });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

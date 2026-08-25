@@ -54,6 +54,24 @@ export async function GET(request: Request, context: RouteContext) {
       }
     }
 
+    // Merge latest eRoomReserve sync onto the event payload for approval UI.
+    const { findReservationForEvent } = await import(
+      "@/lib/integrations/reservation-status"
+    );
+    const reservation = await findReservationForEvent(db, {
+      id: String(doc._id),
+      reservationId: String(doc.reservationId || ""),
+      location: String(doc.location || ""),
+    });
+    if (reservation) {
+      doc.reservationId = reservation.reservationId;
+      doc.reservationStatus = reservation.status;
+      doc.reservationRoomId = reservation.room.id;
+      doc.reservationRoomName = reservation.room.name;
+      doc.reservationCapacity = reservation.room.capacity;
+      if (!doc.location) doc.location = reservation.room.name;
+    }
+
     return NextResponse.json({
       event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includeMedia: true }),
     });
@@ -112,6 +130,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     programFileMimeType?: string;
     programFileBase64?: string;
     programFileVisibility?: "everyone" | "organizers";
+    reservationId?: string;
   };
   try {
     body = await request.json();
@@ -228,6 +247,46 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (body.programFileVisibility === "organizers" || body.programFileVisibility === "everyone") {
       update.programFileVisibility = body.programFileVisibility;
     }
+    if (typeof body.reservationId === "string" && body.reservationId.trim()) {
+      update.reservationId = body.reservationId.trim();
+    }
+
+    // DC Space final approve requires eRoomReserve room approval first.
+    if (isAdmin && body.status === "approved") {
+      const {
+        findReservationForEvent,
+        isRoomValidatedForEventApproval,
+      } = await import("@/lib/integrations/reservation-status");
+      const reservation = await findReservationForEvent(db, {
+        id,
+        reservationId: String(
+          (update.reservationId as string | undefined) || existing.reservationId || "",
+        ),
+        location: String(
+          (update.location as string | undefined) || existing.location || "",
+        ),
+      });
+      const reservationStatus =
+        reservation?.status || String(existing.reservationStatus || "");
+      if (!isRoomValidatedForEventApproval(reservationStatus)) {
+        return NextResponse.json(
+          {
+            error:
+              "eRoomReserve has not approved this room yet. Wait for reservation status sync before approving the event.",
+            reservationStatus: reservationStatus || "pending",
+          },
+          { status: 409 },
+        );
+      }
+      if (reservation) {
+        update.reservationId = reservation.reservationId;
+        update.reservationStatus = reservation.status;
+        update.reservationRoomId = reservation.room.id;
+        update.reservationRoomName = reservation.room.name;
+        update.reservationCapacity = reservation.room.capacity;
+        if (!update.location) update.location = reservation.room.name;
+      }
+    }
 
     const result = await eventsCollection(db).findOneAndUpdate(
       { _id: new ObjectId(id) },
@@ -296,6 +355,7 @@ export async function PATCH(request: Request, context: RouteContext) {
             generateAndStoreEventReport({
               eventId: event.id,
               generatedByEmail: actorEmail,
+              generatedByName: actorName,
               trigger: "status_completed",
               db,
             }),

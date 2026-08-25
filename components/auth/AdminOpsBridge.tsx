@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { hideLegacyDemoContent, patchChildren, patchTableRows } from "@/lib/legacy-dom-patch";
+import { hideLegacyDemoContent, patchChildren, patchTableRows, ensureEventsFooterAtBottom } from "@/lib/legacy-dom-patch";
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
@@ -50,7 +50,7 @@ type AdminUser = {
 };
 
 async function fetchJson<T>(url: string): Promise<T | null> {
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", credentials: "include" });
   if (!res.ok) return null;
   return (await res.json()) as T;
 }
@@ -62,11 +62,39 @@ function wireAddUser() {
   const overlay = document.getElementById("confirm-overlay");
   const confirmBtn = document.getElementById("confirm-create");
   const backBtn = document.getElementById("confirm-back");
+  const fromManageAdmin =
+    new URLSearchParams(window.location.search).get("from") === "manageadmin";
+
+  // Super Admin creating Admin / Super Admin accounts — inject role picker
+  if (fromManageAdmin && !form.querySelector("#account-role")) {
+    const field = document.createElement("div");
+    field.className = "field";
+    field.innerHTML = `
+      <label for="account-role">Account Role</label>
+      <select id="account-role" name="role" required>
+        <option value="admin">Admin</option>
+        <option value="super-admin">Super Admin</option>
+      </select>
+    `;
+    const emailField = form.querySelector("#email")?.closest(".field");
+    if (emailField?.parentElement) {
+      emailField.parentElement.insertBefore(field, emailField);
+    } else {
+      form.insertBefore(field, form.firstChild);
+    }
+    const idLabel = form.querySelector('label[for="id-number"]');
+    if (idLabel) idLabel.textContent = "Employee Number";
+    const title = document.querySelector("h1, .page-title, .stu-title");
+    if (title && /add user/i.test(title.textContent || "")) {
+      title.textContent = "Create Administrator Account";
+    }
+  }
 
   const collect = () => {
     const data = new FormData(form);
     const orgRole = String(data.get("orgRole") || "").trim();
     const orgPosition = String(data.get("orgPosition") || "").trim();
+    const selectedRole = String(data.get("role") || "").trim().toLowerCase();
     return {
       firstName: String(data.get("firstName") || "").trim(),
       lastName: String(data.get("lastName") || "").trim(),
@@ -79,6 +107,11 @@ function wireAddUser() {
       email: String(data.get("email") || "").trim().toLowerCase(),
       password: String(data.get("password") || ""),
       password2: String(data.get("password2") || ""),
+      role: fromManageAdmin
+        ? selectedRole === "super-admin"
+          ? "super-admin"
+          : "admin"
+        : "faculty",
     };
   };
 
@@ -103,13 +136,15 @@ function wireAddUser() {
         email: payload.email,
         password: payload.password,
         password2: payload.password2,
-        role: "faculty",
+        role: payload.role,
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Failed to create user.");
     window.alert(data.message || "User created.");
-    window.location.assign("/admin/user27");
+    window.location.assign(
+      fromManageAdmin ? "/admin/manageadmin?from=administration" : "/admin/user27",
+    );
   };
 
   form.addEventListener("submit", (event) => {
@@ -145,15 +180,31 @@ async function hydrateSchoolDirectory(root: Element) {
   if (school) query.set("school", school);
   if (role) query.set("role", role);
   query.set("limit", "200");
-  const data = await fetchJson<{ users: AdminUser[] }>(`/api/admin/users?${query.toString()}`);
+  const data = await fetchJson<{ users: AdminUser[]; total?: number }>(
+    `/api/admin/users?${query.toString()}`,
+  );
   if (!data?.users) return;
 
+  const schoolLabels: Record<string, string> = {
+    sase: "School of Accountancy, Science, and Education (SASE)",
+    scmcs: "School of Communication, Multimedia, and Computer Studies (SCMCS)",
+    snahs: "School of Nursing and Allied Health Studies (SNAHS)",
+    smls: "School of Medical Laboratory Sciences (SMLS)",
+    sihtm: "School of International Hospitality, Tourism, and Management (SIHTM)",
+  };
   const schoolName = document.getElementById("school-name");
   if (schoolName && school) {
-    schoolName.textContent = school.toUpperCase();
+    schoolName.textContent = schoolLabels[school.toLowerCase()] || school.toUpperCase();
   }
-  const count = document.getElementById("school-count");
-  if (count) count.textContent = String(data.users.length);
+  const count = document.getElementById("school-count") || document.querySelector(".stu-count-num");
+  if (count) count.textContent = String(data.total ?? data.users.length);
+
+  const countLabel = document.querySelector<HTMLElement>(".stu-count-label");
+  if (countLabel && (role === "admin" || role === "admins")) {
+    const icon = countLabel.querySelector("svg");
+    countLabel.textContent = "Admins";
+    if (icon) countLabel.appendChild(icon);
+  }
 
   const table = root.querySelector("table");
   patchTableRows(table, data.users, (tr, user) => {
@@ -164,7 +215,7 @@ async function hydrateSchoolDirectory(root: Element) {
     if (cells[4]) cells[4].textContent = user.organizationPart || "—";
     const pill = cells[5]?.querySelector(".role-pill");
     if (pill) {
-      pill.textContent = (user.role || "student").toUpperCase();
+      pill.textContent = (user.role || "student").replace(/-/g, " ").toUpperCase();
       pill.className = `role-pill ${rolePillClass(user.role)}`;
     }
     const link = tr.querySelector<HTMLAnchorElement>("a.view-btn");
@@ -172,10 +223,70 @@ async function hydrateSchoolDirectory(root: Element) {
   });
 }
 
+function applyParticipantAttendanceSummary(
+  summary?: {
+    attendanceCompleted?: number;
+    lateRecords?: number;
+    undertimeRecords?: number;
+    absences?: number;
+    attendanceRate?: number;
+  } | null,
+) {
+  const card = document.getElementById("participant-attendance-summary");
+  if (!card || !summary) return;
+
+  const values: Record<string, number> = {
+    "attendance completed": Number(summary.attendanceCompleted || 0),
+    "late records": Number(summary.lateRecords || 0),
+    "undertime records": Number(summary.undertimeRecords || 0),
+    absences: Number(summary.absences || 0),
+  };
+
+  card.querySelectorAll(".stat-tile").forEach((tile) => {
+    const label = (tile.querySelector(".stat-label")?.textContent || "")
+      .trim()
+      .toLowerCase();
+    const valueEl = tile.querySelector(".stat-value");
+    if (!valueEl) return;
+    for (const [key, value] of Object.entries(values)) {
+      if (label.includes(key)) {
+        valueEl.textContent = String(value);
+        break;
+      }
+    }
+  });
+
+  const rate = Math.max(0, Math.min(100, Math.round(Number(summary.attendanceRate || 0))));
+  const donut = card.querySelector(".donut");
+  const donutLabel = donut?.querySelector("span") || donut;
+  if (donutLabel) donutLabel.textContent = `${rate}%`;
+  if (donut instanceof HTMLElement) {
+    donut.setAttribute("aria-label", `Attendance rate ${rate} percent`);
+    // Support both conic-gradient donuts and CSS variable rings.
+    const style = donut.getAttribute("style") || "";
+    if (/conic-gradient|---|percent|rate/i.test(style) || donut.style.getPropertyValue("--value")) {
+      donut.style.setProperty("--value", String(rate));
+      donut.style.setProperty("--percent", String(rate));
+    }
+    if (/conic-gradient/i.test(getComputedStyle(donut).backgroundImage) || style.includes("conic")) {
+      donut.style.backgroundImage = `conic-gradient(#448aff 0 ${rate}%, #e8eef7 ${rate}% 100%)`;
+    }
+  }
+}
+
 async function hydrateUserInfo() {
   const id = new URLSearchParams(window.location.search).get("id");
   if (!id) return;
-  const data = await fetchJson<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(id)}`);
+  const data = await fetchJson<{
+    user: AdminUser;
+    attendanceSummary?: {
+      attendanceCompleted: number;
+      lateRecords: number;
+      undertimeRecords: number;
+      absences: number;
+      attendanceRate: number;
+    };
+  }>(`/api/admin/users/${encodeURIComponent(id)}`);
   if (!data?.user) return;
   const user = data.user;
   const nameEl = document.getElementById("user-name");
@@ -192,6 +303,8 @@ async function hydrateUserInfo() {
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
+
+  applyParticipantAttendanceSummary(data.attendanceSummary);
 
   const makeAdmin = document.querySelector<HTMLButtonElement>(
     '#participant-actions button[aria-label="Make Admin"]',
@@ -386,17 +499,146 @@ async function hydrateAdminProfile() {
   });
 }
 
-async function hydrateAdminNotifications() {
+function ensureUnreadDot(host: HTMLElement) {
+  let dot = host.querySelector<HTMLElement>(".notif-unread-dot");
+  if (!dot) {
+    dot = document.createElement("span");
+    dot.className = "notif-unread-dot";
+    dot.setAttribute("aria-hidden", "true");
+    host.appendChild(dot);
+  }
+  return dot;
+}
+
+function notifBellTargets(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'a.icon-btn[href*="/admin/notif"], a.notif-bell[href*="/admin/notif"]',
+    ),
+  );
+}
+
+function setAdminNotifBadge(unreadCount: number) {
+  const hasUnread = unreadCount > 0;
+  for (const el of notifBellTargets()) {
+    el.classList.toggle("has-unread", hasUnread);
+    const dot = ensureUnreadDot(el);
+    dot.hidden = !hasUnread;
+    if (hasUnread) {
+      el.setAttribute("data-unread-count", String(unreadCount));
+      el.setAttribute(
+        "aria-label",
+        unreadCount === 1
+          ? "Notifications, 1 unread"
+          : `Notifications, ${unreadCount} unread`,
+      );
+    } else {
+      el.removeAttribute("data-unread-count");
+      el.setAttribute("aria-label", "Notifications");
+    }
+  }
+}
+
+async function updateAdminNotifBadge() {
   const data = await fetchJson<{
-    notifications: Array<{ id: string; title: string; body: string; createdAt: string; read: boolean }>;
+    notifications: Array<{ read: boolean }>;
   }>("/api/user/notifications");
   if (!data?.notifications) return;
+  const unread = data.notifications.filter((n) => !n.read).length;
+  setAdminNotifBadge(unread);
+}
+
+async function markAdminNotificationRead(id: string) {
+  await fetch("/api/user/notifications", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ id, read: true }),
+  });
+}
+
+function wireAdminNotificationClicks() {
+  const list = document.getElementById("notif-list");
+  if (!list || list.dataset.dcNotifWired === "1") return;
+  list.dataset.dcNotifWired = "1";
+  list.addEventListener("click", (event) => {
+    const target = event.target as Element | null;
+    if (target?.closest('input[type="checkbox"]')) return;
+    const item = target?.closest<HTMLElement>("article.notif-item");
+    if (!item || !list.contains(item)) return;
+    const id = item.dataset.notifId;
+    if (!id || !item.classList.contains("unread")) return;
+    item.classList.remove("unread");
+    void markAdminNotificationRead(id).then(() => void updateAdminNotifBadge());
+  });
+}
+
+let adminNotifTab: "general" | "archived" | "reminders" = "general";
+
+async function markAllAdminNotificationsRead() {
+  await fetch("/api/user/notifications", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ markAllRead: true }),
+  });
+}
+
+function wireAdminNotificationTabs() {
+  document.querySelectorAll<HTMLButtonElement>(".notif-tab").forEach((tab) => {
+    if (tab.dataset.dcNotifTabWired === "1") return;
+    tab.dataset.dcNotifTabWired = "1";
+    tab.addEventListener("click", () => {
+      const next = String(tab.dataset.tab || "general").toLowerCase();
+      adminNotifTab =
+        next === "archived" ? "archived" : next === "reminders" ? "reminders" : "general";
+      document.querySelectorAll(".notif-tab").forEach((node) => {
+        node.classList.toggle("active", node === tab);
+      });
+      void hydrateAdminNotifications();
+    });
+  });
+
+  const panelHead = document.querySelector(".notif-panel-head");
+  if (panelHead && !document.getElementById("dc-mark-all-read")) {
+    const markAll = document.createElement("button");
+    markAll.type = "button";
+    markAll.id = "dc-mark-all-read";
+    markAll.className = "notif-filter-btn";
+    markAll.textContent = "Mark all read";
+    markAll.style.marginLeft = "8px";
+    markAll.addEventListener("click", () => {
+      void markAllAdminNotificationsRead().then(() => void hydrateAdminNotifications());
+    });
+    panelHead.appendChild(markAll);
+  }
+
+  const markAllBtn = document.getElementById("dc-mark-all-read");
+  if (markAllBtn && markAllBtn.dataset.dcMarkAllWired !== "1") {
+    markAllBtn.dataset.dcMarkAllWired = "1";
+  }
+}
+
+async function hydrateAdminNotifications() {
+  wireAdminNotificationTabs();
+  const data = await fetchJson<{
+    notifications: Array<{ id: string; title: string; body: string; createdAt: string; read: boolean }>;
+  }>(`/api/user/notifications?tab=${encodeURIComponent(adminNotifTab)}`);
+  if (!data?.notifications) return;
+  const items = data.notifications.slice(0, 50);
+  const allRes = await fetchJson<{
+    notifications: Array<{ read: boolean }>;
+  }>("/api/user/notifications?tab=general");
+  const unreadGeneral = (allRes?.notifications || []).filter((n) => !n.read).length;
+  setAdminNotifBadge(unreadGeneral);
   patchChildren(
     document.getElementById("notif-list"),
     "article.notif-item",
-    data.notifications.slice(0, 20),
+    items,
     (el, item) => {
+      el.dataset.notifId = item.id;
       el.classList.toggle("unread", !item.read);
+      el.style.cursor = "pointer";
       const title = el.querySelector(".title");
       const body = el.querySelector(".body");
       const when = el.querySelector("time.when");
@@ -405,10 +647,25 @@ async function hydrateAdminNotifications() {
       if (when) when.textContent = formatWhen(item.createdAt);
     },
   );
+  wireAdminNotificationClicks();
 }
 
 const RFID_EVENT_STORAGE_KEY = "dc-rfid-event-id";
+const RFID_EVENTS_CACHE_MS = 60_000;
 let rfidScanEventId = "";
+/** Desk mode for live RFID — explicit Tap In or Tap Out (no auto-toggle). */
+let rfidScanMode: "in" | "out" = "in";
+let rfidScannerWired = false;
+let rfidEligibleCache: { events: RfidEventOption[]; fetchedAt: number } | null = null;
+let rfidLiveInflight: Promise<void> | null = null;
+
+type RfidEventOption = {
+  id: string;
+  title?: string;
+  status: string;
+  updatedAt?: string;
+  startsAt?: string;
+};
 
 function rememberRfidEventId(eventId: string) {
   const id = eventId.trim();
@@ -419,6 +676,36 @@ function rememberRfidEventId(eventId: string) {
   } catch {
     /* ignore */
   }
+  try {
+    const url = new URL(window.location.href);
+    if (url.pathname.includes("/admin/rfid17") && url.searchParams.get("id") !== id) {
+      url.searchParams.set("id", id);
+      window.history.replaceState({}, "", url.toString());
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function listRfidEligibleEvents() {
+  const now = Date.now();
+  if (rfidEligibleCache && now - rfidEligibleCache.fetchedAt < RFID_EVENTS_CACHE_MS) {
+    return rfidEligibleCache.events;
+  }
+  const catalog = await fetchJson<{ events?: RfidEventOption[] }>("/api/events?limit=200");
+  const events = catalog?.events || [];
+  const eligible = events.filter(
+    (event) => event.status === "live" || event.status === "approved",
+  );
+  eligible.sort((a, b) => {
+    const rank = (status: string) => (status === "live" ? 0 : 1);
+    if (rank(a.status) !== rank(b.status)) return rank(a.status) - rank(b.status);
+    return String(b.updatedAt || b.startsAt || "").localeCompare(
+      String(a.updatedAt || a.startsAt || ""),
+    );
+  });
+  rfidEligibleCache = { events: eligible, fetchedAt: now };
+  return eligible;
 }
 
 async function resolveRfidEventId() {
@@ -432,158 +719,444 @@ async function resolveRfidEventId() {
   try {
     const stored = sessionStorage.getItem(RFID_EVENT_STORAGE_KEY) || "";
     if (stored) {
-      rfidScanEventId = stored;
+      rememberRfidEventId(stored);
       return stored;
     }
   } catch {
     /* ignore */
   }
-  const catalog = await fetchJson<{ events?: Array<{ id: string; status: string }> }>(
-    "/api/events?limit=200",
-  );
-  const live = (catalog?.events || []).filter((event) => event.status === "live");
-  if (live.length === 1 && live[0]?.id) {
-    rememberRfidEventId(live[0].id);
-    return live[0].id;
+
+  const eligible = await listRfidEligibleEvents();
+  if (eligible[0]?.id) {
+    rememberRfidEventId(eligible[0].id);
+    return eligible[0].id;
   }
   return "";
 }
 
-async function hydrateRfid() {
-  const eventId = await resolveRfidEventId();
-  wireRfidScanner(eventId);
-  if (!eventId) return;
+async function syncRfidEventPicker(_selectedId: string) {
+  // Intentionally no visible picker — keep the original RFID layout clean.
+  // Event resolution still happens via resolveRfidEventId() / URL / session.
+  const existing = document.getElementById("dc-rfid-event-picker");
+  if (existing) existing.remove();
+}
 
-  const data = await fetchJson<{
-    event?: { title?: string };
-    latestScan?: {
-      participantName: string;
-      email: string;
-      action: string;
-      scannedAt: string;
-      eventTitle?: string;
-      rfidNumber?: string;
-    } | null;
-    recentScans?: Array<{
-      participantName: string;
-      email: string;
-      action: string;
-      scannedAt: string;
-      rfidNumber?: string;
-    }>;
-    stats?: {
-      registrations: number;
-      registeredWithRfid: number;
-      tapIn: number;
-      tapOut: number;
-      currentlyInside: number;
+function setRfidAlert(message: string, isError = false) {
+  const alert = document.querySelector<HTMLElement>(".rfid-alert");
+  if (!alert) return;
+  alert.textContent = message;
+  alert.style.color = isError ? "" : "";
+  alert.hidden = !message;
+}
+
+function applyRfidModeUi() {
+  const toggle = document.getElementById("dc-rfid-mode-toggle");
+  if (!toggle) return;
+  toggle.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((btn) => {
+    const active = btn.dataset.mode === rfidScanMode;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  const tapPanel = document.querySelector(".tap-panel");
+  if (tapPanel) {
+    tapPanel.setAttribute("data-scan-mode", rfidScanMode);
+  }
+  const hint = document.getElementById("dc-rfid-mode-hint");
+  if (hint) {
+    hint.textContent =
+      rfidScanMode === "in"
+        ? "Mode: Tap In — scan to record entry"
+        : "Mode: Tap Out — scan to record exit";
+  }
+}
+
+function ensureRfidModeToggle() {
+  let toggle = document.getElementById("dc-rfid-mode-toggle");
+  if (!toggle) {
+    toggle = document.createElement("div");
+    toggle.id = "dc-rfid-mode-toggle";
+    toggle.className = "dc-rfid-mode-toggle";
+    toggle.setAttribute("role", "group");
+    toggle.setAttribute("aria-label", "RFID scan mode");
+    toggle.innerHTML =
+      '<button type="button" class="dc-rfid-mode-btn" data-mode="in" aria-pressed="true">Tap In</button>' +
+      '<button type="button" class="dc-rfid-mode-btn" data-mode="out" aria-pressed="false">Tap Out</button>' +
+      '<p id="dc-rfid-mode-hint" class="dc-rfid-mode-hint"></p>';
+
+    const tapPanel = document.querySelector(".tap-panel");
+    const clock = document.querySelector(".clock-banner");
+    if (tapPanel?.parentElement) {
+      tapPanel.parentElement.insertBefore(toggle, tapPanel);
+    } else if (clock?.parentElement) {
+      clock.parentElement.insertBefore(toggle, clock.nextSibling);
+    } else {
+      const main =
+        document.querySelector(".main-panel") ||
+        document.querySelector(".rfid-main") ||
+        document.body;
+      main.appendChild(toggle);
+    }
+  }
+
+  if (toggle.dataset.dcWired !== "1") {
+    toggle.dataset.dcWired = "1";
+    toggle.addEventListener("click", (event) => {
+      const btn = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(
+        "[data-mode]",
+      );
+      if (!btn) return;
+      const mode = btn.dataset.mode === "out" ? "out" : "in";
+      rfidScanMode = mode;
+      applyRfidModeUi();
+      setRfidAlert("");
+      window.setTimeout(() => {
+        document.getElementById("dc-rfid-scan-input")?.focus();
+      }, 0);
+    });
+  }
+
+  applyRfidModeUi();
+}
+
+function ensureRfidPopupStyles() {
+  if (document.getElementById("dc-rfid-popup-style")) return;
+  const style = document.createElement("style");
+  style.id = "dc-rfid-popup-style";
+  style.textContent = `
+.dc-rfid-dup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.dc-rfid-dup-overlay[hidden] { display: none !important; }
+.dc-rfid-dup-dialog {
+  width: min(420px, calc(100vw - 48px));
+  background: #fff;
+  border: 1px solid rgba(68, 138, 255, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(68, 138, 255, 0.16);
+  padding: 36px 28px 28px;
+  text-align: center;
+}
+.dc-rfid-dup-title {
+  margin: 0 0 10px;
+  color: #b1a483;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.dc-rfid-dup-text {
+  margin: 0 0 24px;
+  color: #b7aa89;
+  font-size: 0.98rem;
+  font-weight: 400;
+  line-height: 1.55;
+}
+.dc-rfid-dup-ok {
+  min-width: 120px;
+  height: 42px;
+  border: none;
+  border-radius: 12px;
+  background: #448aff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.dc-rfid-dup-ok:hover { filter: brightness(1.04); }
+`;
+  document.head.appendChild(style);
+}
+
+function rfidPopupTitle(code?: string) {
+  switch (String(code || "").toLowerCase()) {
+    case "concurrent_event":
+      return "Attending two events";
+    case "rapid_consecutive":
+      return "Multiple taps";
+    case "duplicate_warning":
+    case "duplicate_entry":
+      return "Duplicate entry";
+    case "unknown_rfid":
+    case "ambiguous_rfid":
+      return "Invalid RFID";
+    default:
+      return "Suspicious scan";
+  }
+}
+
+function showRfidDuplicatePopup(
+  message = "Suspicious RFID activity was detected.",
+  code?: string,
+) {
+  ensureRfidPopupStyles();
+  let overlay = document.getElementById("dc-rfid-dup-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "dc-rfid-dup-overlay";
+    overlay.className = "dc-rfid-dup-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-labelledby", "dc-rfid-dup-title");
+    overlay.innerHTML =
+      '<div class="dc-rfid-dup-dialog">' +
+      '<p class="dc-rfid-dup-title" id="dc-rfid-dup-title">Suspicious scan</p>' +
+      '<p class="dc-rfid-dup-text" id="dc-rfid-dup-text"></p>' +
+      '<button type="button" class="dc-rfid-dup-ok" id="dc-rfid-dup-ok">OK</button>' +
+      "</div>";
+    document.body.appendChild(overlay);
+    const close = () => {
+      overlay?.setAttribute("hidden", "");
     };
-    registeredRfids?: Array<{
-      email: string;
-      userName: string;
-      studentNumber?: string;
-      course?: string;
-      rfidNumber: string;
-    }>;
-  }>(`/api/admin/attendance/live?eventId=${encodeURIComponent(eventId)}`);
+    overlay.querySelector("#dc-rfid-dup-ok")?.addEventListener("click", close);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close();
+    });
+  }
+  const title = overlay.querySelector("#dc-rfid-dup-title");
+  if (title) title.textContent = rfidPopupTitle(code);
+  const text = overlay.querySelector("#dc-rfid-dup-text");
+  if (text) text.textContent = message;
+  overlay.removeAttribute("hidden");
+  window.setTimeout(() => {
+    overlay?.querySelector<HTMLButtonElement>("#dc-rfid-dup-ok")?.focus();
+  }, 0);
+}
 
-  const eventTitle = data?.event?.title || data?.latestScan?.eventTitle || "Event";
-  const nameEl = document.querySelector(".event-name");
-  if (nameEl) nameEl.textContent = eventTitle;
+function formatRfidClock(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  // Match original tap-times design (00:00).
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
 
-  const latest = data?.latestScan;
+function setTapTimes(tapInAt?: string, tapOutAt?: string) {
+  const tapIn = document.getElementById("tap-in");
+  const tapOut = document.getElementById("tap-out");
+  // Placeholder dashes show the box is waiting for a tap time.
+  if (tapIn) {
+    const value = formatRfidClock(tapInAt);
+    if (tapInAt === undefined && tapIn.dataset.lastIn && tapOutAt) {
+      // Keep previous tap-in while updating tap-out only.
+      tapIn.textContent = tapIn.dataset.lastIn;
+      tapIn.classList.remove("is-blank");
+    } else {
+      tapIn.textContent = value || "--:--";
+      tapIn.classList.toggle("is-blank", !value);
+      if (value) tapIn.dataset.lastIn = value;
+      else if (!tapOutAt) delete tapIn.dataset.lastIn;
+    }
+  }
+  if (tapOut) {
+    const value = formatRfidClock(tapOutAt);
+    tapOut.textContent = value || "--:--";
+    tapOut.classList.toggle("is-blank", !value);
+  }
+}
+
+function applyRfidParticipantProfile(profile: {
+  name?: string;
+  email?: string;
+  studentNumber?: string;
+  course?: string;
+  school?: string;
+  organization?: string;
+  organizationRole?: string;
+  organizationPosition?: string;
+  rfidNumber?: string;
+  photoUrl?: string;
+} | null) {
+  const card =
+    document.querySelector(".profile-card") ||
+    document.querySelector("aside.profile-card");
+  if (card instanceof HTMLElement) {
+    card.classList.add("dc-profile-live");
+    card.classList.remove("is-loading");
+  }
+
   const profileName = document.querySelector(".profile-name");
   if (profileName) {
-    profileName.textContent = latest?.participantName || "Waiting for RFID tap…";
+    profileName.textContent = profile?.name || "Waiting for RFID tap…";
   }
 
   const meta = document.querySelector(".profile-meta");
   if (meta) {
     const spans = meta.querySelectorAll("span");
-    if (spans[0] && latest?.rfidNumber) spans[0].textContent = `RFID ${latest.rfidNumber}`;
-    if (spans[1]) spans[1].textContent = latest?.email || "Scan a registered tag";
+    const values = [
+      profile?.studentNumber || (profile?.rfidNumber ? `RFID ${profile.rfidNumber}` : ""),
+      profile?.email || "",
+      profile?.course || "",
+      profile?.school || "",
+      profile?.organization || "",
+      profile?.organizationRole || "",
+      profile?.organizationPosition || "",
+    ];
+    spans.forEach((span, index) => {
+      span.textContent = values[index] ?? "";
+    });
   }
 
-  const timeLabel = (value: string) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  };
-
-  const tapIn = document.getElementById("tap-in");
-  const tapOut = document.getElementById("tap-out");
-  if (tapIn) tapIn.textContent = "—";
-  if (tapOut) tapOut.textContent = "—";
-
-  if (latest) {
-    const email = latest.email.trim().toLowerCase();
-    const userScans = (data?.recentScans || []).filter(
-      (row) => row.email.trim().toLowerCase() === email,
-    );
-    let lastIn = "";
-    let lastOut = "";
-    for (const row of [...userScans].reverse()) {
-      if (row.action === "in" && !lastIn) lastIn = row.scannedAt;
-      if (row.action === "out") lastOut = row.scannedAt;
-    }
-    if (lastIn && tapIn) tapIn.textContent = timeLabel(lastIn);
-    if (lastOut && tapOut) tapOut.textContent = timeLabel(lastOut);
-    if (!lastOut && latest.action === "in" && tapIn) {
-      tapIn.textContent = timeLabel(latest.scannedAt);
-    }
-    if (latest.action === "out" && tapOut) {
-      tapOut.textContent = timeLabel(latest.scannedAt);
-    }
-  }
-
-  const alert = document.querySelector(".rfid-alert");
-  if (alert && data?.stats) {
-    const waiting = Math.max(0, data.stats.registrations - data.stats.registeredWithRfid);
-    alert.textContent =
-      waiting > 0
-        ? `${data.stats.currentlyInside} inside · ${data.stats.registeredWithRfid} registered RFID tags · ${waiting} registered without RFID`
-        : `${data.stats.currentlyInside} inside · ${data.stats.tapIn} tap-ins · ${data.stats.tapOut} tap-outs`;
-  }
-
-  const feedHost = document.getElementById("dc-rfid-feed");
-  if (feedHost && data?.recentScans) {
-    if (!data.recentScans.length) {
-      feedHost.innerHTML =
-        '<p style="margin:0;color:#64748b;font-size:13px;">No scans yet. Scan a registered RFID tag below.</p>';
+  const avatar =
+    document.querySelector<HTMLElement>(".profile-card .avatar") ||
+    document.querySelector<HTMLElement>(".avatar");
+  if (avatar) {
+    if (profile?.photoUrl) {
+      avatar.style.backgroundImage = `url("${profile.photoUrl}")`;
+      avatar.style.backgroundSize = "cover";
+      avatar.style.backgroundPosition = "center";
+      avatar.classList.add("has-photo");
     } else {
-      feedHost.innerHTML = data.recentScans
-        .slice(0, 8)
-        .map(
-          (row) =>
-            `<div class="dc-rfid-feed-row"><strong>${row.participantName}</strong> · ${row.action === "in" ? "Tap In" : "Tap Out"} · ${timeLabel(row.scannedAt)}${row.rfidNumber ? ` · ${row.rfidNumber}` : ""}</div>`,
-        )
-        .join("");
+      avatar.style.backgroundImage = "";
+      avatar.classList.remove("has-photo");
+    }
+  }
+}
+
+function clearRfidDemoUi() {
+  setTapTimes("", "");
+  applyRfidParticipantProfile(null);
+  setRfidAlert("");
+}
+
+type RfidLivePayload = {
+  event?: { title?: string };
+  latestScan?: {
+    participantName: string;
+    email: string;
+    action: string;
+    scannedAt: string;
+    eventTitle?: string;
+    rfidNumber?: string;
+    studentNumber?: string;
+    course?: string;
+    school?: string;
+    organization?: string;
+    organizationRole?: string;
+    organizationPosition?: string;
+    photoUrl?: string;
+  } | null;
+  recentScans?: Array<{
+    participantName: string;
+    email: string;
+    action: string;
+    scannedAt: string;
+    rfidNumber?: string;
+    studentNumber?: string;
+    course?: string;
+  }>;
+};
+
+function applyRfidLivePayload(
+  data: RfidLivePayload | null,
+  options?: { preserveProfileEmail?: string },
+) {
+  const eventTitle = data?.event?.title || data?.latestScan?.eventTitle || "";
+  const nameEl = document.querySelector(".event-name");
+  if (nameEl) nameEl.textContent = eventTitle || "Event Name";
+
+  const latest = data?.latestScan;
+  const preserveEmail = (options?.preserveProfileEmail || "").trim().toLowerCase();
+  const latestEmail = latest?.email.trim().toLowerCase() || "";
+
+  if (latest && (!preserveEmail || latestEmail === preserveEmail)) {
+    applyRfidParticipantProfile({
+      name: latest.participantName,
+      email: latest.email,
+      studentNumber: latest.studentNumber,
+      course: latest.course,
+      school: latest.school,
+      organization: latest.organization,
+      organizationRole: latest.organizationRole,
+      organizationPosition: latest.organizationPosition,
+      rfidNumber: latest.rfidNumber,
+      photoUrl: latest.photoUrl,
+    });
+  } else if (!preserveEmail && !latest) {
+    applyRfidParticipantProfile(null);
+    setTapTimes("", "");
+  }
+
+  const emailForTimes = preserveEmail || latestEmail;
+  if (emailForTimes) {
+    const userScans = (data?.recentScans || []).filter(
+      (row) => row.email.trim().toLowerCase() === emailForTimes,
+    );
+    const lastIn = userScans.find((row) => row.action === "in")?.scannedAt || "";
+    const lastOut = userScans.find((row) => row.action === "out")?.scannedAt || "";
+    if (lastIn || lastOut) {
+      setTapTimes(lastIn, lastOut);
+    } else if (latest && latestEmail === emailForTimes) {
+      setTapTimes(
+        latest.action === "in" ? latest.scannedAt : "",
+        latest.action === "out" ? latest.scannedAt : "",
+      );
     }
   }
 
-  let registryHost = document.getElementById("dc-rfid-registry");
-  if (!registryHost) {
-    registryHost = document.createElement("div");
-    registryHost.id = "dc-rfid-registry";
-    registryHost.style.cssText =
-      "margin:12px 0 0;width:100%;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;";
-    const scanWrap = document.getElementById("dc-rfid-scan-wrap");
-    if (scanWrap) scanWrap.prepend(registryHost);
+  setRfidAlert("");
+}
+
+async function refreshRfidUi(options?: { light?: boolean; preserveProfileEmail?: string }) {
+  const eventId = rfidScanEventId || (await resolveRfidEventId());
+  if (!eventId) {
+    clearRfidDemoUi();
+    setRfidAlert("No approved or live event available for attendance.", true);
+    const nameEl = document.querySelector(".event-name");
+    if (nameEl) nameEl.textContent = "Event Name";
+    return;
   }
-  const registered = data?.registeredRfids || [];
-  if (!registered.length) {
-    registryHost.innerHTML =
-      '<p style="margin:0;color:#64748b;font-size:13px;">No registered participants have RFID tags yet. Assign tags in user profiles first.</p>';
+
+  rememberRfidEventId(eventId);
+  const query = new URLSearchParams({ eventId });
+  if (options?.light) query.set("light", "1");
+  const data = await fetchJson<RfidLivePayload>(
+    `/api/admin/attendance/live?${query.toString()}`,
+  );
+  applyRfidLivePayload(data, options);
+}
+
+async function hydrateRfid(options?: { light?: boolean }) {
+  const eventId = await resolveRfidEventId();
+  if (!rfidScannerWired) {
+    wireRfidScanner(eventId);
+    rfidScannerWired = true;
   } else {
-    registryHost.innerHTML =
-      `<p style="margin:0 0 8px;font-weight:600;color:#334155;font-size:13px;">Registered RFID tags (${registered.length})</p>` +
-      registered
-        .map(
-          (row) =>
-            `<div style="font-size:13px;color:#475569;margin:4px 0;"><code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;">${row.rfidNumber}</code> · ${row.userName}${row.studentNumber ? ` · ${row.studentNumber}` : ""}</div>`,
-        )
-        .join("");
+    rememberRfidEventId(eventId);
+    ensureRfidModeToggle();
   }
+  await syncRfidEventPicker(eventId);
+
+  if (!eventId) {
+    clearRfidDemoUi();
+    setRfidAlert("No approved or live event available for attendance.", true);
+    const nameEl = document.querySelector(".event-name");
+    if (nameEl) nameEl.textContent = "Event Name";
+    return;
+  }
+
+  const card = document.querySelector(".profile-card");
+  if (card instanceof HTMLElement && !card.classList.contains("dc-profile-live")) {
+    card.classList.add("is-loading");
+  }
+
+  if (rfidLiveInflight) {
+    await rfidLiveInflight;
+    return;
+  }
+
+  rfidLiveInflight = refreshRfidUi({ light: options?.light }).finally(() => {
+    rfidLiveInflight = null;
+  });
+  await rfidLiveInflight;
 }
 
 function isOtherEditableTarget(target: EventTarget | null) {
@@ -600,171 +1173,773 @@ function isOtherEditableTarget(target: EventTarget | null) {
 
 function wireRfidScanner(eventId: string) {
   rememberRfidEventId(eventId);
+  ensureRfidModeToggle();
+  document.getElementById("dc-rfid-event-picker")?.remove();
+  document.getElementById("dc-rfid-registry")?.remove();
+  document.getElementById("dc-rfid-feed")?.remove();
 
   let host = document.getElementById("dc-rfid-scan-wrap");
   if (!host) {
     host = document.createElement("div");
     host.id = "dc-rfid-scan-wrap";
     host.setAttribute("aria-hidden", "true");
+    // Visually hidden — USB RFID keyboard wedges still type into this input.
     host.style.cssText =
       "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;";
     host.innerHTML =
       '<label for="dc-rfid-scan-input">Scan RFID</label>' +
-      '<input id="dc-rfid-scan-input" type="text" autocomplete="off" />' +
-      '<span id="dc-rfid-scan-status"></span>' +
-      '<div id="dc-rfid-feed"></div>';
-    const tapPanel = document.querySelector(".tap-panel") || document.querySelector(".main-panel");
-    if (tapPanel) tapPanel.appendChild(host);
-    else document.body.appendChild(host);
+      '<input id="dc-rfid-scan-input" type="text" autocomplete="off" tabindex="-1" />' +
+      '<span id="dc-rfid-scan-status"></span>';
+    const main =
+      document.querySelector(".main-panel") ||
+      document.querySelector(".rfid-main") ||
+      document.querySelector(".main") ||
+      document.body;
+    main.appendChild(host);
+  } else {
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText =
+      "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;";
+    host.querySelector("#dc-rfid-feed")?.remove();
+    host.querySelector("#dc-rfid-registry")?.remove();
   }
 
   const input = document.getElementById("dc-rfid-scan-input") as HTMLInputElement | null;
-  const status = document.getElementById("dc-rfid-scan-status");
   if (!input) return;
+
+  let hidBuffer = "";
+  let hidTimer = 0;
+  let lastDeskSubmitKey = "";
+  let lastDeskSubmitAt = 0;
 
   const submitScan = async (rawValue?: string) => {
     const rfidNumber = String(rawValue ?? input.value).trim();
     if (!rfidNumber) return;
-    input.value = "";
-    if (!rfidScanEventId) {
-      if (status) status.textContent = "Open Live Attendance RFID from a live event.";
+
+    const action = rfidScanMode === "out" ? "out" : "in";
+    const submitKey = `${rfidScanEventId}:${rfidNumber}:${action}`;
+    const now = Date.now();
+    // RFID wedges often fire Enter twice — ignore only near-instant hardware repeats.
+    if (submitKey === lastDeskSubmitKey && now - lastDeskSubmitAt < 450) {
       return;
     }
-    if (status) status.textContent = "Recording…";
+    lastDeskSubmitKey = submitKey;
+    lastDeskSubmitAt = now;
+
+    hidBuffer = "";
+    window.clearTimeout(hidTimer);
+    input.value = "";
+
+    if (!rfidScanEventId) {
+      const resolved = await resolveRfidEventId();
+      if (!resolved) {
+        setRfidAlert("No approved or live event available for attendance.", true);
+        return;
+      }
+    }
     try {
       const res = await fetch("/api/admin/attendance/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId: rfidScanEventId, rfidNumber }),
+        body: JSON.stringify({ eventId: rfidScanEventId, rfidNumber, action }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (status) status.textContent = data.error || "Scan failed.";
-        const alert = document.querySelector(".rfid-alert");
-        if (alert) alert.textContent = data.error || "Scan failed.";
+        const message = String(data.error || "Scan failed.");
+        const code = String(data.code || "");
+        if (
+          code === "duplicate_entry" ||
+          code === "duplicate_warning" ||
+          code === "concurrent_event" ||
+          code === "rapid_consecutive" ||
+          code === "unknown_rfid" ||
+          code === "ambiguous_rfid" ||
+          /suspicious|duplicate entry|multiple taps|not registered|concurrent|within a minute|already tapped in/i.test(
+            message,
+          )
+        ) {
+          showRfidDuplicatePopup(message, code);
+        }
+        setRfidAlert(message, true);
         return;
       }
-      if (status) status.textContent = data.message || "Recorded.";
-      await hydrateRfid();
+      setRfidAlert("");
+      const scan = data.scan as
+        | { action?: string; scannedAt?: string; duplicate?: boolean }
+        | undefined;
+      if (scan?.duplicate) {
+        showRfidDuplicatePopup(
+          "Duplicate entry: this participant is already tapped in and did not tap out.",
+          "duplicate_entry",
+        );
+        return;
+      }
+      const user = data.user as
+        | {
+            name?: string;
+            email?: string;
+            studentNumber?: string;
+            course?: string;
+            school?: string;
+            organization?: string;
+            organizationRole?: string;
+            organizationPosition?: string;
+            rfidNumber?: string;
+            photoUrl?: string;
+          }
+        | undefined;
+      if (user) applyRfidParticipantProfile(user);
+      if (scan?.action === "in") {
+        setTapTimes(scan.scannedAt || new Date().toISOString(), "");
+      } else if (scan?.action === "out") {
+        setTapTimes(undefined, scan.scannedAt || new Date().toISOString());
+      }
+      // Background sync only — scan response already updated the UI instantly.
+      const syncedEmail = String(user?.email || "").trim().toLowerCase();
+      window.requestAnimationFrame(() => {
+        void refreshRfidUi({
+          light: true,
+          preserveProfileEmail: syncedEmail,
+        });
+      });
     } catch {
-      if (status) status.textContent = "Scan failed.";
+      setRfidAlert("Scan failed.", true);
+    } finally {
+      // Allow the next student/card immediately after the request finishes.
+      if (submitKey === lastDeskSubmitKey) {
+        window.setTimeout(() => {
+          if (lastDeskSubmitKey === submitKey) {
+            lastDeskSubmitKey = "";
+          }
+        }, 300);
+      }
     }
   };
 
   if (input.dataset.dcWired !== "1") {
     input.dataset.dcWired = "1";
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === "NumpadEnter") {
-        event.preventDefault();
-        void submitScan();
-      }
-    });
+    // HID capture handles Enter — avoid a second submit from the hidden input listener.
   }
 
   if (document.body.dataset.dcRfidHidWired !== "1") {
     document.body.dataset.dcRfidHidWired = "1";
-    let hidBuffer = "";
-    let hidTimer = 0;
 
     const flushHid = () => {
       const value = hidBuffer.trim();
       hidBuffer = "";
+      input.value = "";
       if (value) void submitScan(value);
     };
 
-    document.addEventListener("keydown", (event) => {
-      if (
-        !document.querySelector('[data-admin-page="rfid17"]') &&
-        !document.querySelector(".tap-panel")
-      ) {
-        return;
-      }
-      if (isOtherEditableTarget(event.target)) return;
-
-      if (event.key === "Enter" || event.key === "NumpadEnter") {
-        event.preventDefault();
-        window.clearTimeout(hidTimer);
-        if (hidBuffer.trim()) {
-          flushHid();
-        } else {
-          void submitScan();
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          !document.querySelector('[data-admin-page="rfid17"]') &&
+          !document.querySelector(".tap-panel")
+        ) {
+          return;
         }
-        return;
-      }
+        if (isOtherEditableTarget(event.target)) return;
 
-      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
-      event.preventDefault();
-      hidBuffer += event.key;
-      input.value = hidBuffer;
-      window.clearTimeout(hidTimer);
-      hidTimer = window.setTimeout(flushHid, 120);
-    });
+        if (event.key === "Enter" || event.key === "NumpadEnter") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.clearTimeout(hidTimer);
+          flushHid();
+          return;
+        }
+
+        if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+        event.preventDefault();
+        hidBuffer += event.key;
+        input.value = hidBuffer;
+        window.clearTimeout(hidTimer);
+        hidTimer = window.setTimeout(flushHid, 120);
+      },
+      true,
+    );
   }
 
   window.setTimeout(() => input.focus(), 0);
 }
 
+function formatCertDate(value?: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatCertTime(value?: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function formatMinutesLabel(minutes?: number, fallback?: string) {
+  const text = String(fallback || "").trim();
+  if (text) return text.toUpperCase();
+  const mins = Number(minutes || 0);
+  if (!Number.isFinite(mins) || mins <= 0) return "—";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h} HOUR${h === 1 ? "" : "S"}`);
+  if (m > 0) parts.push(`${m} MINS`);
+  return parts.join(" ") || "—";
+}
+
+function formatSpanDuration(startsAt?: string, endsAt?: string) {
+  if (!startsAt || !endsAt) return "—";
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return "—";
+  return formatMinutesLabel(Math.round((end - start) / 60000));
+}
+
+function setFdField(root: ParentNode, label: string, value: string) {
+  root.querySelectorAll(".fd-field").forEach((field) => {
+    const lab = field.querySelector(".label");
+    if (!lab) return;
+    if ((lab.textContent || "").trim().toUpperCase() !== label.toUpperCase()) return;
+    const val = field.querySelector(".value");
+    if (val) val.textContent = value;
+  });
+}
+
+type CertEventDetail = {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  location?: string;
+  startsAt?: string;
+  endsAt?: string;
+  venueType?: string;
+  category?: string;
+  department?: string;
+  organizerName?: string;
+  attendanceRequired?: string;
+  attendanceRequiredMinutes?: number;
+  gracePeriod?: string;
+  gracePeriodMinutes?: number;
+  hasCertificateTemplate?: boolean;
+  certificateTemplateName?: string;
+  attachments?: { certificateTemplate?: string };
+};
+
+function fillFulld46EventInfo(event: CertEventDetail | null) {
+  const info = document.getElementById("event-info") || document.body;
+  const title =
+    info.querySelector(".fd-card-top h3") ||
+    document.querySelector(
+      ".fd-event-title, .fd-hero h1, .fd-title, h1.page-title, .event-name",
+    );
+  const desc = info.querySelector(".fd-card-top .desc");
+  const status = info.querySelector(".fd-status-label");
+
+  if (title) title.textContent = event?.title || "Event not found";
+  if (desc) {
+    desc.textContent = event?.description?.trim() || "No description provided.";
+  }
+  if (status) {
+    status.textContent = (event?.status || "UNKNOWN").toUpperCase();
+  }
+
+  setFdField(info, "DATE", formatCertDate(event?.startsAt));
+  setFdField(info, "VENUE", event?.location || "—");
+  setFdField(info, "START TIME", formatCertTime(event?.startsAt));
+  setFdField(info, "END TIME", formatCertTime(event?.endsAt));
+  setFdField(info, "VENUE TYPE", (event?.venueType || "—").toUpperCase());
+  setFdField(info, "EVENT TYPE", (event?.category || "—").toUpperCase());
+  setFdField(
+    info,
+    "ORGANIZATION",
+    (event?.department || event?.organizerName || "—").toUpperCase(),
+  );
+  setFdField(info, "DURATION", formatSpanDuration(event?.startsAt, event?.endsAt));
+  setFdField(
+    info,
+    "MINIMUM ATTENDANCE",
+    formatMinutesLabel(event?.attendanceRequiredMinutes, event?.attendanceRequired),
+  );
+  setFdField(
+    info,
+    "GRACE PERIOD",
+    formatMinutesLabel(event?.gracePeriodMinutes, event?.gracePeriod),
+  );
+
+  const fileCard = info.querySelector(".fd-file");
+  if (fileCard) {
+    const nameEl = fileCard.querySelector("span");
+    const labelEl = fileCard.querySelector("strong");
+    if (labelEl) labelEl.textContent = "E-Certificate Template";
+    if (event?.hasCertificateTemplate && event.attachments?.certificateTemplate) {
+      const fileName = event.certificateTemplateName || "certificate-template.pdf";
+      if (nameEl) nameEl.textContent = fileName;
+      fileCard.setAttribute("role", "link");
+      fileCard.setAttribute("tabindex", "0");
+      (fileCard as HTMLElement).style.cursor = "pointer";
+      const openTemplate = () => {
+        window.open(event.attachments!.certificateTemplate!, "_blank", "noopener,noreferrer");
+      };
+      if (fileCard.getAttribute("data-dc-wired") !== "1") {
+        fileCard.setAttribute("data-dc-wired", "1");
+        fileCard.addEventListener("click", openTemplate);
+        fileCard.addEventListener("keydown", (ev) => {
+          if ((ev as KeyboardEvent).key === "Enter" || (ev as KeyboardEvent).key === " ") {
+            ev.preventDefault();
+            openTemplate();
+          }
+        });
+      }
+    } else if (nameEl) {
+      nameEl.textContent = "No template uploaded";
+      (fileCard as HTMLElement).style.cursor = "default";
+    }
+  }
+}
+
 async function hydrateCertificateDetails() {
   const eventId = new URLSearchParams(window.location.search).get("id") || "";
-  const certs = await fetchJson<{
-    certificates: Array<{
-      id: string;
-      userName: string;
-      email: string;
-      eventName: string;
-      status: string;
-      eventId: string;
-      downloadUrl: string;
-      studentNumber?: string;
-      course?: string;
-      school?: string;
-    }>;
-  }>(eventId ? `/api/user/certificates?eventId=${encodeURIComponent(eventId)}` : "/api/user/certificates");
-  const events = await fetchJson<{ events: Array<{ id: string; title: string; status: string }> }>(
-    "/api/events?limit=200",
+  const pageId = pageIdFromPath(window.location.pathname);
+
+  // Clear hardcoded demo copy immediately on the detail page.
+  if (pageId === "fulld46") {
+    fillFulld46EventInfo(null);
+  }
+
+  const [certs, eventsPayload, attendance, detailPayload] = await Promise.all([
+    fetchJson<{
+      certificates: Array<{
+        id: string;
+        userName: string;
+        email: string;
+        eventName: string;
+        status: string;
+        eventId: string;
+        downloadUrl: string;
+        studentNumber?: string;
+        course?: string;
+        school?: string;
+      }>;
+    }>(
+      eventId
+        ? `/api/user/certificates?eventId=${encodeURIComponent(eventId)}`
+        : "/api/user/certificates",
+    ),
+    fetchJson<{
+      events: Array<{
+        id: string;
+        title: string;
+        status: string;
+        hasCertificateTemplate?: boolean;
+        location?: string;
+        startsAt?: string;
+        endsAt?: string;
+        attendanceRequiredMinutes?: number;
+        attachments?: { certificateTemplate?: string };
+      }>;
+    }>("/api/events?hasCertificateTemplate=1&limit=500"),
+    eventId
+      ? fetchJson<{
+          attendance: Array<{
+            email: string;
+            participantName: string;
+            action: string;
+            studentNumber?: string;
+            course?: string;
+            qualifiedForCertificate?: boolean;
+            attendanceMinutes?: number;
+          }>;
+        }>(`/api/user/attendance?eventId=${encodeURIComponent(eventId)}`)
+      : Promise.resolve(null),
+    pageId === "fulld46" && eventId
+      ? fetchJson<{ event: CertEventDetail }>(`/api/events/${encodeURIComponent(eventId)}`)
+      : Promise.resolve(null),
+  ]);
+
+  const templatedEvents = (eventsPayload?.events || []).filter(
+    (event) => event.hasCertificateTemplate,
   );
-  const attention = document.getElementById("attention");
-  if (attention && events?.events) {
-    const pending = events.events.filter((event) => event.status === "completed" || event.status === "live");
-    patchChildren(attention, "a, article, .cd-card, .event-item", pending.slice(0, 8), (el, event) => {
+  const attentionEvents = templatedEvents.filter((event) =>
+    ["live", "completed", "approved"].includes(event.status),
+  );
+
+  document.querySelectorAll(".cd-panel").forEach((panel, index) => {
+    const rows =
+      index === 0
+        ? attentionEvents
+        : index === 1
+          ? attentionEvents.filter((event) => event.status === "live" || event.status === "completed")
+          : attentionEvents;
+    patchChildren(panel, "a.cd-event, a.event-item", rows.slice(0, 8), (el, event) => {
       const title = el.querySelector("h3, h4, .title");
       if (title) title.textContent = event.title;
+      const paragraphs = el.querySelectorAll("p");
+      if (paragraphs[0]) {
+        paragraphs[0].textContent = event.startsAt
+          ? new Date(event.startsAt).toLocaleString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })
+          : "Date TBA";
+      }
+      if (paragraphs[1]) paragraphs[1].textContent = event.location || "Venue TBA";
       if (el instanceof HTMLAnchorElement) {
         el.href = `/admin/fulld46?id=${encodeURIComponent(event.id)}`;
       }
     });
+    ensureEventsFooterAtBottom(panel);
+  });
+
+  if (pageId !== "fulld46" || !eventId) {
+    // Still hydrate certificate table if present on certdeets46.
+    const table = document.querySelector(".fd-table");
+    if (table && certs?.certificates) {
+      patchTableRows(table, certs.certificates, (tr, cert) => {
+        const cells = tr.querySelectorAll("td");
+        if (cells[1]) cells[1].textContent = cert.userName || cert.email;
+        if (cells[2]) cells[2].textContent = cert.studentNumber || "—";
+        if (cells[3]) cells[3].textContent = cert.course || "—";
+        if (cells[4]) cells[4].textContent = cert.school || "—";
+        if (cells[5]) cells[5].textContent = "Eligible";
+        if (cells[6]) cells[6].textContent = (cert.status || "generated").toUpperCase();
+      });
+    }
+    return;
   }
 
-  const table = document.querySelector(".fd-table");
-  if (table && certs?.certificates) {
-    patchTableRows(table, certs.certificates, (tr, cert) => {
-      const cells = tr.querySelectorAll("td");
-      if (cells[1]) cells[1].textContent = cert.userName || cert.email;
-      if (cells[2]) cells[2].textContent = cert.studentNumber || "—";
-      if (cells[3]) cells[3].textContent = cert.course || "—";
-      if (cells[4]) cells[4].textContent = cert.school || "—";
-      if (cells[5]) cells[5].textContent = "Eligible";
-      if (cells[6]) cells[6].textContent = cert.status.toUpperCase();
-      const preview = tr.querySelector<HTMLElement>("[data-action-toggle], button, a");
-      if (preview && cert.downloadUrl && preview.dataset.dcWired !== "1") {
-        preview.dataset.dcWired = "1";
-        preview.addEventListener("click", (event) => {
-          event.preventDefault();
-          window.open(cert.downloadUrl, "_blank", "noopener,noreferrer");
+  const event =
+    detailPayload?.event ||
+    (eventsPayload?.events || []).find((row) => row.id === eventId) ||
+    null;
+
+  fillFulld46EventInfo(event);
+  wireEventPdfReportButtons(eventId);
+
+  document.querySelectorAll(".fd-overview-row").forEach((row) => {
+    const key = (row.querySelector(".k")?.textContent || "").trim().toLowerCase();
+    const value = row.querySelector(".v");
+    if (!value || !event) return;
+    if (key.includes("event")) value.textContent = event.title;
+    if (key.includes("min") || key.includes("attendance")) {
+      value.textContent = String(event.attendanceRequiredMinutes || 0);
+    }
+    if (key.includes("certificate") && key.includes("generated")) {
+      value.textContent = String(certs?.certificates?.length || 0);
+    }
+  });
+
+  const templateLink = document.querySelector<HTMLAnchorElement>(
+    'a[href*="certificate-template"], a.fd-template, .fd-ecert a, a[download]',
+  );
+  if (templateLink && event?.attachments?.certificateTemplate) {
+    templateLink.href = event.attachments.certificateTemplate;
+    templateLink.textContent = "Download e-certificate template";
+  }
+
+  if (event && !event.hasCertificateTemplate) {
+    const root = document.querySelector(".admin-legacy-root") as HTMLElement | null;
+    if (root && root.dataset.dcCertTemplateWarned !== "1") {
+      root.dataset.dcCertTemplateWarned = "1";
+      window.alert(
+        "This event has no certificate template uploaded. Add an e-certificate template before issuing certificates.",
+      );
+    }
+  }
+
+  // Build eligible participant rows from attendance + existing certificates.
+  type EligibleRow = {
+    email: string;
+    userName: string;
+    studentNumber: string;
+    course: string;
+    school: string;
+    eligible: boolean;
+    status: string;
+    downloadUrl: string;
+  };
+
+  const byEmail = new Map<string, EligibleRow>();
+  for (const row of attendance?.attendance || []) {
+    const email = String(row.email || "").toLowerCase();
+    if (!email) continue;
+    const existing = byEmail.get(email) || {
+      email,
+      userName: String(row.participantName || email),
+      studentNumber: String(row.studentNumber || ""),
+      course: String(row.course || ""),
+      school: "",
+      eligible: false,
+      status: "Not issued",
+      downloadUrl: "",
+    };
+    if (row.action === "in" || row.action === "out") existing.eligible = true;
+    if (row.qualifiedForCertificate) existing.eligible = true;
+    if (row.participantName) existing.userName = String(row.participantName);
+    byEmail.set(email, existing);
+  }
+  for (const cert of certs?.certificates || []) {
+    const email = String(cert.email || "").toLowerCase();
+    if (!email) continue;
+    const existing = byEmail.get(email) || {
+      email,
+      userName: cert.userName || email,
+      studentNumber: cert.studentNumber || "",
+      course: cert.course || "",
+      school: cert.school || "",
+      eligible: true,
+      status: "Not issued",
+      downloadUrl: "",
+    };
+    existing.status = (cert.status || "generated").toUpperCase();
+    existing.downloadUrl = cert.downloadUrl || "";
+    existing.userName = cert.userName || existing.userName;
+    existing.studentNumber = cert.studentNumber || existing.studentNumber;
+    existing.course = cert.course || existing.course;
+    existing.school = cert.school || existing.school;
+    existing.eligible = true;
+    byEmail.set(email, existing);
+  }
+
+  const eligibleRows = [...byEmail.values()].sort((a, b) =>
+    a.userName.localeCompare(b.userName),
+  );
+
+  const pendingCount = eligibleRows.filter((row) => row.status === "Not issued").length;
+  document.querySelectorAll(".fd-overview-row").forEach((row) => {
+    const key = (row.querySelector(".k")?.textContent || "").trim().toLowerCase();
+    const value = row.querySelector(".v");
+    if (!value) return;
+    if (key.includes("pending")) value.textContent = String(pendingCount);
+    if (key.includes("participant")) value.textContent = String(eligibleRows.length);
+  });
+
+  const issueOne = async (email: string, name: string, regenerate = false) => {
+    const res = await fetch("/api/user/certificates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId, email, name, regenerate }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.error || "Failed to issue certificate.");
+    return payload;
+  };
+
+  patchTableRows(document.querySelector(".fd-table"), eligibleRows, (tr, row) => {
+    tr.setAttribute("data-email", row.email);
+    tr.setAttribute("data-user-name", row.userName);
+    const cells = tr.querySelectorAll("td");
+    const checkbox = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (checkbox) {
+      checkbox.setAttribute("aria-label", `Select ${row.userName}`);
+      checkbox.checked = false;
+      checkbox.dataset.email = row.email;
+      checkbox.dataset.name = row.userName;
+    }
+    if (cells[1]) cells[1].textContent = row.userName;
+    if (cells[2]) cells[2].textContent = row.studentNumber || "—";
+    if (cells[3]) cells[3].textContent = row.course || "—";
+    if (cells[4]) cells[4].textContent = row.school || "—";
+    if (cells[5]) cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
+    if (cells[6]) cells[6].textContent = row.status;
+
+    const menu = tr.querySelector(".fd-action-menu");
+    if (menu && menu.getAttribute("data-dc-wired") !== "1") {
+      menu.setAttribute("data-dc-wired", "1");
+      const eventTitle = event?.title || "event";
+      menu.querySelectorAll("button").forEach((btn) => {
+        btn.addEventListener("click", (clickEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopPropagation();
+          const label = (btn.textContent || "").trim().toLowerCase();
+          void (async () => {
+            try {
+              if (label.includes("preview") || label.includes("distribute")) {
+                if (row.downloadUrl) {
+                  window.open(row.downloadUrl, "_blank", "noopener,noreferrer");
+                } else {
+                  window.alert("No certificate PDF yet. Generate it first.");
+                }
+                return;
+              }
+              if (label.includes("generate")) {
+                const regenerate = label.includes("regenerate");
+                const payload = await issueOne(row.email, row.userName, regenerate);
+                window.alert(
+                  payload.message ||
+                    `Certificate issued for ${row.userName} — ${eventTitle}.`,
+                );
+                window.location.reload();
+              }
+            } catch (error) {
+              window.alert(error instanceof Error ? error.message : "Failed.");
+            }
+          })();
         });
-      }
+      });
+    }
+  });
+
+  // Bulk Generate Selected
+  const bulkMenu = document.querySelector(".fd-bulk-menu");
+  if (bulkMenu && bulkMenu.getAttribute("data-dc-wired") !== "1") {
+    bulkMenu.setAttribute("data-dc-wired", "1");
+    bulkMenu.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        const label = (btn.textContent || "").trim().toLowerCase();
+        if (!label.includes("generate")) return;
+        const regenerate = label.includes("regenerate");
+        const selected = Array.from(
+          document.querySelectorAll<HTMLInputElement>(
+            '.fd-table tbody input[type="checkbox"]:checked',
+          ),
+        );
+        const emails = selected
+          .map((input) => input.dataset.email || "")
+          .filter(Boolean);
+        const names = selected.map((input) => input.dataset.name || "");
+        void (async () => {
+          try {
+            if (!emails.length) {
+              // No selection → issue for all eligible not-yet-issued attendees.
+              const res = await fetch("/api/user/certificates", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ eventId, regenerate }),
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(payload.error || "Failed to generate.");
+              window.alert(payload.message || "Certificates issued.");
+              window.location.reload();
+              return;
+            }
+            const res = await fetch("/api/user/certificates", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                eventId,
+                emails,
+                name: names[0] || undefined,
+                regenerate,
+              }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload.error || "Failed to generate.");
+            window.alert(
+              payload.message ||
+                `Issued certificates for ${emails.length} participant(s).`,
+            );
+            window.location.reload();
+          } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Failed.");
+          }
+        })();
+      });
     });
   }
 }
 
 function wireReportsDownload() {
+  // Reports hub CTA should open the Smart Report wizard (PDF export lives there).
   const link = document.querySelector<HTMLAnchorElement>(".rp-generate");
   if (!link || link.dataset.dcWired === "1") return;
   link.dataset.dcWired = "1";
-  link.addEventListener("click", (event) => {
-    if (event.metaKey || event.ctrlKey) return;
-    event.preventDefault();
-    window.location.assign("/api/admin/reports?format=csv");
+  if (!link.getAttribute("href")) {
+    link.href = "/admin/reportgen53";
+  }
+}
+
+/** Generate an event PDF report and trigger a browser download. */
+async function generateAndDownloadEventReportPdf(
+  eventId: string,
+  control?: HTMLElement | null,
+) {
+  if (!eventId) {
+    throw new Error("Missing event id. Open an event before generating a report.");
+  }
+
+  const original =
+    control instanceof HTMLElement ? (control.textContent || "").trim() || "Generate Report" : "";
+  if (control instanceof HTMLElement) {
+    control.setAttribute("aria-busy", "true");
+    if (control instanceof HTMLButtonElement) control.disabled = true;
+    if (control instanceof HTMLAnchorElement) control.style.pointerEvents = "none";
+    control.textContent = "Generating…";
+  }
+
+  try {
+    const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}/report`, {
+      method: "POST",
+      credentials: "include",
+    });
+    const payload = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      details?: string;
+      report?: { fileName?: string; hasPdf?: boolean };
+    };
+    if (!res.ok) {
+      throw new Error(payload.error || payload.details || "Failed to generate report.");
+    }
+    if (!payload.report?.hasPdf) {
+      throw new Error("Report was generated but no PDF file was produced.");
+    }
+
+    const fileName = payload.report.fileName || "event-report.pdf";
+    const downloadUrl = `/api/admin/events/${encodeURIComponent(eventId)}/report/download`;
+    const fileRes = await fetch(downloadUrl, { credentials: "include", cache: "no-store" });
+    if (!fileRes.ok) {
+      const err = await fileRes.json().catch(() => ({}));
+      throw new Error(
+        (err as { error?: string }).error || "Report PDF could not be downloaded.",
+      );
+    }
+    const blob = await fileRes.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return payload.report;
+  } finally {
+    if (control instanceof HTMLElement) {
+      control.removeAttribute("aria-busy");
+      if (control instanceof HTMLButtonElement) control.disabled = false;
+      if (control instanceof HTMLAnchorElement) control.style.pointerEvents = "";
+      control.textContent = original;
+    }
+  }
+}
+
+function wireEventPdfReportButtons(eventId: string) {
+  if (!eventId) return;
+  // live16 uses #event-report-generate via AdminAiBridge; avoid double-wiring.
+  const controls = document.querySelectorAll<HTMLElement>(".fd-generate-report, .report-btn");
+  controls.forEach((control) => {
+    if (control.dataset.dcPdfReportWired === "1") return;
+    control.dataset.dcPdfReportWired = "1";
+    control.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void generateAndDownloadEventReportPdf(eventId, control).catch((error) => {
+        window.alert(error instanceof Error ? error.message : "Failed to generate report PDF.");
+      });
+    });
   });
 }
 
@@ -819,7 +1994,16 @@ async function hydrateNew41() {
   const params = new URLSearchParams(window.location.search);
   const id = params.get("id");
   if (!id) return;
-  const data = await fetchJson<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(id)}`);
+  const data = await fetchJson<{
+    user: AdminUser;
+    attendanceSummary?: {
+      attendanceCompleted: number;
+      lateRecords: number;
+      undertimeRecords: number;
+      absences: number;
+      attendanceRate: number;
+    };
+  }>(`/api/admin/users/${encodeURIComponent(id)}`);
   if (!data?.user) return;
   const user = data.user;
   setText("user-name", user.fullName);
@@ -839,6 +2023,7 @@ async function hydrateNew41() {
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
+  applyParticipantAttendanceSummary(data.attendanceSummary);
 
   // wire stat tile links to pass the user id
   const links: Record<string, string> = {
@@ -1423,19 +2608,33 @@ async function hydrateListp44() {
 }
 
 async function hydrateManageCounts(pageId: string) {
+  const isAdminManage = pageId === "manageadmin";
   const role =
-    pageId === "manages28" ? "student" : pageId === "managef29" ? "faculty" : "";
-  const query = role ? `role=${encodeURIComponent(role)}&limit=200` : "limit=200";
+    pageId === "manages28" ? "student" : pageId === "managef29" ? "faculty" : isAdminManage ? "admins" : "";
+  const query = new URLSearchParams({ limit: "200" });
+  if (role) query.set("role", role);
+
   const data = await fetchJson<{ users: AdminUser[]; total?: number }>(
-    `/api/admin/users?${query}`,
+    `/api/admin/users?${query.toString()}`,
   );
   const users = data?.users || [];
-  const n =
-    pageId === "manageadmin"
-      ? String(users.filter((user) => user.role === "admin" || user.role === "super-admin").length)
-      : String(data?.total ?? users.length);
+  const n = String(data?.total ?? users.length);
+
+  const countNum = document.querySelector<HTMLElement>(".stu-count-num");
+  if (countNum) countNum.textContent = n;
+
+  const countLabel = document.querySelector<HTMLElement>(".stu-count-label");
+  if (countLabel) {
+    const labelText = isAdminManage ? "Admins" : "Users";
+    // Keep info icon if present
+    const icon = countLabel.querySelector("svg");
+    countLabel.textContent = labelText;
+    if (icon) countLabel.appendChild(icon);
+  }
+
   document.querySelectorAll(".ms-count, .school-count, .stat-value, .count, .adm-kpi-value").forEach((el) => {
-    if ((el.textContent || "").trim() === "50") el.textContent = n;
+    const text = (el.textContent || "").trim();
+    if (text === "50" || el.classList.contains("stu-count-num")) el.textContent = n;
   });
 }
 
@@ -1446,9 +2645,27 @@ async function hydrateManageCounts(pageId: string) {
 export function AdminOpsBridge() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryId = searchParams.get("id") || "";
 
   useEffect(() => {
     const pageId = pageIdFromPath(pathname);
+    if (
+      !pageId ||
+      pageId === "selection01" ||
+      pageId === "login02" ||
+      pageId === "register03" ||
+      pageId === "verify06" ||
+      pageId === "pass07" ||
+      pageId === "agreement08" ||
+      pageId === "fp09" ||
+      pageId === "fpv10" ||
+      pageId === "fpp11" ||
+      pageId === "school04" ||
+      pageId === "acc1" ||
+      pageId === "acc05"
+    ) {
+      return;
+    }
     const root =
       document.querySelector(".admin-legacy-root") ||
       document.querySelector("[data-admin-page]") ||
@@ -1492,8 +2709,18 @@ export function AdminOpsBridge() {
         if (pageId === "administration") await hydrateAdministration(root);
         if (pageId === "profile") await hydrateAdminProfile();
         if (pageId === "notif1") await hydrateAdminNotifications();
-        if (pageId === "rfid17") await hydrateRfid();
+        else await updateAdminNotifBadge();
+        if (pageId === "rfid17") await hydrateRfid({ light: true });
         if (pageId === "certdeets46" || pageId === "fulld46") await hydrateCertificateDetails();
+        if (
+          pageId === "feeddeets49" ||
+          pageId === "cc19" ||
+          pageId === "edetails14" ||
+          pageId === "aed15"
+        ) {
+          const eventId = new URLSearchParams(window.location.search).get("id") || "";
+          if (eventId) wireEventPdfReportButtons(eventId);
+        }
         if (pageId === "report51" || pageId === "reportgen53") wireReportsDownload();
         if (pageId === "user27") wireUser27Views(root);
         wireLiveSearch(root);
@@ -1502,17 +2729,25 @@ export function AdminOpsBridge() {
       }
     };
 
-    const t1 = window.setTimeout(() => void run(), 80);
-    const t2 = window.setTimeout(() => void run(), 400);
-    const pollMs = pageIdFromPath(pathname) === "rfid17" ? 3000 : 12000;
+    const t1 = window.requestAnimationFrame(() => void run());
+    const pollMs =
+      pageIdFromPath(pathname) === "rfid17"
+        ? 5000
+        : pageIdFromPath(pathname) === "notif1"
+          ? 4000
+          : 12000;
     const poll = window.setInterval(() => void run(), pollMs);
+    const badgePoll = window.setInterval(() => {
+      if (pageIdFromPath(pathname) === "notif1") return;
+      void updateAdminNotifBadge();
+    }, 4000);
     return () => {
       cancelled = true;
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
+      window.cancelAnimationFrame(t1);
       window.clearInterval(poll);
+      window.clearInterval(badgePoll);
     };
-  }, [pathname, searchParams]);
+  }, [pathname, queryId]);
 
   return null;
 }

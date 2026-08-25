@@ -69,6 +69,9 @@ export async function GET(request: Request) {
 
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
+    if (searchParams.get("hasCertificateTemplate") === "1") {
+      filter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+    }
 
     if (actor.kind === "user") {
       filter.$or = [
@@ -140,6 +143,7 @@ export async function POST(request: Request) {
     posterImageBase64?: string;
     posterImageMimeType?: string;
     status?: EventStatus;
+    reservationId?: string;
   };
   try {
     body = await request.json();
@@ -211,6 +215,7 @@ export async function POST(request: Request) {
     posterImageBase64: String(body.posterImageBase64 || "").trim(),
     posterImageMimeType: String(body.posterImageMimeType || "").trim(),
     status,
+    reservationId: String(body.reservationId || "").trim() || undefined,
     submittedByPortal: actor.kind === "admin" ? "admin" : "user",
     createdAt: now,
     updatedAt: now,

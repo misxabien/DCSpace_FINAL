@@ -46,7 +46,7 @@ export const ORGANIZER_DEMO_HINT =
   "Demo: organizer@sdca.edu.ph or student.organizer@sdca.edu.ph (password: password). Registered school accounts use your DC Space password.";
 
 export const ADMIN_DEMO_HINT =
-  "Demo: admin@sdca.edu.ph (Admin) or superadmin@sdca.edu.ph (Super Admin). Password: password.";
+  "Demo: admin@sdca.edu.ph (Admin) or superadmin@sdca.edu.ph (Super Admin). Password: password. Role is on the account — no login choice.";
 
 function toUser(account: MockAccount): SessionUser {
   const isAdmin = isAdminRole(account.role);

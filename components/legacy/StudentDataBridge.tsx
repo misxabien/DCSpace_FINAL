@@ -249,6 +249,80 @@ function notifIconClass(type: string) {
   return "notif-item__icon notif-item__icon--blue";
 }
 
+function studentNotifBellTargets() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('a.tool-btn--notif[href="/notifications"]'),
+  );
+}
+
+function setStudentNotifBadge(unreadCount: number) {
+  const hasUnread = unreadCount > 0;
+  for (const el of studentNotifBellTargets()) {
+    el.classList.toggle("has-unread", hasUnread);
+    let dot = el.querySelector<HTMLElement>(".notif-unread-dot");
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "notif-unread-dot";
+      dot.setAttribute("aria-hidden", "true");
+      el.appendChild(dot);
+    }
+    dot.hidden = !hasUnread;
+    el.setAttribute(
+      "aria-label",
+      hasUnread
+        ? unreadCount === 1
+          ? "Notifications, 1 unread"
+          : `Notifications, ${unreadCount} unread`
+        : "Notifications",
+    );
+  }
+}
+
+async function updateStudentNotifBadge() {
+  try {
+    const res = await fetch("/api/user/notifications", {
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      notifications?: Array<{ read: boolean }>;
+    };
+    const unread = (data.notifications || []).filter((item) => !item.read).length;
+    setStudentNotifBadge(unread);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function markStudentNotificationRead(id: string) {
+  await fetch("/api/user/notifications", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ id, read: true }),
+  });
+}
+
+function wireStudentNotificationClicks() {
+  if (document.documentElement.dataset.dcStudentNotifWired === "1") return;
+  document.documentElement.dataset.dcStudentNotifWired = "1";
+  document.addEventListener("click", (event) => {
+    const btn = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(".notif-item");
+    if (!btn) return;
+    const id = btn.getAttribute("data-notif-id");
+    const eventId = btn.getAttribute("data-event-id");
+    if (id && btn.classList.contains("is-highlighted")) {
+      btn.classList.remove("is-highlighted");
+      void markStudentNotificationRead(id).then(() => void updateStudentNotifBadge());
+    }
+    if (eventId) {
+      event.preventDefault();
+      window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
+    }
+  });
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -492,14 +566,27 @@ export function StudentDataBridge() {
       if (!eventId || pathname !== "/attendance/details") return;
 
       const footer = document.querySelector(".rfid-panel__footer");
-      if (footer && !document.getElementById("dc-tap-out-btn")) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.id = "dc-tap-out-btn";
-        button.className = "rfid-sort__btn is-active";
-        button.textContent = "Tap Out (Manual)";
+      if (!footer) return;
+
+      const ensureButton = (
+        id: string,
+        label: string,
+        action: "in" | "out",
+        active: boolean,
+      ) => {
+        let button = document.getElementById(id) as HTMLButtonElement | null;
+        if (!button) {
+          button = document.createElement("button");
+          button.type = "button";
+          button.id = id;
+          button.className = `rfid-sort__btn${active ? " is-active" : ""}`;
+          footer.prepend(button);
+        }
+        button.textContent = label;
+        if (button.dataset.dcWired === "1") return;
+        button.dataset.dcWired = "1";
         button.addEventListener("click", async () => {
-          button.disabled = true;
+          button!.disabled = true;
           try {
             const res = await fetch("/api/user/attendance", {
               method: "POST",
@@ -508,41 +595,58 @@ export function StudentDataBridge() {
               body: JSON.stringify({
                 eventId,
                 eventName: document.getElementById("detail-name")?.textContent || "",
-                action: "out",
+                action,
               }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-              window.alert(data.error || "Failed to tap out.");
+              window.alert(data.error || `Failed to tap ${action}.`);
               return;
             }
-            if (data.certificate?.id) {
+            if (data.duplicate) {
+              window.alert(
+                action === "in"
+                  ? "You are already tapped in for this event."
+                  : "Tap out was already recorded.",
+              );
+            } else if (data.certificate?.id) {
               window.alert(
                 "Attendance completed. Your certificate is now available in Certificates.",
               );
             } else {
-              window.alert("Tap out recorded.");
+              window.alert(
+                action === "in"
+                  ? "Tap in recorded to your account."
+                  : "Tap out recorded to your account.",
+              );
+            }
+            try {
+              window.sessionStorage.setItem("dc_attendance_bump", String(Date.now()));
+            } catch {
+              /* ignore */
             }
             void injectAttendanceRfid();
             void injectEvents();
           } catch {
-            window.alert("Failed to tap out.");
+            window.alert(`Failed to tap ${action}.`);
           } finally {
-            button.disabled = false;
+            button!.disabled = false;
           }
         });
-        footer.prepend(button);
-      }
+      };
+
+      ensureButton("dc-tap-in-btn", "Tap In", "in", true);
+      ensureButton("dc-tap-out-btn", "Tap Out", "out", false);
 
       let note = document.getElementById("dc-attendance-rfid-note");
-      if (!note && footer) {
+      if (!note) {
         note = document.createElement("p");
         note.id = "dc-attendance-rfid-note";
         note.style.cssText = "margin:0 0 10px;font-size:13px;color:#64748b;line-height:1.4;";
-        note.textContent =
-          "Tap in at the venue with your RFID tag. This page updates automatically when your scan is recorded.";
         footer.prepend(note);
       }
+      note.textContent =
+        "RFID tap in/out at the venue is saved to MongoDB instantly. This page refreshes your records in real time.";
     };
 
     const injectAttendanceRfid = async () => {
@@ -550,10 +654,13 @@ export function StudentDataBridge() {
       const eventId = new URLSearchParams(window.location.search).get("id");
       if (!eventId) return;
       try {
-        const res = await fetch(`/api/user/attendance?eventId=${encodeURIComponent(eventId)}`, {
-          cache: "no-store",
-          credentials: "include",
-        });
+        const res = await fetch(
+          `/api/user/attendance?eventId=${encodeURIComponent(eventId)}`,
+          {
+            cache: "no-store",
+            credentials: "include",
+          },
+        );
         if (!res.ok) return;
         const data = (await res.json()) as {
           attendance?: Array<{
@@ -563,33 +670,56 @@ export function StudentDataBridge() {
             attendanceMinutes?: number;
             qualifiedForCertificate?: boolean;
           }>;
+          sessions?: Array<{
+            tapInAt?: string;
+            tapOutAt?: string;
+            attendanceMinutes?: number;
+            qualifiedForCertificate?: boolean;
+            open?: boolean;
+          }>;
         };
+
+        const sessions = data.sessions || [];
         const rows = [...(data.attendance || [])].reverse();
-        const logs: Array<{ tapIn: string; tapOut: string }> = [];
+        let logs: Array<{ tapIn: string; tapOut: string }> = [];
         let openIn = "";
         let lastMinutes = 0;
         let qualified = false;
-        for (const row of rows) {
-          const stamp = String(row.scannedAt || row.createdAt || "");
-          if (row.action === "in") {
-            if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
-            openIn = stamp;
-          } else {
-            logs.push({
-              tapIn: formatClock(openIn || stamp),
-              tapOut: formatClock(stamp),
-            });
-            openIn = "";
-            lastMinutes = Number(row.attendanceMinutes || lastMinutes);
-            qualified = Boolean(row.qualifiedForCertificate || qualified);
+
+        if (sessions.length) {
+          logs = sessions.map((session) => ({
+            tapIn: session.tapInAt ? formatClock(session.tapInAt) : "—",
+            tapOut: session.tapOutAt ? formatClock(session.tapOutAt) : "—",
+          }));
+          const open = sessions.find((session) => session.open);
+          openIn = open?.tapInAt || "";
+          lastMinutes = sessions.find((session) => session.attendanceMinutes)?.attendanceMinutes || 0;
+          qualified = sessions.some((session) => session.qualifiedForCertificate);
+        } else {
+          for (const row of rows) {
+            const stamp = String(row.scannedAt || row.createdAt || "");
+            if (row.action === "in") {
+              if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
+              openIn = stamp;
+            } else {
+              logs.push({
+                tapIn: formatClock(openIn || stamp),
+                tapOut: formatClock(stamp),
+              });
+              openIn = "";
+              lastMinutes = Number(row.attendanceMinutes || lastMinutes);
+              qualified = Boolean(row.qualifiedForCertificate || qualified);
+            }
           }
+          if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
         }
-        if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
         if (!logs.length) logs.push({ tapIn: "—", tapOut: "—" });
 
         const statusEl = document.getElementById("dc-attendance-status");
         if (!statusEl) {
-          const host = document.querySelector(".rfid-panel__header") || document.querySelector(".rfid-panel");
+          const host =
+            document.querySelector(".rfid-panel__header") ||
+            document.querySelector(".rfid-panel");
           if (host) {
             const banner = document.createElement("p");
             banner.id = "dc-attendance-status";
@@ -603,19 +733,21 @@ export function StudentDataBridge() {
           if (openIn) {
             banner.style.background = "#ecfdf5";
             banner.style.color = "#047857";
-            banner.textContent = `You are currently tapped in (since ${formatClock(openIn)}). Tap out at the venue when you leave.`;
+            banner.textContent = `You are currently tapped in (since ${formatClock(openIn)}). Tap out when you leave.`;
           } else if (qualified) {
             banner.style.background = "#eff6ff";
             banner.style.color = "#1d4ed8";
-            banner.textContent = "Attendance completed for this event. Check Certificates if you qualified.";
-          } else if (rows.length > 0) {
+            banner.textContent =
+              "Attendance completed for this event. Check Certificates if you qualified.";
+          } else if (rows.length > 0 || sessions.length > 0) {
             banner.style.background = "#f8fafc";
             banner.style.color = "#475569";
-            banner.textContent = "Your latest tap-out was recorded. Tap in again when you return.";
+            banner.textContent = "Your tap records are synced from MongoDB in real time.";
           } else {
             banner.style.background = "#fffbeb";
             banner.style.color = "#b45309";
-            banner.textContent = "No attendance yet. Tap in at the venue with your registered RFID tag.";
+            banner.textContent =
+              "No attendance yet. Tap in at the venue with your RFID tag (or use Tap In below).";
           }
         }
 
@@ -624,15 +756,18 @@ export function StudentDataBridge() {
           | undefined;
         const detailName = document.getElementById("detail-name");
         if (detailName && event?.name) detailName.textContent = event.name;
-        const required = Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
-        const progress = qualified ? 100 : Math.min(100, Math.round((lastMinutes / required) * 100));
+        const required =
+          Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
+        const progress = qualified
+          ? 100
+          : Math.min(100, Math.round((lastMinutes / required) * 100));
 
         window.DCEvents.attendanceRfid = {
           ...(window.DCEvents.attendanceRfid || {}),
           [eventId]: {
             graceRemaining: openIn ? event?.gracePeriod || "15 minutes" : "Complete",
             progress,
-            logs: logs.slice(-8).reverse(),
+            logs: logs.slice(0, 12),
             page: { current: logs.some((row) => row.tapIn !== "—") ? 1 : 0, total: 1 },
           },
         };
@@ -753,9 +888,12 @@ export function StudentDataBridge() {
     };
 
     const injectNotifications = async () => {
-      if (pathname !== "/notifications") return;
+      wireStudentNotificationClicks();
       try {
-        const res = await fetch("/api/user/notifications", { cache: "no-store" });
+        const res = await fetch("/api/user/notifications", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           notifications?: Array<{
@@ -769,6 +907,8 @@ export function StudentDataBridge() {
           }>;
         };
         const items = data.notifications || [];
+        setStudentNotifBadge(items.filter((item) => !item.read).length);
+        if (pathname !== "/notifications") return;
         const todayList = document.getElementById("notif-today-list");
         const yesterdayList = document.getElementById("notif-yesterday-list") ||
           document.querySelector('[data-group="yesterday"] .notif-list');
@@ -812,26 +952,6 @@ export function StudentDataBridge() {
 
         const empty = document.getElementById("notif-empty");
         if (empty) empty.hidden = items.length > 0;
-
-        if (todayList.dataset.dcWired !== "1") {
-          todayList.dataset.dcWired = "1";
-          document.addEventListener("click", (event) => {
-            const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(".notif-item");
-            if (!btn) return;
-            const id = btn.getAttribute("data-notif-id");
-            const eventId = btn.getAttribute("data-event-id");
-            if (id) {
-              void fetch("/api/user/notifications", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id, read: true }),
-              });
-            }
-            if (eventId) {
-              window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
-            }
-          });
-        }
       } catch {
         /* keep static markup */
       }
@@ -938,14 +1058,30 @@ export function StudentDataBridge() {
       void injectFeedbackList();
       void injectCertificates();
       void injectNotifications();
+      void updateStudentNotifBadge();
     };
 
     const t1 = window.setTimeout(run, 80);
     const t2 = window.setTimeout(run, 400);
     const t3 = window.setTimeout(run, 900);
-    const pollMs = pathname.startsWith("/attendance") ? 3000 : 10000;
+    // Attendance details: poll Mongo tap logs near real-time.
+    const pollMs = pathname.startsWith("/attendance/details")
+      ? 1500
+      : pathname.startsWith("/attendance")
+        ? 3000
+        : 10000;
     const poll = window.setInterval(run, pollMs);
+    const notifBadgePoll = window.setInterval(() => void updateStudentNotifBadge(), 4000);
     const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
+
+    const onFocusRefresh = () => {
+      if (pathname.startsWith("/attendance")) {
+        void injectAttendanceRfid();
+        void injectEvents();
+      }
+    };
+    window.addEventListener("focus", onFocusRefresh);
+    document.addEventListener("visibilitychange", onFocusRefresh);
 
     return () => {
       cancelled = true;
@@ -954,10 +1090,13 @@ export function StudentDataBridge() {
       window.clearTimeout(t3);
       window.clearTimeout(aiTimer);
       window.clearInterval(poll);
+      window.clearInterval(notifBadgePoll);
       window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);
       window.removeEventListener("dc-join-event", onJoinEvent as EventListener);
       window.removeEventListener("dc-submit-event", onSubmitEvent as EventListener);
+      window.removeEventListener("focus", onFocusRefresh);
+      document.removeEventListener("visibilitychange", onFocusRefresh);
     };
   }, [pathname]);
 

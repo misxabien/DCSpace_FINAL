@@ -685,6 +685,49 @@ a.view-btn {
   box-shadow: var(--shadow-sm) !important;
   border-radius: 14px !important;
   padding: 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+}
+
+.events-panel > .event-item,
+.events-panel > a.event-item {
+  order: 0;
+}
+
+.events-panel > .dc-events-empty {
+  order: 1;
+}
+
+.events-footer {
+  order: 2 !important;
+  margin-top: auto !important;
+  margin-bottom: 0 !important;
+  padding-top: 12px !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  width: 100% !important;
+  border-top: 1px solid var(--border-soft) !important;
+  color: var(--blue-link) !important;
+  font-size: var(--font-xs);
+}
+
+.events-footer .sort-group {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+
+.events-footer .pager {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  margin-left: auto !important;
 }
 
 .event-item,
@@ -741,6 +784,14 @@ a.event-item:hover {
   margin-left: auto;
 }
 
+.submit-meta .poster.has-image,
+.poster.has-image,
+.detail-top-meta .poster.has-image,
+.detail-top-aside .poster.has-image {
+  background-color: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08) !important;
+}
+
 .event-thumb.solid {
   display: grid;
   place-items: center;
@@ -767,14 +818,6 @@ a.event-item:hover {
   font-weight: 500 !important;
   color: #64748b !important;
   line-height: 1.35 !important;
-}
-
-.events-footer {
-  margin-top: 10px !important;
-  padding-top: 10px !important;
-  font-size: var(--font-xs);
-  border-top: 1px solid var(--border-soft) !important;
-  color: var(--blue-link) !important;
 }
 
 .sort-btn,
@@ -1576,6 +1619,21 @@ a.fb-card:hover {
   font-size: 10px !important;
   font-weight: 600 !important;
   gap: 6px !important;
+}
+
+.fb-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.fb-badge .dot.collecting {
+  background: #f59e0b;
+}
+
+.fb-badge .dot.done {
+  background: #22c55e;
 }
 
 .fb-stars {
@@ -4117,6 +4175,38 @@ article.rl-card:hover {
 .notif-bell {
   width: 40px !important;
   height: 40px !important;
+}
+
+/* Unread notification indicator on topbar bell */
+a.icon-btn[href*="/admin/notif"],
+a.notif-bell[href*="/admin/notif"] {
+  position: relative !important;
+  display: inline-grid !important;
+  place-items: center !important;
+}
+
+a.icon-btn[href*="/admin/notif"].has-unread::after,
+a.notif-bell[href*="/admin/notif"].has-unread::after {
+  content: "" !important;
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 50% !important;
+  background: #ef4444 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25) !important;
+  pointer-events: none !important;
+}
+
+.notif-item.unread {
+  background: rgba(68, 138, 255, 0.06) !important;
+  box-shadow: inset 3px 0 0 #ef4444 !important;
+}
+
+.notif-item.unread .title {
+  font-weight: 700 !important;
 }
 
 @media (max-width: 1100px) {
@@ -7638,6 +7728,53 @@ h1.page-title {
   box-shadow: 0 4px 14px rgba(68, 138, 255, 0.1) !important;
 }
 
+.dc-rfid-mode-toggle {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+  margin: 14px 0 12px !important;
+}
+
+.dc-rfid-mode-btn {
+  appearance: none !important;
+  border: 1.5px solid rgba(68, 138, 255, 0.35) !important;
+  background: #fff !important;
+  color: #448aff !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease !important;
+}
+
+.dc-rfid-mode-btn:hover {
+  border-color: #448aff !important;
+  background: #f3f8ff !important;
+}
+
+.dc-rfid-mode-btn.is-active {
+  background: #448aff !important;
+  border-color: #448aff !important;
+  color: #fff !important;
+  box-shadow: 0 4px 14px rgba(68, 138, 255, 0.35) !important;
+}
+
+.dc-rfid-mode-hint {
+  grid-column: 1 / -1 !important;
+  margin: 2px 0 0 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #64748b !important;
+}
+
+.tap-panel[data-scan-mode="in"] #tap-in,
+.tap-panel[data-scan-mode="out"] #tap-out {
+  box-shadow: inset 0 0 0 2px rgba(68, 138, 255, 0.35) !important;
+  background: rgba(68, 138, 255, 0.04) !important;
+}
+
 .tap-labels {
   background: #f3f8ff !important;
 }
@@ -7649,9 +7786,20 @@ h1.page-title {
 }
 
 .tap-times span {
-  font-size: 20px !important;
+  font-size: 28px !important;
   font-weight: 700 !important;
   color: #1e293b !important;
+  min-height: 96px !important;
+  padding: 28px 16px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.tap-times span.is-blank {
+  color: rgba(30, 41, 59, 0.28) !important;
+  letter-spacing: 0.08em !important;
 }
 
 .rfid-alert {
@@ -8372,4 +8520,20 @@ h2.section-title,
 .events-filter-menu button.active {
   background: #eef4ff !important;
   background-color: #eef4ff !important;
+}
+
+.rp-table tbody tr.is-clickable {
+  cursor: pointer;
+}
+
+.rp-table tbody tr.is-clickable:hover {
+  background: rgba(68, 138, 255, 0.06);
+}
+
+.dc-report-empty {
+  margin: 0;
+  padding: 18px 8px;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.5;
 }

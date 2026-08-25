@@ -125,6 +125,7 @@ export function AdminEventsTabsBridge() {
     apply();
     const t1 = window.setTimeout(apply, 80);
     const t2 = window.setTimeout(apply, 300);
+    const t3 = window.setTimeout(apply, 800);
 
     const onClick = (event: MouseEvent) => {
       const target = event.target as Element | null;
@@ -150,7 +151,11 @@ export function AdminEventsTabsBridge() {
         (status === "completed" && currentPath.includes("/admin/complete18")) ||
         (status === "inactive" && currentPath.includes("/admin/inactive20"));
 
-      if (alreadyHere) return;
+      if (alreadyHere) {
+        ensureEventTabs(root, status);
+        syncSubtitle(status);
+        return;
+      }
       window.location.assign(href);
     };
 
@@ -159,6 +164,7 @@ export function AdminEventsTabsBridge() {
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      window.clearTimeout(t3);
       document.removeEventListener("click", onClick, true);
     };
   }, [pathname, searchParams]);

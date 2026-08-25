@@ -267,16 +267,20 @@ export function ProfileDataBridge() {
 
     const t1 = window.setTimeout(run, 120);
     const t2 = window.setTimeout(run, 500);
+    const poll = window.setInterval(() => void run(), 5000);
     const onProfileUpdated = () => {
       void run();
     };
     window.addEventListener("dcspace-profile-updated", onProfileUpdated);
+    window.addEventListener("focus", onProfileUpdated);
 
     return () => {
       cancelled = true;
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      window.clearInterval(poll);
       window.removeEventListener("dcspace-profile-updated", onProfileUpdated);
+      window.removeEventListener("focus", onProfileUpdated);
     };
   }, [user]);
 

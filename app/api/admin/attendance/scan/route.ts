@@ -5,14 +5,14 @@ import {
   recordRfidScan,
 } from "@/lib/user-server/record-attendance";
 
-/** Admin RFID scanner — validates registered tag, toggles tap in/out. */
+/** Admin RFID scanner — records explicit Tap In or Tap Out. */
 export async function POST(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  let body: { eventId?: string; rfidNumber?: string };
+  let body: { eventId?: string; rfidNumber?: string; action?: string };
   try {
     body = await request.json();
   } catch {
@@ -21,6 +21,7 @@ export async function POST(request: Request) {
 
   const eventId = String(body.eventId || "").trim();
   const rfidNumber = String(body.rfidNumber || "").trim();
+  const action = body.action === "out" ? "out" : "in";
   if (!eventId) {
     return NextResponse.json({ error: "eventId is required." }, { status: 400 });
   }
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     const result = await recordRfidScan({
       eventId,
       rfidNumber,
+      action,
       actor: {
         email: auth.session.email,
         name: auth.session.name,
@@ -42,6 +44,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         scan: result,
+        user: result.user,
         message:
           result.action === "in"
             ? `${result.participantName} tapped in.`

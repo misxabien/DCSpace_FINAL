@@ -10,6 +10,33 @@ export function normalizeEventStatusParam(status: string) {
 
 type ListedEvent = { id?: string; status?: string };
 
+const EVENT_LIST_CACHE_MS = 60_000;
+let cachedEventList: { events: ListedEvent[]; fetchedAt: number } | null = null;
+let eventListInflight: Promise<ListedEvent[]> | null = null;
+
+async function loadEventList() {
+  const now = Date.now();
+  if (cachedEventList && now - cachedEventList.fetchedAt < EVENT_LIST_CACHE_MS) {
+    return cachedEventList.events;
+  }
+  if (eventListInflight) return eventListInflight;
+
+  eventListInflight = (async () => {
+    const res = await fetch("/api/events?limit=80", { cache: "no-store" });
+    if (!res.ok) return cachedEventList?.events || [];
+    const payload = (await res.json()) as { events?: ListedEvent[] };
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    cachedEventList = { events, fetchedAt: Date.now() };
+    return events;
+  })();
+
+  try {
+    return await eventListInflight;
+  } finally {
+    eventListInflight = null;
+  }
+}
+
 /**
  * Event detail pages in the legacy HTML often link as `?status=pending` with no id.
  * Resolve a real Mongo event so AI + program flow can load.
@@ -18,10 +45,7 @@ export async function resolveAdminEventId(id: string, status = "") {
   const fromQuery = id.trim();
   if (fromQuery) return fromQuery;
 
-  const res = await fetch("/api/events?limit=80", { cache: "no-store" });
-  if (!res.ok) return "";
-  const payload = (await res.json()) as { events?: ListedEvent[] };
-  const events = Array.isArray(payload.events) ? payload.events : [];
+  const events = await loadEventList();
   const wanted = normalizeEventStatusParam(status);
   const match =
     (wanted ? events.find((event) => String(event.status || "") === wanted) : null) ||

@@ -34,6 +34,13 @@ type LiveEvent = {
   hasConceptPaper?: boolean;
   hasCertificateTemplate?: boolean;
   hasProgramFile?: boolean;
+  hasPoster?: boolean;
+  posterImage?: string;
+  reservationId?: string;
+  reservationStatus?: string;
+  reservationRoomId?: string;
+  reservationRoomName?: string;
+  reservationCapacity?: number | null;
   attachments?: {
     conceptPaper?: string;
     certificateTemplate?: string;
@@ -55,6 +62,39 @@ const DETAIL_PAGES = new Set([
   "/admin/rr24",
   "/admin/reject25",
 ]);
+
+const EVENT_DETAIL_CACHE_MS = 30_000;
+const eventDetailCache = new Map<string, { event: LiveEvent; fetchedAt: number }>();
+const eventDetailInflight = new Map<string, Promise<LiveEvent | null>>();
+
+async function fetchEventDetails(eventId: string) {
+  const id = eventId.trim();
+  if (!id) return null;
+
+  const cached = eventDetailCache.get(id);
+  if (cached && Date.now() - cached.fetchedAt < EVENT_DETAIL_CACHE_MS) {
+    return cached.event;
+  }
+
+  const inflight = eventDetailInflight.get(id);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const res = await fetch(`/api/events/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!res.ok) return cached?.event || null;
+    const data = (await res.json()) as { event?: LiveEvent };
+    if (!data.event) return cached?.event || null;
+    eventDetailCache.set(id, { event: data.event, fetchedAt: Date.now() });
+    return data.event;
+  })();
+
+  eventDetailInflight.set(id, promise);
+  try {
+    return await promise;
+  } finally {
+    eventDetailInflight.delete(id);
+  }
+}
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -249,22 +289,79 @@ function fillProgramFlow(root: ParentNode, event: LiveEvent) {
     : `<p class="meta-label">PROGRAM FLOW</p><p class="meta-value">No activities saved yet. Organizers can generate a list with Gemini on Create Event.</p>`;
 }
 
-function fillEventDetails(root: ParentNode, event: LiveEvent) {
-  // Wipe Figma/demo field values first so leftovers never stay on screen.
-  root.querySelectorAll(".field-box .value").forEach((el) => {
-    el.textContent = "—";
-  });
-  root.querySelectorAll(".announce-card .meta-value, .program-cards .meta-value").forEach((el) => {
-    if (!(el.textContent || "").includes("No activities")) {
-      el.textContent = "—";
+function fillEventPoster(root: ParentNode, event: LiveEvent) {
+  const posters = root.querySelectorAll<HTMLElement>(
+    ".poster, .detail-top-meta .poster, .submit-meta .poster, .detail-top-aside .poster",
+  );
+  if (!posters.length) return;
+
+  let posterUrl = (event.attachments?.poster || "").trim();
+  if (!posterUrl && event.posterImage) {
+    posterUrl = event.posterImage.startsWith("data:")
+      ? event.posterImage
+      : `data:image/jpeg;base64,${event.posterImage}`;
+  }
+  if (!posterUrl && event.hasPoster && event.id) {
+    posterUrl = `/api/events/${encodeURIComponent(event.id)}/attachments/poster`;
+  }
+
+  posters.forEach((el) => {
+    if (!posterUrl) {
+      el.hidden = true;
+      el.style.display = "none";
+      el.classList.remove("has-image");
+      el.style.removeProperty("background");
+      el.style.removeProperty("background-image");
+      el.style.removeProperty("background-size");
+      el.style.removeProperty("background-position");
+      el.style.removeProperty("background-repeat");
+      return;
     }
+
+    el.hidden = false;
+    el.style.display = "";
+    el.classList.add("has-image");
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", `${event.title || "Event"} poster`);
+    el.style.setProperty(
+      "background",
+      `center / cover no-repeat url("${posterUrl}")`,
+      "important",
+    );
   });
+}
+
+function fillEventDetails(root: ParentNode, event: LiveEvent) {
+  const host =
+    root instanceof HTMLElement ? root : (root.querySelector(".admin-legacy-root") as HTMLElement | null);
+  const previousId = host?.dataset.dcEventId || "";
+  const isSameEvent = previousId === event.id;
+
+  // Only wipe placeholders on first load or when switching events.
+  if (!isSameEvent) {
+    root.querySelectorAll(".field-box .value").forEach((el) => {
+      el.textContent = "—";
+    });
+    root.querySelectorAll(".announce-card .meta-value, .program-cards .meta-value").forEach((el) => {
+      if (!(el.textContent || "").includes("No activities")) {
+        el.textContent = "—";
+      }
+    });
+  }
+
+  if (host) {
+    host.dataset.dcEventId = event.id;
+    host.classList.add("dc-details-loaded");
+    host.classList.remove("is-loading-details");
+  }
 
   const title = root.querySelector("#event-info-card h3, .figma-detail-top h3, .detail-top-main h3");
   if (title) title.textContent = event.title || "Event";
 
   const desc = root.querySelector("#event-info-card .desc, .detail-top-main .desc");
   if (desc) desc.textContent = event.description || "No description provided.";
+
+  fillEventPoster(root, event);
 
   const setField = (label: string, value: string, scope?: ParentNode) => {
     const searchRoot = scope || root;
@@ -331,18 +428,42 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
     el.textContent = "—";
   });
 
-  // Validation card: show live venue / pending-or-approved status for pending page.
+  // Validation card: live eRoomReserve reservation sync for pending approval.
+  const reservationStatus = (event.reservationStatus || "").toLowerCase();
+  const roomValidated =
+    reservationStatus === "approved" || reservationStatus === "completed";
   const valStatus = document.getElementById("val-status");
   const valVenue = document.getElementById("val-venue");
   const valCapacity = document.getElementById("val-capacity");
   const valConflicts = document.getElementById("val-conflicts");
   if (valStatus) {
-    valStatus.textContent =
-      event.status === "pending" ? "Pending" : (event.status || "—").replace(/^\w/, (c) => c.toUpperCase());
+    if (reservationStatus === "approved" || reservationStatus === "completed") {
+      valStatus.textContent = "Validated";
+    } else if (reservationStatus === "rejected") {
+      valStatus.textContent = "Rejected";
+    } else if (reservationStatus === "cancelled") {
+      valStatus.textContent = "Cancelled";
+    } else if (reservationStatus) {
+      valStatus.textContent = reservationStatus.replace(/^\w/, (c) => c.toUpperCase());
+    } else {
+      valStatus.textContent = "Pending eRoomReserve";
+    }
   }
-  if (valVenue) valVenue.textContent = event.location || "—";
-  if (valCapacity) valCapacity.textContent = "—";
-  if (valConflicts) valConflicts.textContent = "—";
+  if (valVenue) {
+    valVenue.textContent =
+      event.reservationRoomName || event.location || "—";
+  }
+  if (valCapacity) {
+    valCapacity.textContent =
+      event.reservationCapacity != null ? String(event.reservationCapacity) : "—";
+  }
+  if (valConflicts) {
+    valConflicts.textContent = roomValidated
+      ? "None"
+      : reservationStatus === "rejected" || reservationStatus === "cancelled"
+        ? "Room not available"
+        : "Awaiting eRoomReserve";
+  }
 
   fillEventFiles(root, event);
   fillProgramFlow(root, event);
@@ -359,40 +480,65 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
 
   const actions = root.querySelector("#detail-actions");
   if (actions) {
-    actions.setAttribute("data-reservation-status", event.status);
+    actions.setAttribute(
+      "data-reservation-status",
+      roomValidated ? "Validated" : reservationStatus ? reservationStatus : "Pending",
+    );
     actions.setAttribute("data-event-id", event.id);
+    if (event.reservationId) {
+      actions.setAttribute("data-reservation-id", event.reservationId);
+    }
     ensureStatusButtons(actions, event.status);
-    showPendingReviewActions(event.status);
+    showPendingReviewActions(event.status, roomValidated, reservationStatus);
     showApprovedActionGroup(event.status);
   }
 }
 
-/** Make Approve/Reject/Revisions visible for Mongo pending events on edetails14. */
-function showPendingReviewActions(status: string) {
+/** Make Approve/Reject/Revisions visible once eRoomReserve has validated the room. */
+function showPendingReviewActions(
+  status: string,
+  roomValidated = false,
+  reservationStatus = "",
+) {
   if (status !== "pending") return;
 
-  document.body.classList.remove("is-pending-view", "is-approved-view");
-  document.body.classList.add("is-validated-view");
+  document.body.classList.remove("is-pending-view", "is-approved-view", "is-validated-view");
+  document.body.classList.add(roomValidated ? "is-validated-view" : "is-pending-view");
 
   const group = document.querySelector(
     "#detail-actions .action-group",
   ) as HTMLElement | null;
   if (group) {
     group.style.display = "flex";
+    group.querySelectorAll<HTMLButtonElement>(".action-btn.approve").forEach((btn) => {
+      btn.disabled = !roomValidated;
+      btn.title = roomValidated
+        ? "Approve event"
+        : "Waiting for eRoomReserve to approve the room reservation";
+      btn.style.opacity = roomValidated ? "" : "0.45";
+      btn.style.pointerEvents = roomValidated ? "" : "none";
+    });
   }
 
   const subtitle = document.getElementById("page-subtitle");
   if (subtitle) {
     subtitle.hidden = false;
-    subtitle.textContent = "Pending Approval";
+    subtitle.textContent = roomValidated
+      ? "eRoomReserve Validated — Ready for DC Space approval"
+      : reservationStatus === "rejected"
+        ? "eRoomReserve rejected this room"
+        : "Waiting for eRoomReserve validation";
   }
 
-  // Keep URL in sync with the view mode that shows action buttons.
+  // Keep URL in sync with the view mode that matches reservation state.
   try {
     const url = new URL(window.location.href);
-    if (url.pathname.includes("/admin/edetails14") && url.searchParams.get("status") === "pending") {
-      url.searchParams.set("status", "validated");
-      window.history.replaceState({}, "", url.toString());
+    if (url.pathname.includes("/admin/edetails14")) {
+      const nextStatus = roomValidated ? "validated" : "pending";
+      if (url.searchParams.get("status") !== nextStatus) {
+        url.searchParams.set("status", nextStatus);
+        window.history.replaceState({}, "", url.toString());
+      }
     }
   } catch {
     /* ignore */
@@ -456,11 +602,12 @@ function ensureStatusButtons(actions: Element, status: string) {
 export function AdminEventActionsBridge() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryId = searchParams.get("id") || "";
+  const statusParam = searchParams.get("status") || "";
 
   useEffect(() => {
     if (!DETAIL_PAGES.has(pathname)) return;
 
-    const queryId = searchParams.get("id") || "";
     let cancelled = false;
 
     const root = () =>
@@ -469,31 +616,52 @@ export function AdminEventActionsBridge() {
       document.body;
 
     const load = async () => {
-      const eventId = await resolveAdminEventId(queryId, searchParams.get("status") || "");
+      const rootEl = root();
+      if (rootEl instanceof HTMLElement) {
+        rootEl.classList.add("is-loading-details");
+      }
+
+      const eventId = queryId || (await resolveAdminEventId(queryId, statusParam));
       if (!eventId || cancelled) return;
       if (!queryId) {
         const next = new URL(window.location.href);
-        next.searchParams.set("id", eventId);
-        window.history.replaceState({}, "", next.toString());
+        if (next.searchParams.get("id") !== eventId) {
+          next.searchParams.set("id", eventId);
+          window.history.replaceState({}, "", next.toString());
+        }
       }
       try {
-        const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
-        if (!res.ok) return;
-        const data = (await res.json()) as { event?: LiveEvent };
-        if (data.event && !cancelled) {
-          fillEventDetails(root(), data.event);
-          // Re-apply after legacy scripts that toggle is-pending-view from ?status=
-          window.setTimeout(() => {
-            if (!cancelled) showPendingReviewActions(data.event!.status);
-          }, 120);
-          window.setTimeout(() => {
-            if (!cancelled) showPendingReviewActions(data.event!.status);
-          }, 400);
+        const cached = eventDetailCache.get(eventId);
+        if (cached && !cancelled) {
+          fillEventDetails(rootEl, cached.event);
+          showPendingReviewActions(
+            cached.event.status,
+            cached.event.reservationStatus === "approved" ||
+              cached.event.reservationStatus === "completed",
+            cached.event.reservationStatus || "",
+          );
+        }
+
+        const event = await fetchEventDetails(eventId);
+        if (event && !cancelled) {
+          window.requestAnimationFrame(() => {
+            if (cancelled) return;
+            fillEventDetails(rootEl, event);
+            showPendingReviewActions(
+              event.status,
+              event.reservationStatus === "approved" ||
+                event.reservationStatus === "completed",
+              event.reservationStatus || "",
+            );
+          });
         }
       } catch {
         /* keep static */
       }
     };
+
+    void load();
+    const poll = window.setInterval(() => void load(), 8000);
 
     const onClick = async (event: MouseEvent) => {
       const target = event.target as Element | null;
@@ -539,6 +707,7 @@ export function AdminEventActionsBridge() {
       btn.textContent = "Saving…";
       try {
         const updated = await patchEvent(id, { status, reviewNote });
+        eventDetailCache.set(id, { event: updated, fetchedAt: Date.now() });
         fillEventDetails(root(), updated);
         const reviewAction = isApprove
           ? "approve"
@@ -573,8 +742,9 @@ export function AdminEventActionsBridge() {
       document.removeEventListener("click", onClick, true);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      window.clearInterval(poll);
     };
-  }, [pathname, searchParams]);
+  }, [pathname, queryId]);
 
   return null;
 }

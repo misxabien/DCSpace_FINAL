@@ -49,6 +49,7 @@ export async function POST(request: Request, context: RouteContext) {
     const report = await generateAndStoreEventReport({
       eventId: id,
       generatedByEmail: auth.session.email,
+      generatedByName: auth.session.name,
       trigger: "manual",
     });
     return NextResponse.json({ report });

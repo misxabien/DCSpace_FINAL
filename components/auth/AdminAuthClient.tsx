@@ -3,6 +3,7 @@
 import { Suspense, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { AdminLoginBridge } from "@/components/auth/AdminLoginBridge";
+import { AdminRegisterBridge } from "@/components/auth/AdminRegisterBridge";
 import { AdminDataBridge } from "@/components/auth/AdminDataBridge";
 import { AdminEventActionsBridge } from "@/components/auth/AdminEventActionsBridge";
 import { AdminEventsTabsBridge } from "@/components/auth/AdminEventsTabsBridge";
@@ -49,8 +50,9 @@ function AdminBridges() {
   return (
     <>
       <AdminLoginBridge />
-      <AdminDataBridge />
       <Suspense fallback={null}>
+        <AdminRegisterBridge />
+        <AdminDataBridge />
         <AdminEventsTabsBridge />
         <AdminEventActionsBridge />
         <AdminOpsBridge />
