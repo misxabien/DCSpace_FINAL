@@ -56,6 +56,11 @@ export type SpaceEvent = {
   reservationRoomId?: string;
   reservationRoomName?: string;
   reservationCapacity?: number;
+  /** Faculty adviser email for Main Campus student on-campus events. */
+  advisorEmail?: string;
+  /** Last outbound eRoomReserve sync error (if any). */
+  reservationSyncError?: string;
+  reservationSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -133,6 +138,9 @@ export function sanitizeEvent(
     reservationRoomName: doc.reservationRoomName || "",
     reservationCapacity:
       typeof doc.reservationCapacity === "number" ? doc.reservationCapacity : null,
+    advisorEmail: doc.advisorEmail || "",
+    reservationSyncError: doc.reservationSyncError || "",
+    reservationSyncedAt: doc.reservationSyncedAt || "",
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

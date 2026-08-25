@@ -12,6 +12,12 @@ import {
   type SpaceEvent,
 } from "@/lib/events/types";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
+import {
+  assertSameManilaDay,
+  createEroomReserveReservation,
+  isOnCampusVenue,
+  normalizeEventTimestamp,
+} from "@/lib/integrations/eroomreserve-create";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 
@@ -144,6 +150,7 @@ export async function POST(request: Request) {
     posterImageMimeType?: string;
     status?: EventStatus;
     reservationId?: string;
+    advisorEmail?: string;
   };
   try {
     body = await request.json();
@@ -216,6 +223,7 @@ export async function POST(request: Request) {
     posterImageMimeType: String(body.posterImageMimeType || "").trim(),
     status,
     reservationId: String(body.reservationId || "").trim() || undefined,
+    advisorEmail: String(body.advisorEmail || "").trim() || undefined,
     submittedByPortal: actor.kind === "admin" ? "admin" : "user",
     createdAt: now,
     updatedAt: now,
@@ -237,6 +245,102 @@ export async function POST(request: Request) {
   try {
     const db = await getUserDb();
     const result = await eventsCollection(db).insertOne(doc);
+    const eventId = result.insertedId.toString();
+    let reservationSync:
+      | { ok: true; reservationId: string; reused?: boolean }
+      | { ok: false; error: string; details?: string }
+      | null = null;
+
+    if (isOnCampusVenue(doc.venueType)) {
+      const organizerEmail =
+        doc.organizerEmail ||
+        (actor.kind === "user"
+          ? actor.email
+          : actor.kind === "admin"
+            ? actor.session.email
+            : actor.session.email);
+
+      try {
+        const startAt = normalizeEventTimestamp(String(doc.startsAt || ""));
+        const endAt = normalizeEventTimestamp(String(doc.endsAt || ""));
+        assertSameManilaDay(startAt, endAt);
+
+        const locationLabel = String(doc.location || "").trim();
+        if (!locationLabel) {
+          throw new Error("Venue is required for on-campus room reservations.");
+        }
+
+        const syncResult = await createEroomReserveReservation({
+          dcSpaceEventId: eventId,
+          eventTitle: doc.title,
+          startAt,
+          endAt,
+          requestedByEmail: organizerEmail,
+          locationLabel,
+          advisorEmail: doc.advisorEmail,
+        });
+
+        if (syncResult.ok) {
+          reservationSync = {
+            ok: true,
+            reservationId: syncResult.reservationId,
+            reused: syncResult.reused,
+          };
+          await eventsCollection(db).updateOne(
+            { _id: result.insertedId },
+            {
+              $set: {
+                reservationId: syncResult.reservationId,
+                reservationStatus: "pending",
+                reservationRoomName: locationLabel,
+                reservationSyncError: "",
+                reservationSyncedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          );
+          doc.reservationId = syncResult.reservationId;
+          doc.reservationStatus = "pending";
+          doc.reservationRoomName = locationLabel;
+          doc.reservationSyncError = "";
+          doc.reservationSyncedAt = new Date().toISOString();
+        } else {
+          reservationSync = {
+            ok: false,
+            error: syncResult.error,
+            details: syncResult.details,
+          };
+          await eventsCollection(db).updateOne(
+            { _id: result.insertedId },
+            {
+              $set: {
+                reservationSyncError: syncResult.error,
+                reservationSyncedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          );
+          doc.reservationSyncError = syncResult.error;
+          doc.reservationSyncedAt = new Date().toISOString();
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Reservation sync failed.";
+        reservationSync = { ok: false, error: message };
+        await eventsCollection(db).updateOne(
+          { _id: result.insertedId },
+          {
+            $set: {
+              reservationSyncError: message,
+              reservationSyncedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        );
+        doc.reservationSyncError = message;
+        doc.reservationSyncedAt = new Date().toISOString();
+      }
+    }
+
     const event = sanitizeEvent({ ...doc, _id: result.insertedId });
 
     void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
@@ -262,7 +366,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ event }, { status: 201 });
+    return NextResponse.json({ event, reservationSync }, { status: 201 });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

@@ -222,6 +222,8 @@ export function CreateEventView() {
   const [endTime, setEndTime] = useState("");
   const [venue, setVenue] = useState("");
   const [venueType, setVenueType] = useState("");
+  const [advisorEmail, setAdvisorEmail] = useState("");
+  const [reservationNotice, setReservationNotice] = useState("");
 
   const [announcements, setAnnouncements] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("everyone");
@@ -379,6 +381,9 @@ export function CreateEventView() {
     if (!startTime || !endTime) return "Start & End Time are required.";
     if (!venue.trim()) return "Venue is required.";
     if (!venueType) return "Venue Type is required.";
+    if (venueType === "On Campus" && !venue.trim()) {
+      return "Enter the exact eRoomReserve room name (for example, DRA HALL).";
+    }
     return "";
   };
 
@@ -464,7 +469,8 @@ export function CreateEventView() {
     }
   };
 
-  const saveEvent = () => {
+  const saveEvent = async () => {
+    setReservationNotice("");
     const next: OrganizedEvent = {
       id: editingId || `evt-${Date.now()}`,
       title: eventName.trim(),
@@ -496,6 +502,7 @@ export function CreateEventView() {
       attendanceRequired: minAttendance.trim(),
       gracePeriod: gracePeriod.trim(),
       venueType: venueType.trim(),
+      advisorEmail: advisorEmail.trim(),
       announcements: announcements.trim(),
       allowedCourses: attendTags,
       speakers,
@@ -538,15 +545,41 @@ export function CreateEventView() {
     }
 
     const endpoint = editingId ? `/api/events/${encodeURIComponent(editingId)}` : "/api/events";
-    void fetch(endpoint, {
-      method: editingId ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => {
-      /* local organizer list still saved */
-    }).finally(() => {
+    try {
+      const res = await fetch(endpoint, {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        reservationSync?: { ok?: boolean; error?: string; details?: string; reservationId?: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save event.");
+      }
+      if (venueType === "On Campus" && data.reservationSync && !data.reservationSync.ok) {
+        setReservationNotice(
+          data.reservationSync.error ||
+            "Event saved, but eRoomReserve could not create the room reservation yet.",
+        );
+        window.alert(
+          `Event submitted, but eRoomReserve reservation failed:\n\n${data.reservationSync.error || "Unknown error"}${
+            data.reservationSync.details ? `\n\n${data.reservationSync.details}` : ""
+          }\n\nCheck that your venue name matches eRoomReserve exactly and your account email is approved there.`,
+        );
+      } else if (venueType === "On Campus" && data.reservationSync?.ok) {
+        setReservationNotice(
+          `Room reservation ${data.reservationSync.reservationId ? `#${data.reservationSync.reservationId} ` : ""}sent to eRoomReserve for approval.`,
+        );
+      }
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Failed to save event.");
+      return;
+    } finally {
       window.dispatchEvent(new Event("dc-organized-changed"));
-    });
+    }
 
     router.push("/organized");
   };
@@ -578,7 +611,7 @@ export function CreateEventView() {
         : "Parent's Consent Form"
       : "None";
 
-  const onContinue = (event: FormEvent) => {
+  const onContinue = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
 
@@ -621,7 +654,7 @@ export function CreateEventView() {
       return;
     }
 
-    saveEvent();
+    await saveEvent();
   };
 
   return (
@@ -864,6 +897,27 @@ export function CreateEventView() {
                       </select>
                     </div>
                   </div>
+
+                  {venueType === "On Campus" ? (
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="advisor-email">
+                        Faculty Adviser Email
+                      </label>
+                      <input
+                        id="advisor-email"
+                        className={styles.input}
+                        type="email"
+                        value={advisorEmail}
+                        onChange={(e) => setAdvisorEmail(e.target.value)}
+                        placeholder="advisor@sdca.edu.ph"
+                      />
+                      <span className={styles.hint}>
+                        Required for Main Campus student events in eRoomReserve. Use the exact room
+                        name above (for example, DRA HALL). A reservation is created automatically
+                        when you submit.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -1352,15 +1406,11 @@ export function CreateEventView() {
                   </div>
 
                   <div className={styles.docHead}>
-                    <span className={styles.fieldLabel}>Room Reservation Form*</span>
-                    <button type="button" className={styles.iroomBtn}>
-                      iRoom Reserve
-                      <span className={styles.iroomArrow} aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <path d="M9 18l6-6-6-6" />
-                        </svg>
-                      </span>
-                    </button>
+                    <span className={styles.fieldLabel}>Room Reservation</span>
+                    <span className={styles.hint}>
+                      On-campus events automatically create an eRoomReserve reservation when you
+                      submit.
+                    </span>
                   </div>
                 </div>
               </div>
