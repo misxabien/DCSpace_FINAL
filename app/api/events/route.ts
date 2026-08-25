@@ -254,7 +254,10 @@ export async function POST(request: Request) {
     programFileBase64,
     programFileVisibility,
     posterImageBase64: String(body.posterImageBase64 || "").trim(),
-    posterImageMimeType: String(body.posterImageMimeType || "").trim(),
+    posterImageMimeType:
+      String(body.posterImageMimeType || "").trim() ||
+      (String(body.posterImageBase64 || "").trim() ? "image/jpeg" : ""),
+    hasPoster: Boolean(String(body.posterImageBase64 || "").trim()),
     status,
     reservationId: String(body.reservationId || "").trim() || undefined,
     submittedByPortal: actor.kind === "admin" ? "admin" : "user",

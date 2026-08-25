@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import {
   fetchProfile,
   readAuthSession,
+  applyUserDisplayNameToDom,
+  resolveUserDisplayName,
   saveAuthSession,
   syncProfileToLegacyStorage,
   updateProfile,
@@ -114,9 +116,7 @@ function applyProfileToDom(profile: UserProfile) {
   const fullName =
     profile.fullName || `${profile.firstName || ""} ${profile.lastName || ""}`.trim();
 
-  document.querySelectorAll(".main__user-name").forEach((el) => {
-    el.textContent = fullName || "Your Name";
-  });
+  applyUserDisplayNameToDom(fullName || profile.email || "");
 
   // Home greeting: "Hello, User Name!" → registered account name
   document.querySelectorAll(".main__greeting").forEach((el) => {
@@ -207,6 +207,7 @@ export function useProfileHydration() {
     }
 
     if (!session?.user) {
+      applyUserDisplayNameToDom(resolveUserDisplayName());
       return;
     }
 

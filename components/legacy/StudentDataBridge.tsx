@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   bucketCategory,
   mapDbEventToCard,
+  resolveEventImageUrl,
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
@@ -188,6 +189,7 @@ function fallbackAttendanceCard(
     filesApproved: true,
     description: "",
     announcements: "",
+    imageUrl: "",
     speakers: [],
     programActivities: [],
     collaboratingDepartments: [],
@@ -263,11 +265,20 @@ function refreshLegacyEventViews(pathname: string) {
     }
   }
 
+  const detailId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("id")
+      : null;
+
   if (pathname.startsWith("/events/details") && window.DCEvents.renderEventDetails) {
     window.DCEvents.renderEventDetails();
+    window.DCEvents.bindDetailBack?.("/home");
+    if (detailId) window.DCEvents.wireDetailActions?.(detailId);
   }
   if (pathname.startsWith("/events/explore") && window.DCEvents.renderExploreDetails) {
     window.DCEvents.renderExploreDetails();
+    window.DCEvents.bindDetailBack?.("/events");
+    if (detailId) window.DCEvents.wireDetailActions?.(detailId);
   }
   if (pathname.startsWith("/attendance/details") && window.DCEvents.renderAttendanceDetails) {
     window.DCEvents.renderAttendanceDetails();
@@ -278,13 +289,37 @@ function refreshLegacyEventViews(pathname: string) {
   }
   if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
     window.DCEvents.renderSubmitPage();
+    window.DCEvents.bindDetailBack?.("/events");
   }
 
   if (pathname.startsWith("/saved")) {
-    ["saved-grid"].forEach((id) => {
-      if (!document.getElementById(id)) return;
+    const savedTargets: Array<{ id: string; timing: string }> = [];
+    if (document.getElementById("saved-today-grid")) {
+      savedTargets.push({ id: "saved-today-grid", timing: "today" });
+    }
+    if (document.getElementById("saved-upcoming-grid")) {
+      savedTargets.push({ id: "saved-upcoming-grid", timing: "upcoming" });
+    }
+    if (document.getElementById("saved-past-grid")) {
+      savedTargets.push({ id: "saved-past-grid", timing: "past" });
+    }
+    if (document.getElementById("saved-grid")) {
+      const timing = pathname.includes("/today")
+        ? "today"
+        : pathname.includes("/upcoming")
+          ? "upcoming"
+          : pathname.includes("/past")
+            ? "past"
+            : "upcoming";
+      savedTargets.push({ id: "saved-grid", timing });
+    }
+    savedTargets.forEach(({ id, timing }) => {
       try {
-        window.DCEvents?.fillSavedContainer?.(id, { detailContext: "explore" });
+        window.DCEvents?.fillSavedContainer?.(id, {
+          timing,
+          detailContext: "explore",
+          limit: 50,
+        });
       } catch {
         /* ignore */
       }
@@ -405,7 +440,11 @@ function notifIconClass(type: string) {
 function studentNotifBellTargets() {
   return Array.from(
     document.querySelectorAll<HTMLElement>(
-      'a.tool-btn--notif[href="/notifications"], a.tool-btn[href="/notifications"]',
+      [
+        'a.tool-btn--notif[href="/notifications"]',
+        'a.tool-btn[href="/notifications"]',
+        'a[href="/notifications"][aria-label*="Notification" i]',
+      ].join(", "),
     ),
   );
 }
@@ -413,6 +452,10 @@ function studentNotifBellTargets() {
 function setStudentNotifBadge(unreadCount: number) {
   const hasUnread = unreadCount > 0;
   for (const el of studentNotifBellTargets()) {
+    el.classList.add("tool-btn--notif");
+    if (getComputedStyle(el).position === "static") {
+      el.style.position = "relative";
+    }
     el.classList.toggle("has-unread", hasUnread);
     let dot = el.querySelector<HTMLElement>(".notif-unread-dot");
     if (!dot) {
@@ -422,20 +465,24 @@ function setStudentNotifBadge(unreadCount: number) {
       el.appendChild(dot);
     }
     dot.hidden = !hasUnread;
-    el.setAttribute(
-      "aria-label",
-      hasUnread
-        ? unreadCount === 1
+    if (hasUnread) {
+      el.setAttribute("data-unread-count", String(unreadCount));
+      el.setAttribute(
+        "aria-label",
+        unreadCount === 1
           ? "Notifications, 1 unread"
-          : `Notifications, ${unreadCount} unread`
-        : "Notifications",
-    );
+          : `Notifications, ${unreadCount} unread`,
+      );
+    } else {
+      el.removeAttribute("data-unread-count");
+      el.setAttribute("aria-label", "Notifications");
+    }
   }
 }
 
 async function updateStudentNotifBadge() {
   try {
-    const res = await fetch("/api/user/notifications", {
+    const res = await fetch("/api/user/notifications?light=1", {
       cache: "no-store",
       credentials: "include",
     });
@@ -446,17 +493,33 @@ async function updateStudentNotifBadge() {
     const unread = (data.notifications || []).filter((item) => !item.read).length;
     setStudentNotifBadge(unread);
   } catch {
-    /* ignore */
+    /* ignore aborted/network errors (Safari "Load failed") */
   }
 }
 
 async function markStudentNotificationRead(id: string) {
-  await fetch("/api/user/notifications", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ id, read: true }),
-  });
+  try {
+    await fetch("/api/user/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      // keepalive so the write still finishes if we navigate away immediately
+      keepalive: true,
+      body: JSON.stringify({ id, read: true }),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function markNotificationItemReadUi(btn: HTMLElement) {
+  btn.classList.remove("is-highlighted");
+  const tags = (btn.getAttribute("data-filter-tags") || "")
+    .split(/\s+/)
+    .filter((tag) => tag && tag !== "unread");
+  if (!tags.includes("all")) tags.unshift("all");
+  if (!tags.includes("recent")) tags.push("recent");
+  btn.setAttribute("data-filter-tags", tags.join(" "));
 }
 
 function wireStudentNotificationClicks() {
@@ -467,14 +530,29 @@ function wireStudentNotificationClicks() {
     if (!btn) return;
     const id = btn.getAttribute("data-notif-id");
     const eventId = btn.getAttribute("data-event-id");
-    if (id && btn.classList.contains("is-highlighted")) {
-      btn.classList.remove("is-highlighted");
-      void markStudentNotificationRead(id).then(() => void updateStudentNotifBadge());
+    const wasUnread =
+      btn.classList.contains("is-highlighted") ||
+      (btn.getAttribute("data-filter-tags") || "").includes("unread");
+
+    // Always stop legacy handlers; we own navigation after mark-read.
+    event.preventDefault();
+    event.stopPropagation();
+
+    const finish = () => {
+      void updateStudentNotifBadge();
+      window.dispatchEvent(new CustomEvent("dc-notifications-rendered"));
+      if (eventId) {
+        window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
+      }
+    };
+
+    if (id && wasUnread) {
+      markNotificationItemReadUi(btn);
+      void markStudentNotificationRead(id).finally(finish);
+      return;
     }
-    if (eventId) {
-      event.preventDefault();
-      window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
-    }
+
+    finish();
   });
 }
 
@@ -634,6 +712,47 @@ export function StudentDataBridge() {
           }
 
           live = applyAttendanceCategories(live, liveBuckets);
+          // Keep posters on attendance cards (same media strip as Events).
+          live = live.map((event) => {
+            if (event.imageUrl) return event;
+            const source = events.find((row) => String(row.id) === String(event.id));
+            if (!source) return event;
+            const imageUrl = resolveEventImageUrl(source);
+            return imageUrl ? { ...event, imageUrl } : event;
+          });
+          // Fallback cards / stale portal rows: resolve poster flags without downloading blobs.
+          const needsPosterMeta = live
+            .filter((event) => !event.imageUrl && event.id)
+            .slice(0, 24);
+          if (needsPosterMeta.length) {
+            const resolved = await Promise.all(
+              needsPosterMeta.map(async (event) => {
+                try {
+                  const res = await authFetch(
+                    `/api/events/${encodeURIComponent(String(event.id))}?light=1`,
+                    { cache: "no-store" },
+                  );
+                  if (!res.ok) return event;
+                  const payload = (await res.json()) as { event?: SanitizedEvent };
+                  if (!payload.event) return event;
+                  const imageUrl = resolveEventImageUrl(payload.event);
+                  const merged = mapDbEventToCard(
+                    payload.event,
+                    String(event.category || bucketCategory(payload.event)),
+                  );
+                  return {
+                    ...merged,
+                    category: event.category || merged.category,
+                    imageUrl: imageUrl || merged.imageUrl || "",
+                  };
+                } catch {
+                  return event;
+                }
+              }),
+            );
+            const byId = new Map(resolved.map((row) => [String(row.id), row]));
+            live = live.map((event) => byId.get(String(event.id)) || event);
+          }
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           live = live.map((event) => {
@@ -667,8 +786,28 @@ export function StudentDataBridge() {
         }
 
         window.DCEvents.list = live;
+        if (
+          pathname.startsWith("/events/details") ||
+          pathname.startsWith("/events/explore") ||
+          pathname.startsWith("/events/submit") ||
+          pathname.startsWith("/attendance/details")
+        ) {
+          const detailId = new URLSearchParams(window.location.search).get("id");
+          if (detailId) {
+            await ensureFullEventInList(detailId);
+          }
+        }
         if (pathname.startsWith("/attendance/details")) {
           window.DCEvents.renderAttendanceDetails?.();
+        }
+        if (pathname.startsWith("/events/details")) {
+          window.DCEvents.renderEventDetails?.();
+        }
+        if (pathname.startsWith("/events/explore")) {
+          window.DCEvents.renderExploreDetails?.();
+        }
+        if (pathname.startsWith("/events/submit")) {
+          window.DCEvents.renderSubmitPage?.();
         }
         if (pathname.startsWith("/attendance") && !pathname.startsWith("/attendance/details")) {
           const grids = ["attendance-today-grid", "attendance-completed-grid", "attendance-incomplete-grid"];
@@ -707,7 +846,11 @@ export function StudentDataBridge() {
         const data = (await res.json()) as { eventIds?: string[] };
         if (Array.isArray(data.eventIds)) {
           setSavedEventIds(data.eventIds);
-          window.DCEvents?.fillSavedContainer?.("saved-grid", { detailContext: "explore" });
+          if (pathname.startsWith("/saved")) {
+            refreshLegacyEventViews(pathname);
+          } else {
+            window.DCEvents?.fillSavedContainer?.("saved-grid", { detailContext: "explore" });
+          }
         }
       } catch {
         /* local only */
@@ -800,108 +943,27 @@ export function StudentDataBridge() {
       }, true);
     };
 
-    const wireAttendanceTap = () => {
-      if (!pathname.startsWith("/attendance")) return;
-      const params = new URLSearchParams(window.location.search);
-      const eventId = params.get("id");
-      if (!eventId || pathname !== "/attendance/details") return;
-
-      const footer = document.querySelector(".rfid-panel__footer");
-      if (!footer) return;
-
-      const ensureButton = (
-        id: string,
-        label: string,
-        action: "in" | "out",
-        active: boolean,
-      ) => {
-        let button = document.getElementById(id) as HTMLButtonElement | null;
-        if (!button) {
-          button = document.createElement("button");
-          button.type = "button";
-          button.id = id;
-          button.className = `rfid-sort__btn${active ? " is-active" : ""}`;
-          footer.prepend(button);
-        }
-        button.textContent = label;
-        if (button.dataset.dcWired === "1") return;
-        button.dataset.dcWired = "1";
-        button.addEventListener("click", async () => {
-          button!.disabled = true;
-          try {
-            const res = await fetch("/api/user/attendance", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                eventId,
-                eventName: document.getElementById("detail-name")?.textContent || "",
-                action,
-              }),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-              window.alert(data.error || `Failed to tap ${action}.`);
-              return;
-            }
-            if (data.duplicate) {
-              window.alert(
-                action === "in"
-                  ? "You are already tapped in for this event."
-                  : "Tap out was already recorded.",
-              );
-            } else if (data.certificate?.id) {
-              window.alert(
-                "Attendance completed. Your certificate is now available in Certificates.",
-              );
-            } else {
-              window.alert(
-                action === "in"
-                  ? "Tap in recorded to your account."
-                  : "Tap out recorded to your account.",
-              );
-            }
-            try {
-              window.sessionStorage.setItem("dc_attendance_bump", String(Date.now()));
-            } catch {
-              /* ignore */
-            }
-            invalidatePortalCache();
-            void injectAttendanceRfid();
-            void injectEvents();
-            window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
-          } catch {
-            window.alert(`Failed to tap ${action}.`);
-          } finally {
-            button!.disabled = false;
-          }
-        });
-      };
-
-      ensureButton("dc-tap-in-btn", "Tap In", "in", true);
-      ensureButton("dc-tap-out-btn", "Tap Out", "out", false);
-
-      let note = document.getElementById("dc-attendance-rfid-note");
-      if (!note) {
-        note = document.createElement("p");
-        note.id = "dc-attendance-rfid-note";
-        note.style.cssText = "margin:0 0 10px;font-size:13px;color:#64748b;line-height:1.4;";
-        footer.prepend(note);
+    const clearManualAttendanceTaps = () => {
+      document.getElementById("dc-tap-in-btn")?.remove();
+      document.getElementById("dc-tap-out-btn")?.remove();
+      const note = document.getElementById("dc-attendance-rfid-note");
+      if (note) {
+        note.textContent =
+          "Tap in and tap out are recorded at the venue by the admin live RFID scanner. This page refreshes your records in real time.";
       }
-      note.textContent =
-        "RFID tap in/out at the venue is saved to MongoDB instantly. This page refreshes your records in real time.";
     };
 
     const injectAttendanceRfid = async () => {
       if (pathname !== "/attendance/details" || !window.DCEvents) return;
       const eventId = new URLSearchParams(window.location.search).get("id");
       if (!eventId) return;
+      clearManualAttendanceTaps();
       document.getElementById("dc-attendance-history")?.remove();
       try {
         await ensureFullEventInList(eventId);
 
         const attendanceRes = await authFetch(
-          `/api/user/attendance?eventId=${encodeURIComponent(eventId)}`,
+          `/api/user/attendance?eventId=${encodeURIComponent(eventId)}&source=live`,
           { cache: "no-store" },
         );
 
@@ -982,14 +1044,14 @@ export function StudentDataBridge() {
           banner = document.createElement("p");
           banner.id = "dc-attendance-status";
           banner.style.cssText =
-            "margin:0 0 12px;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.4;";
+            "margin:0 0 12px;padding:10px 14px;border-radius:16px;font-size:13px;line-height:1.4;";
           statusHost.prepend(banner);
         }
         if (banner) {
           if (openIn) {
             banner.style.background = "#ecfdf5";
             banner.style.color = "#047857";
-            banner.textContent = `You are currently tapped in (since ${formatAttendanceStamp(openIn)}). Tap out when you leave.`;
+            banner.textContent = `You are currently tapped in (since ${formatAttendanceStamp(openIn)}). Tap out at the venue when you leave.`;
           } else if (qualified) {
             banner.style.background = "#eff6ff";
             banner.style.color = "#1d4ed8";
@@ -998,12 +1060,12 @@ export function StudentDataBridge() {
           } else if (logs.length > 0) {
             banner.style.background = "#f8fafc";
             banner.style.color = "#475569";
-            banner.textContent = `${logs.length} tap record${logs.length === 1 ? "" : "s"} loaded from your account.`;
+            banner.textContent = `${logs.length} tap record${logs.length === 1 ? "" : "s"} from the venue RFID scanner.`;
           } else {
             banner.style.background = "#fffbeb";
             banner.style.color = "#b45309";
             banner.textContent =
-              "No attendance yet. Tap in at the venue with your RFID tag (or use Tap In below).";
+              "No attendance yet. Tap in at the venue with your RFID tag — recorded by the live attendance scanner.";
           }
         }
 
@@ -1141,24 +1203,26 @@ export function StudentDataBridge() {
         const certs = data.certificates || [];
         if (!window.DCCertificates) return;
         window.DCCertificates.list = certs;
-        ["cert-today-grid", "cert-weekend-grid", "cert-month-grid", "cert-grid"].forEach(
-          (id) => {
-            if (!document.getElementById(id)) return;
-            try {
-              window.DCCertificates?.fillCertificateContainer?.(
-                id,
-                id.includes("today")
-                  ? "cert-today"
-                  : id.includes("weekend")
-                    ? "cert-weekend"
-                    : "cert-month",
-                12,
-              );
-            } catch {
-              /* ignore */
-            }
-          },
-        );
+        const certTargets: Array<{ id: string; category: string }> = [
+          { id: "cert-today-grid", category: "cert-today" },
+          { id: "cert-weekend-grid", category: "cert-weekend" },
+          { id: "cert-month-grid", category: "cert-month" },
+        ];
+        if (pathname.startsWith("/certificates/weekend")) {
+          certTargets.push({ id: "cert-grid", category: "cert-weekend" });
+        } else if (pathname.startsWith("/certificates/today")) {
+          certTargets.push({ id: "cert-grid", category: "cert-today" });
+        } else {
+          certTargets.push({ id: "cert-grid", category: "cert-month" });
+        }
+        certTargets.forEach(({ id, category }) => {
+          if (!document.getElementById(id)) return;
+          try {
+            window.DCCertificates?.fillCertificateContainer?.(id, category, 12);
+          } catch {
+            /* ignore */
+          }
+        });
       } catch {
         /* keep mock */
       }
@@ -1187,14 +1251,19 @@ export function StudentDataBridge() {
         setStudentNotifBadge(items.filter((item) => !item.read).length);
         if (pathname !== "/notifications") return;
         const todayList = document.getElementById("notif-today-list");
-        const yesterdayList = document.getElementById("notif-yesterday-list") ||
+        const yesterdayList =
+          document.getElementById("notif-yesterday-list") ||
           document.querySelector('[data-group="yesterday"] .notif-list');
         if (!todayList) return;
 
-        const renderList = (
-          host: Element,
-          rows: typeof items,
-        ) => {
+        const escapeHtml = (value: string) =>
+          String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+
+        const renderList = (host: Element, rows: typeof items) => {
           if (!rows.length) {
             host.innerHTML = "";
             return;
@@ -1203,32 +1272,46 @@ export function StudentDataBridge() {
             .map((item) => {
               const highlighted = item.read ? "" : " is-highlighted";
               const tags = item.read ? "all recent" : "all recent unread";
+              const search = escapeHtml(`${item.title} ${item.body}`.toLowerCase());
               return `<li>
-                <button type="button" class="notif-item${highlighted}" data-notif-id="${item.id}" data-event-id="${item.eventId || ""}" data-filter-tags="${tags}" data-search="${item.title} ${item.body}">
+                <button type="button" class="notif-item${highlighted}" data-notif-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId || "")}" data-filter-tags="${tags}" data-search="${search}">
                   <span class="${notifIconClass(item.type)}" aria-hidden="true">
                     <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                   </span>
                   <span class="notif-item__body">
-                    <span class="notif-item__title">${item.title}</span>
-                    <span class="notif-item__desc">${item.body}</span>
+                    <span class="notif-item__title">${escapeHtml(item.title)}</span>
+                    <span class="notif-item__desc">${escapeHtml(item.body)}</span>
                   </span>
-                  <span class="notif-item__time">${timeAgo(item.createdAt)}</span>
+                  <span class="notif-item__time">${escapeHtml(timeAgo(item.createdAt))}</span>
                 </button>
               </li>`;
             })
             .join("");
         };
 
-        renderList(todayList, items.filter((item) => isSameDay(item.createdAt)));
+        const todayRows = items.filter((item) => isSameDay(item.createdAt));
+        const earlierRows = items.filter((item) => !isSameDay(item.createdAt));
+        renderList(todayList, todayRows);
         if (yesterdayList) {
-          renderList(
-            yesterdayList,
-            items.filter((item) => !isSameDay(item.createdAt)),
-          );
+          renderList(yesterdayList, earlierRows);
         }
 
+        const todayGroup = todayList.closest(".notif-group") as HTMLElement | null;
+        const yesterdayGroup = yesterdayList?.closest(".notif-group") as HTMLElement | null;
+        if (todayGroup) todayGroup.hidden = todayRows.length === 0;
+        if (yesterdayGroup) yesterdayGroup.hidden = earlierRows.length === 0;
+
         const empty = document.getElementById("notif-empty");
-        if (empty) empty.hidden = items.length > 0;
+        if (empty) {
+          empty.hidden = items.length > 0;
+          empty.textContent =
+            items.length > 0
+              ? "No notifications match your search."
+              : "No notifications yet.";
+        }
+
+        // Re-bind legacy tab/search filters against the live DOM nodes.
+        window.dispatchEvent(new CustomEvent("dc-notifications-rendered"));
       } catch {
         /* keep static markup */
       }
@@ -1332,12 +1415,13 @@ export function StudentDataBridge() {
       void injectEvents();
       void syncSaved();
       wireFeedbackForm();
-      wireAttendanceTap();
+      clearManualAttendanceTaps();
       void injectAttendanceRfid();
       void injectFeedbackList();
       void injectCertificates();
-      void injectNotifications();
-      void updateStudentNotifBadge();
+      if (pathname === "/notifications") {
+        void injectNotifications();
+      }
     };
 
     const t1 = window.setTimeout(run, 80);
@@ -1348,11 +1432,13 @@ export function StudentDataBridge() {
       ? 1500
       : pathname.startsWith("/attendance")
         ? 3000
-        : pathname === "/home" || pathname.startsWith("/events")
-          ? 5000
-          : 8000;
+        : pathname === "/notifications"
+          ? 10_000
+          : pathname === "/home" || pathname.startsWith("/events")
+            ? 5000
+            : 8000;
     const poll = window.setInterval(run, pollMs);
-    const notifBadgePoll = window.setInterval(() => void updateStudentNotifBadge(), 4000);
+    // Badge polling is owned by UserNotifBadgeBridge — avoid duplicate fetches.
     const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
 
     const onFocusRefresh = () => {
@@ -1362,7 +1448,7 @@ export function StudentDataBridge() {
       }
       if (pathname.startsWith("/feedback")) void injectFeedbackList();
       if (pathname.startsWith("/certificates")) void injectCertificates();
-      void updateStudentNotifBadge();
+      if (pathname === "/notifications") void injectNotifications();
     };
     const onPortalInvalidated = () => {
       void fetchPortalData(true).then(() => run());
@@ -1378,7 +1464,6 @@ export function StudentDataBridge() {
       window.clearTimeout(t3);
       window.clearTimeout(aiTimer);
       window.clearInterval(poll);
-      window.clearInterval(notifBadgePoll);
       window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);
       window.removeEventListener("dc-join-event", onJoinEvent as EventListener);

@@ -21,16 +21,27 @@ export async function POST(request: Request) {
     return withCors(
       NextResponse.json({
         message: result.devMode
-          ? "Reset code ready. Check the terminal where the server is running."
-          : "If this email is registered, a verification code was sent.",
+          ? "Reset code ready. Check the terminal where npm run dev is running (SMTP unavailable or fallback enabled)."
+          : "If this email is registered, a verification code was sent. Check your inbox and spam folder.",
         email: result.email,
         expiresAt: result.expiresAt,
+        ...(result.devMode && result.code
+          ? { debugHint: "Code printed in server terminal." }
+          : {}),
       }),
     );
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
+    const isEmailConfig =
+      /email is not set up|mail server|smtp|email server timed out|could not reach/i.test(details);
     return withCors(
-      NextResponse.json({ error: "Failed to send reset code.", details }, { status: 500 }),
+      NextResponse.json(
+        {
+          error: isEmailConfig ? details : "Failed to send reset code.",
+          details,
+        },
+        { status: isEmailConfig ? 503 : 500 },
+      ),
     );
   }
 }

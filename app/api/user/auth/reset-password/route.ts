@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { hashPassword } from "@/lib/user-server/password";
-import { consumePasswordResetCode } from "@/lib/user-server/verification";
+import {
+  consumePasswordResetCode,
+  verifyPasswordResetCode,
+} from "@/lib/user-server/verification";
 
 export async function OPTIONS() {
   return optionsResponse();
@@ -27,7 +30,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const verified = await consumePasswordResetCode(email, code);
+    // Verify without consuming first — keep the code if password update fails.
+    const verified = await verifyPasswordResetCode(email, code);
     if (!verified.ok) {
       return withCors(NextResponse.json({ error: verified.error }, { status: 400 }));
     }
@@ -40,6 +44,8 @@ export async function POST(request: Request) {
     if (!result.matchedCount) {
       return withCors(NextResponse.json({ error: "Account not found." }, { status: 404 }));
     }
+
+    await consumePasswordResetCode(email, code);
 
     return withCors(NextResponse.json({ message: "Password updated. You can sign in now." }));
   } catch (error) {

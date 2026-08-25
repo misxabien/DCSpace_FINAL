@@ -8,7 +8,10 @@ import { getUserDb } from "@/lib/user-server/get-user-db";
 import { hashPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
-import { verifyRegistrationCode } from "@/lib/user-server/verification";
+import {
+  checkRegistrationCode,
+  consumeRegistrationCode,
+} from "@/lib/user-server/verification";
 
 export async function OPTIONS() {
   return optionsResponse();
@@ -22,10 +25,11 @@ export async function POST(request: Request) {
       return withCors(NextResponse.json({ error: validationError }, { status: 400 }));
     }
 
-    const verification = await verifyRegistrationCode(
-      String(body.email),
-      String(body.verificationCode),
-    );
+    const email = String(body.email).trim().toLowerCase();
+    const verificationCode = String(body.verificationCode);
+
+    // Peek first so a failed insert does not burn a valid email code.
+    const verification = await checkRegistrationCode(email, verificationCode);
     if (!verification.ok) {
       return withCors(NextResponse.json({ error: verification.error }, { status: 400 }));
     }
@@ -36,7 +40,7 @@ export async function POST(request: Request) {
       firstName: String(body.firstName).trim(),
       lastName: String(body.lastName).trim(),
       studentNumber: String(body.studentNumber).trim(),
-      email: String(body.email).trim().toLowerCase(),
+      email,
       ...(photoUrl ? { photoUrl } : {}),
       ...(rfidNumber ? { rfidNumber } : {}),
       organizationPart: String(body.organizationPart || "").trim(),
@@ -78,6 +82,8 @@ export async function POST(request: Request) {
     }
 
     const insertResult = await users.insertOne(newUser);
+    await consumeRegistrationCode(email, verificationCode);
+
     const savedUser = { ...newUser, _id: insertResult.insertedId as ObjectId };
     const profile = sanitizeUser(savedUser);
     const token = signAuthToken({

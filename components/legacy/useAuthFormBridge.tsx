@@ -551,6 +551,71 @@ export function useAuthFormBridge() {
       if (!target) {
         return;
       }
+
+      const resendVerification = target.closest<HTMLElement>("[data-auth-resend-verification]");
+      if (resendVerification) {
+        event.preventDefault();
+        event.stopPropagation();
+        void (async () => {
+          const draft = readRegistrationDraft();
+          if (!draft.email) {
+            showError("Registration details are incomplete. Please start again from Create Account.");
+            go("/accounts");
+            return;
+          }
+          try {
+            resendVerification.setAttribute("disabled", "true");
+            const result = await sendRegistrationVerificationEmail(draft.email);
+            clearError();
+            window.alert(
+              `${result.message || "Verification code sent."}\n\nUse the newest 6-digit code from your school email.`,
+            );
+          } catch (error) {
+            showError(
+              error instanceof Error ? error.message : "Failed to resend verification code.",
+            );
+          } finally {
+            resendVerification.removeAttribute("disabled");
+          }
+        })();
+        return;
+      }
+
+      const resendReset = target.closest<HTMLElement>("[data-auth-resend-reset]");
+      if (resendReset) {
+        event.preventDefault();
+        event.stopPropagation();
+        void (async () => {
+          const email = readResetEmail();
+          if (!email) {
+            showError("Start again from the school email step.");
+            go("/forgot-password");
+            return;
+          }
+          try {
+            resendReset.setAttribute("disabled", "true");
+            const res = await fetch("/api/user/auth/forgot-password", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(payload.error || payload.details || "Failed to resend reset code.");
+            }
+            clearError();
+            window.alert(
+              `${payload.message || "If this email is registered, a verification code was sent."}\n\nUse the newest 6-digit code from your school email.`,
+            );
+          } catch (error) {
+            showError(error instanceof Error ? error.message : "Failed to resend reset code.");
+          } finally {
+            resendReset.removeAttribute("disabled");
+          }
+        })();
+        return;
+      }
+
       const button = target.closest<HTMLButtonElement>(
         "[data-auth-continue], .btn-continue, button.btn-create, button.btn-signin, button.btn-send, button.btn-submit, button.btn-save",
       );

@@ -48,7 +48,7 @@
   }
 
   function renderSubmitPage() {
-    var id = getQueryParam('id') || '17';
+    var id = getQueryParam('id') || '';
     var event = DCEvents.getEventById(id);
 
     if (!event) {

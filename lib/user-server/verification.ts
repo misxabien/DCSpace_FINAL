@@ -26,6 +26,12 @@ function normalizeEmail(email: string) {
     .toLowerCase();
 }
 
+function normalizeCode(code: string) {
+  return String(code || "")
+    .trim()
+    .replace(/\s/g, "");
+}
+
 function generateVerificationCode() {
   return String(crypto.randomInt(100000, 1000000));
 }
@@ -41,9 +47,182 @@ async function isDatabaseAvailable() {
 
 async function getVerificationsCollection(db: Db) {
   const collection = db.collection("email_verifications");
-  await collection.createIndex({ email: 1, purpose: 1 }, { unique: true });
-  await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  try {
+    await collection.createIndex({ email: 1, purpose: 1 }, { unique: true });
+  } catch {
+    /* index may already exist */
+  }
+  try {
+    await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+  } catch {
+    /* index may already exist */
+  }
   return collection;
+}
+
+async function persistVerificationRecord({
+  db,
+  email,
+  purpose,
+  codeHash,
+  expiresAt,
+}: {
+  db: Db | null;
+  email: string;
+  purpose: string;
+  codeHash: string;
+  expiresAt: Date;
+}) {
+  // Always keep a process-local copy so verify still works if Mongo hiccups.
+  saveMemoryVerification({ email, codeHash, expiresAt, purpose });
+
+  if (!db || shouldUseMemoryVerificationStore()) {
+    return;
+  }
+
+  try {
+    const verifications = await getVerificationsCollection(db);
+    const now = new Date();
+    await verifications.updateOne(
+      { email, purpose },
+      {
+        $set: {
+          email,
+          purpose,
+          codeHash,
+          expiresAt,
+          updatedAt: now,
+          attempts: 0,
+        },
+        $setOnInsert: { createdAt: now },
+      },
+      { upsert: true },
+    );
+  } catch (error) {
+    console.warn(
+      "[DC Space] Could not persist verification code to Mongo — using in-memory copy.",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+type CheckResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+function checkMemoryRecord(
+  email: string,
+  purpose: string,
+  trimmedCode: string,
+  options?: { bumpAttempts?: boolean },
+): CheckResult | null {
+  const record = readMemoryVerification(email, purpose);
+  if (!record) return null;
+  if (isMemoryVerificationExpired(record)) {
+    deleteMemoryVerification(email, purpose);
+    return { ok: false, error: "Verification code has expired. Please request a new code." };
+  }
+  if ((record.attempts || 0) >= MAX_ATTEMPTS) {
+    deleteMemoryVerification(email, purpose);
+    return { ok: false, error: "Too many failed attempts. Please request a new code." };
+  }
+  if (!verifyPassword(trimmedCode, record.codeHash)) {
+    if (options?.bumpAttempts) {
+      incrementMemoryAttempts(record);
+    }
+    return {
+      ok: false,
+      error:
+        "Invalid or outdated verification code. Use the newest code from your email (request a new one if unsure).",
+    };
+  }
+  return { ok: true };
+}
+
+async function checkDatabaseRecord(
+  email: string,
+  purpose: string,
+  trimmedCode: string,
+  options?: { bumpAttempts?: boolean },
+): Promise<CheckResult | null> {
+  if (!(await isDatabaseAvailable())) return null;
+  try {
+    const db = await getUserDb();
+    const verifications = await getVerificationsCollection(db);
+    const record = await verifications.findOne({ email, purpose });
+    if (!record) return null;
+
+    if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+      await verifications.deleteOne({ _id: record._id });
+      return { ok: false, error: "Verification code has expired. Please request a new code." };
+    }
+    if (Number(record.attempts || 0) >= MAX_ATTEMPTS) {
+      await verifications.deleteOne({ _id: record._id });
+      return { ok: false, error: "Too many failed attempts. Please request a new code." };
+    }
+    if (!verifyPassword(trimmedCode, String(record.codeHash || ""))) {
+      if (options?.bumpAttempts !== false) {
+        await verifications.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
+      }
+      return {
+        ok: false,
+        error:
+          "Invalid or outdated verification code. Use the newest code from your email (request a new one if unsure).",
+      };
+    }
+    return { ok: true };
+  } catch {
+    return null;
+  }
+}
+
+/** Peek-check (does not delete). Used on verify screens before continuing. */
+export async function checkRegistrationCode(email: string, code: string): Promise<CheckResult> {
+  const normalizedEmail = normalizeEmail(email);
+  const trimmedCode = normalizeCode(code);
+
+  if (!/^\d{6}$/.test(trimmedCode)) {
+    return { ok: false, error: "Verification code must be a 6-digit number." };
+  }
+
+  // Prefer Mongo when available, then fall back to in-memory (same process).
+  const dbResult = await checkDatabaseRecord(normalizedEmail, PURPOSE, trimmedCode, {
+    bumpAttempts: false,
+  });
+  if (dbResult) return dbResult;
+
+  const memoryResult = checkMemoryRecord(normalizedEmail, PURPOSE, trimmedCode, {
+    bumpAttempts: false,
+  });
+  if (memoryResult) return memoryResult;
+
+  return {
+    ok: false,
+    error: "No verification code found. Go back and tap Verify Account to send a new code.",
+  };
+}
+
+export async function consumeRegistrationCode(email: string, code: string): Promise<CheckResult> {
+  const checked = await checkRegistrationCode(email, code);
+  if (!checked.ok) return checked;
+
+  const normalizedEmail = normalizeEmail(email);
+  try {
+    if (await isDatabaseAvailable()) {
+      const db = await getUserDb();
+      const verifications = await getVerificationsCollection(db);
+      await verifications.deleteOne({ email: normalizedEmail, purpose: PURPOSE });
+    }
+  } catch {
+    /* ignore */
+  }
+  deleteMemoryVerification(normalizedEmail, PURPOSE);
+  return { ok: true };
+}
+
+/** @deprecated Prefer check + consumeRegistrationCode after account insert. */
+export async function verifyRegistrationCode(email: string, code: string) {
+  return consumeRegistrationCode(email, code);
 }
 
 export async function issueRegistrationVerificationCode(
@@ -55,54 +234,34 @@ export async function issueRegistrationVerificationCode(
   const codeHash = hashPassword(code);
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
 
-  let dbAvailable = false;
   let db: Db | null = options?.db ?? null;
-
-  if (options?.db !== undefined) {
-    dbAvailable = options.db !== null;
-  } else {
-    dbAvailable = await isDatabaseAvailable();
-    if (dbAvailable) {
-      db = await getUserDb();
+  if (options?.db === undefined) {
+    try {
+      db = (await isDatabaseAvailable()) ? await getUserDb() : null;
+    } catch {
+      db = null;
     }
   }
 
-  if (!dbAvailable && !shouldUseMemoryVerificationStore()) {
-    // Prefer continuing with in-memory codes when Mongo is unreachable so
-    // local registration still works (code is logged / emailed as configured).
+  if (!db) {
     console.warn(
       "[DC Space] MongoDB unavailable — using in-memory verification codes.",
     );
   }
 
-  const useMemory =
-    !dbAvailable ||
-    (shouldUseMemoryVerificationStore() && process.env.FORCE_VERIFICATION_MEMORY === "true");
+  await persistVerificationRecord({
+    db,
+    email: normalizedEmail,
+    purpose: PURPOSE,
+    codeHash,
+    expiresAt,
+  });
 
-  // Always keep a memory copy so verify still works if Mongo TTL/index has hiccups.
-  saveMemoryVerification({ email: normalizedEmail, codeHash, expiresAt });
-
-  if (!useMemory && db) {
-    const verifications = await getVerificationsCollection(db);
-    const now = new Date();
-    await verifications.updateOne(
-      { email: normalizedEmail, purpose: PURPOSE },
-      {
-        $set: {
-          email: normalizedEmail,
-          purpose: PURPOSE,
-          codeHash,
-          expiresAt,
-          updatedAt: now,
-          attempts: 0,
-        },
-        $setOnInsert: { createdAt: now },
-      },
-      { upsert: true },
-    );
-  }
-
-  const sendResult = await sendVerificationEmail({ email: normalizedEmail, code });
+  const sendResult = await sendVerificationEmail({
+    email: normalizedEmail,
+    code,
+    purpose: "registration",
+  });
 
   return {
     email: normalizedEmail,
@@ -110,252 +269,95 @@ export async function issueRegistrationVerificationCode(
     delivered: true,
     devMode: sendResult.devMode,
     code: sendResult.devMode ? code : undefined,
-  };
-}
-
-async function verifyFromMemory(normalizedEmail: string, trimmedCode: string) {
-  const record = readMemoryVerification(normalizedEmail);
-  if (!record) {
-    return null;
-  }
-  if (isMemoryVerificationExpired(record)) {
-    deleteMemoryVerification(normalizedEmail);
-    return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-  }
-  if ((record.attempts || 0) >= MAX_ATTEMPTS) {
-    deleteMemoryVerification(normalizedEmail);
-    return { ok: false as const, error: "Too many failed attempts. Please request a new code." };
-  }
-  if (!verifyPassword(trimmedCode, record.codeHash)) {
-    incrementMemoryAttempts(record);
-    return { ok: false as const, error: "Invalid verification code." };
-  }
-  deleteMemoryVerification(normalizedEmail);
-  return { ok: true as const };
-}
-
-async function verifyFromDatabase(normalizedEmail: string, trimmedCode: string) {
-  const db = await getUserDb();
-  const verifications = await getVerificationsCollection(db);
-  const record = await verifications.findOne({ email: normalizedEmail, purpose: PURPOSE });
-
-  if (!record) {
-    return null;
-  }
-  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-    await verifications.deleteOne({ _id: record._id });
-    return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-  }
-  if ((record.attempts || 0) >= MAX_ATTEMPTS) {
-    await verifications.deleteOne({ _id: record._id });
-    return { ok: false as const, error: "Too many failed attempts. Please request a new code." };
-  }
-  if (!verifyPassword(trimmedCode, record.codeHash)) {
-    await verifications.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
-    return { ok: false as const, error: "Invalid verification code." };
-  }
-
-  await verifications.deleteOne({ _id: record._id });
-  return { ok: true as const };
-}
-
-export async function verifyRegistrationCode(email: string, code: string) {
-  const normalizedEmail = normalizeEmail(email);
-  const trimmedCode = String(code || "")
-    .trim()
-    .replace(/\s/g, "");
-
-  if (!/^\d{6}$/.test(trimmedCode)) {
-    return { ok: false as const, error: "Verification code must be a 6-digit number." };
-  }
-
-  if (await isDatabaseAvailable()) {
-    const dbResult = await verifyFromDatabase(normalizedEmail, trimmedCode);
-    if (dbResult) {
-      return dbResult;
-    }
-  }
-
-  const memoryResult = await verifyFromMemory(normalizedEmail, trimmedCode);
-  if (memoryResult) {
-    return memoryResult;
-  }
-
-  return { ok: false as const, error: "No verification code found. Please request a new code." };
-}
-
-/** Non-consuming check used on the /verify screen before continuing. */
-export async function checkRegistrationCode(email: string, code: string) {
-  const normalizedEmail = normalizeEmail(email);
-  const trimmedCode = String(code || "")
-    .trim()
-    .replace(/\s/g, "");
-
-  if (!/^\d{6}$/.test(trimmedCode)) {
-    return { ok: false as const, error: "Verification code must be a 6-digit number." };
-  }
-
-  if (shouldUseMemoryVerificationStore()) {
-    const record = readMemoryVerification(normalizedEmail);
-    if (!record) {
-      return {
-        ok: false as const,
-        error: "No verification code found. Go back and tap Verify Account to send a new code.",
-      };
-    }
-    if (isMemoryVerificationExpired(record)) {
-      return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-    }
-    if (record.attempts >= MAX_ATTEMPTS) {
-      return { ok: false as const, error: "Too many failed attempts. Please request a new code." };
-    }
-    if (!verifyPassword(trimmedCode, record.codeHash)) {
-      return {
-        ok: false as const,
-        error:
-          "Invalid or outdated verification code. Use the newest code from your email (request a new one if unsure).",
-      };
-    }
-    return { ok: true as const };
-  }
-
-  if (await isDatabaseAvailable()) {
-    try {
-      const db = await getUserDb();
-      const verifications = await getVerificationsCollection(db);
-      const record = await verifications.findOne({ email: normalizedEmail, purpose: PURPOSE });
-      if (!record) {
-        return {
-          ok: false as const,
-          error: "No verification code found. Go back and tap Verify Account to send a new code.",
-        };
-      }
-      if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-        return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-      }
-      if (Number(record.attempts || 0) >= MAX_ATTEMPTS) {
-        return { ok: false as const, error: "Too many failed attempts. Please request a new code." };
-      }
-      if (!verifyPassword(trimmedCode, String(record.codeHash || ""))) {
-        return {
-          ok: false as const,
-          error:
-            "Invalid or outdated verification code. Use the newest code from your email (request a new one if unsure).",
-        };
-      }
-      return { ok: true as const };
-    } catch {
-      /* fall through */
-    }
-  }
-
-  return {
-    ok: false as const,
-    error: "No verification code found. Go back and tap Verify Account to send a new code.",
   };
 }
 
 export async function issuePasswordResetCode(email: string) {
   const normalizedEmail = normalizeEmail(email);
-  const db = await getUserDb();
-  const user = await db.collection("users").findOne({ email: normalizedEmail });
-  if (!user) {
-    return {
-      email: normalizedEmail,
-      expiresAt: new Date(Date.now() + CODE_TTL_MS).toISOString(),
-      delivered: true,
-      hidden: true,
-    };
+  let db: Db | null = null;
+  try {
+    db = await getUserDb();
+  } catch {
+    db = null;
+  }
+
+  if (db) {
+    try {
+      const user = await db.collection("users").findOne({ email: normalizedEmail });
+      if (!user) {
+        return {
+          email: normalizedEmail,
+          expiresAt: new Date(Date.now() + CODE_TTL_MS).toISOString(),
+          delivered: true,
+          hidden: true,
+        };
+      }
+    } catch {
+      /* If lookup fails, still issue a code so real users are not blocked. */
+    }
   }
 
   const code = generateVerificationCode();
   const codeHash = hashPassword(code);
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
-  saveMemoryVerification({
+
+  await persistVerificationRecord({
+    db,
     email: normalizedEmail,
+    purpose: RESET_PURPOSE,
     codeHash,
     expiresAt,
-    purpose: RESET_PURPOSE,
   });
 
-  const verifications = await getVerificationsCollection(db);
-  const now = new Date();
-  await verifications.updateOne(
-    { email: normalizedEmail, purpose: RESET_PURPOSE },
-    {
-      $set: {
-        email: normalizedEmail,
-        purpose: RESET_PURPOSE,
-        codeHash,
-        expiresAt,
-        updatedAt: now,
-        attempts: 0,
-      },
-      $setOnInsert: { createdAt: now },
-    },
-    { upsert: true },
-  );
+  const sendResult = await sendVerificationEmail({
+    email: normalizedEmail,
+    code,
+    purpose: "password-reset",
+  });
 
-  const sendResult = await sendVerificationEmail({ email: normalizedEmail, code });
   return {
     email: normalizedEmail,
     expiresAt: expiresAt.toISOString(),
     delivered: true,
+    hidden: false,
     devMode: sendResult.devMode,
     code: sendResult.devMode ? code : undefined,
   };
 }
 
-export async function verifyPasswordResetCode(email: string, code: string) {
+export async function verifyPasswordResetCode(email: string, code: string): Promise<CheckResult> {
   const normalizedEmail = normalizeEmail(email);
-  const trimmedCode = String(code || "").trim().replace(/\s/g, "");
+  const trimmedCode = normalizeCode(code);
   if (!/^\d{6}$/.test(trimmedCode)) {
-    return { ok: false as const, error: "Verification code must be a 6-digit number." };
+    return { ok: false, error: "Verification code must be a 6-digit number." };
   }
 
-  const db = await getUserDb();
-  const verifications = await getVerificationsCollection(db);
-  const record = await verifications.findOne({
-    email: normalizedEmail,
-    purpose: RESET_PURPOSE,
+  const dbResult = await checkDatabaseRecord(normalizedEmail, RESET_PURPOSE, trimmedCode, {
+    bumpAttempts: true,
   });
-  if (record) {
-    if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-      return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-    }
-    if (!verifyPassword(trimmedCode, String(record.codeHash || ""))) {
-      await verifications.updateOne({ _id: record._id }, { $inc: { attempts: 1 } });
-      return { ok: false as const, error: "Invalid verification code." };
-    }
-    return { ok: true as const };
-  }
+  if (dbResult) return dbResult;
 
-  const memory = readMemoryVerification(normalizedEmail, RESET_PURPOSE);
-  if (!memory) {
-    return { ok: false as const, error: "No verification code found. Please request a new code." };
-  }
-  if (isMemoryVerificationExpired(memory)) {
-    deleteMemoryVerification(normalizedEmail, RESET_PURPOSE);
-    return { ok: false as const, error: "Verification code has expired. Please request a new code." };
-  }
-  if (!verifyPassword(trimmedCode, memory.codeHash)) {
-    incrementMemoryAttempts(memory);
-    return { ok: false as const, error: "Invalid verification code." };
-  }
-  return { ok: true as const };
+  const memoryResult = checkMemoryRecord(normalizedEmail, RESET_PURPOSE, trimmedCode, {
+    bumpAttempts: true,
+  });
+  if (memoryResult) return memoryResult;
+
+  return { ok: false, error: "No verification code found. Please request a new code." };
 }
 
-export async function consumePasswordResetCode(email: string, code: string) {
+export async function consumePasswordResetCode(email: string, code: string): Promise<CheckResult> {
   const verified = await verifyPasswordResetCode(email, code);
   if (!verified.ok) return verified;
   const normalizedEmail = normalizeEmail(email);
   try {
-    const db = await getUserDb();
-    const verifications = await getVerificationsCollection(db);
-    await verifications.deleteOne({ email: normalizedEmail, purpose: RESET_PURPOSE });
+    if (await isDatabaseAvailable()) {
+      const db = await getUserDb();
+      const verifications = await getVerificationsCollection(db);
+      await verifications.deleteOne({ email: normalizedEmail, purpose: RESET_PURPOSE });
+    }
   } catch {
     /* ignore */
   }
   deleteMemoryVerification(normalizedEmail, RESET_PURPOSE);
-  return { ok: true as const };
+  return { ok: true };
 }

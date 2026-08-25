@@ -273,6 +273,77 @@ export function readAuthSession(): { token: string; user: UserProfile } | null {
   }
 }
 
+const PLACEHOLDER_NAMES = new Set(["", "your name", "user name", "student", "user"]);
+
+function isPlaceholderName(value: string) {
+  return PLACEHOLDER_NAMES.has(value.trim().toLowerCase());
+}
+
+/** Prefer profile / localStorage name over placeholders so headers stay consistent. */
+export function resolveUserDisplayName(authName?: string | null): string {
+  if (typeof window !== "undefined") {
+    const profile = readAuthSession()?.user;
+    const fromProfile =
+      String(profile?.fullName || "").trim() ||
+      `${profile?.firstName || ""} ${profile?.lastName || ""}`.trim();
+    if (fromProfile && !isPlaceholderName(fromProfile)) return fromProfile;
+
+    const first = window.localStorage.getItem("dcspaceFirstName") || "";
+    const last = window.localStorage.getItem("dcspaceLastName") || "";
+    const combined = `${first} ${last}`.trim();
+    if (combined && !isPlaceholderName(combined)) return combined;
+
+    try {
+      const raw = window.sessionStorage.getItem("dcspaceCurrentUser");
+      if (raw) {
+        const current = JSON.parse(raw) as {
+          fullName?: string;
+          firstName?: string;
+          lastName?: string;
+          email?: string;
+        };
+        const fromCurrent =
+          String(current.fullName || "").trim() ||
+          `${current.firstName || ""} ${current.lastName || ""}`.trim();
+        if (fromCurrent && !isPlaceholderName(fromCurrent)) return fromCurrent;
+        if (current.email?.trim()) return current.email.trim();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const email =
+      String(profile?.email || "").trim() ||
+      window.localStorage.getItem("dcspaceStudentEmail") ||
+      "";
+    if (email.trim()) return email.trim();
+  }
+
+  const auth = String(authName || "").trim();
+  if (auth && !isPlaceholderName(auth)) return auth;
+  return "";
+}
+
+/** Paint the signed-in name into every header chip / greeting on the current page. */
+export function applyUserDisplayNameToDom(authName?: string | null): string {
+  if (typeof document === "undefined") return "";
+  const name = resolveUserDisplayName(authName);
+  if (!name) return "";
+
+  document.querySelectorAll(".main__user-name").forEach((el) => {
+    el.textContent = name;
+  });
+
+  document.querySelectorAll(".main__greeting, .joined-head").forEach((el) => {
+    const text = (el.textContent || "").trim();
+    if (/^Hello[,!\s]/i.test(text) || /User Name/i.test(text) || /Your Name/i.test(text)) {
+      el.textContent = `Hello, ${name}!`;
+    }
+  });
+
+  return name;
+}
+
 /** Browser fetch with session cookie + stored JWT (organized portal APIs need both). */
 export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);

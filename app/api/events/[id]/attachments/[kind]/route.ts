@@ -6,8 +6,7 @@ import {
   isEventAttachmentKind,
   resolveEventAttachment,
 } from "@/lib/events/files";
-import { eventsCollection } from "@/lib/events/types";
-import { getUserDb } from "@/lib/user-server/get-user-db";
+import { findEventById } from "@/lib/events/find-event";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string; kind: string }> };
@@ -16,9 +15,6 @@ export async function GET(request: Request, context: RouteContext) {
   const admin = await requireAdminAuth(request);
   const isAdmin = !("error" in admin);
   const actor = isAdmin ? null : await requireSessionActor(request);
-  if (!isAdmin && actor && "error" in actor) {
-    return NextResponse.json({ error: actor.error }, { status: actor.status });
-  }
 
   const { id, kind } = await context.params;
   if (!ObjectId.isValid(id)) {
@@ -29,8 +25,8 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    // Events (and posters) live in admin DB; fall back to user DB for legacy rows.
+    const { event: doc } = await findEventById(id);
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -38,13 +34,18 @@ export async function GET(request: Request, context: RouteContext) {
     const sessionActor = actor && !("error" in actor) ? actor : null;
     const owns =
       Boolean(sessionActor) &&
-      (doc.organizerEmail === sessionActor?.email || doc.organizerId === sessionActor?.userId);
+      (doc.organizerEmail === sessionActor?.email ||
+        doc.organizerId === sessionActor?.userId);
+    const publiclyVisible = ["approved", "live", "completed"].includes(doc.status);
 
-    if (!isAdmin && !owns) {
-      const visible = ["approved", "live", "completed"].includes(doc.status);
-      if (!visible) {
-        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-      }
+    // Event posters on public cards can load via <img> without a session cookie.
+    const allowAnonymousPoster = kind === "poster" && publiclyVisible;
+    if (!isAdmin && !sessionActor && !allowAnonymousPoster) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
+    if (!isAdmin && !owns && !publiclyVisible) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
     const file = resolveEventAttachment(doc, kind);
@@ -65,7 +66,10 @@ export async function GET(request: Request, context: RouteContext) {
       headers: {
         "Content-Type": file.mimeType || "application/octet-stream",
         "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": "private, no-store",
+        "Cache-Control":
+          kind === "poster" && publiclyVisible
+            ? "public, max-age=300"
+            : "private, max-age=300",
       },
     });
   } catch (error) {

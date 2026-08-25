@@ -50,6 +50,8 @@ export type SpaceEvent = {
   department?: string;
   posterImageBase64?: string;
   posterImageMimeType?: string;
+  /** True when a poster blob exists (survives list projections that omit base64). */
+  hasPoster?: boolean;
   status: EventStatus;
   organizerId?: string;
   organizerEmail?: string;
@@ -165,7 +167,9 @@ export function sanitizeEvent(
     audienceSchools: asStringList(doc.audienceSchools),
     programActivities: asStringList(doc.programActivities),
     department: doc.department || "",
-    hasPoster: Boolean(doc.posterImageBase64 || doc.posterImageMimeType),
+    hasPoster: Boolean(
+      doc.hasPoster || doc.posterImageBase64 || doc.posterImageMimeType,
+    ),
     hasConceptPaper: Boolean(doc.conceptPaperBase64 || doc.conceptPaperName),
     hasCertificateTemplate: Boolean(
       doc.certificateTemplateBase64 || doc.certificateTemplateName,
@@ -189,7 +193,7 @@ export function sanitizeEvent(
           ? `/api/events/${doc._id.toString()}/attachments/program-file`
           : "",
       poster:
-        doc.posterImageBase64 || doc.posterImageMimeType
+        doc.hasPoster || doc.posterImageBase64 || doc.posterImageMimeType
           ? `/api/events/${doc._id.toString()}/attachments/poster`
           : "",
     },

@@ -447,12 +447,29 @@ a {
   flex-shrink: 0;
   background: linear-gradient(135deg, #e8eef8 0%, #d4e2f7 100%);
   border-bottom: 1px solid rgba(68, 138, 255, 0.12);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  overflow: hidden;
+}
+
+.event-card__image,
+.event-card__media > .event-card__image {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center;
+  display: block;
+  filter: none !important;
+  z-index: 0;
 }
 
 .event-card__bookmark {
   position: absolute;
   top: 10px;
   right: 10px;
+  z-index: 2;
   width: 28px;
   height: 28px;
   border: none;
@@ -597,4 +614,126 @@ a {
 .search-bar__field input::placeholder {
   color: rgba(68, 138, 255, 0.55);
   font-weight: 500;
+}
+
+/* Attendance / event empty states — center in section */
+.main .event-grid:has(> .dc-empty-state),
+.main .event-grid:has(> .home-empty-state) {
+  grid-template-columns: 1fr !important;
+  max-width: none !important;
+  width: 100%;
+  justify-items: center;
+}
+
+.main .event-grid--today:has(> .dc-empty-state),
+.main .event-grid--today:has(> .home-empty-state) {
+  min-height: min(420px, calc(100vh - 340px));
+  align-items: center;
+}
+
+.main .dc-empty-state--section {
+  min-height: min(420px, calc(100vh - 340px));
+  justify-content: center;
+  align-items: center;
+}
+.main .notif-item.is-highlighted {
+  background: rgba(68, 138, 255, 0.04);
+  border-color: rgba(68, 138, 255, 0.2);
+}
+
+.main .notif-item.is-highlighted::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18px;
+  bottom: 18px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--blue);
+}
+
+.main .notif-item:not(.is-highlighted)::before {
+  content: none;
+  display: none;
+}
+.main .event-card,
+.main .detail-hero,
+.main .rfid-panel,
+.main .profile-banner,
+.main .profile-cover,
+.main .profile-card,
+.main .certificate-card,
+.main .notif-card,
+.main .feedback-card,
+.main .joined-card,
+.main .consent-card,
+.main .form-card,
+.main .info-card,
+.main .empty-state,
+.main #dc-attendance-status,
+.main #dc-attendance-rfid-note {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.main .event-card__media {
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  overflow: hidden;
+}
+
+.main .rfid-pagination__btn,
+.main .rfid-sort__btn:not(.is-active) {
+  border-radius: 10px;
+}
+
+.main .form-field__input,
+.main .form-field__select,
+.main .form-field__textarea,
+.main .profile-field__input:not(:read-only) {
+  border-radius: 12px;
+}
+
+/* Student / organizer notification bell — red unread dot (matches admin) */
+a.tool-btn[href="/notifications"],
+a.tool-btn--notif[href="/notifications"],
+a[href="/notifications"][aria-label*="Notification" i] {
+  position: relative !important;
+  display: inline-grid !important;
+  place-items: center !important;
+}
+
+a.tool-btn[href="/notifications"].has-unread::after,
+a.tool-btn--notif[href="/notifications"].has-unread::after,
+a[href="/notifications"][aria-label*="Notification" i].has-unread::after {
+  content: "" !important;
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 50% !important;
+  background: #ef4444 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25) !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+}
+
+.notif-unread-dot {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 9px !important;
+  height: 9px !important;
+  border-radius: 50% !important;
+  background: #ef4444 !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25) !important;
+  pointer-events: none !important;
+  z-index: 3 !important;
+}
+
+.notif-unread-dot[hidden] {
+  display: none !important;
 }

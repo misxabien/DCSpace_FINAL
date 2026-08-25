@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { notificationsCollection } from "@/lib/user-server/portal";
+import {
+  ensureStudentNotifications,
+  notificationsCollection,
+} from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { escapeRegex } from "@/lib/events/ownership";
 
 function isReminder(doc: { type?: string; title?: string }) {
   const type = String(doc.type || "").toLowerCase();
   const title = String(doc.title || "").toLowerCase();
   return type.includes("reminder") || title.includes("reminder");
+}
+
+function normalizeEmail(email: string) {
+  return String(email || "").trim().toLowerCase();
 }
 
 export async function GET(request: Request) {
@@ -19,9 +27,18 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const tab = String(searchParams.get("tab") || "general").toLowerCase();
+    const email = actor.email.trim().toLowerCase();
     const db = await getUserDb();
+
+    // Backfill invitation notifications so older invites still show up.
+    // Badge polls can skip this with ?light=1 to avoid overlapping heavy work.
+    const light = searchParams.get("light") === "1";
+    if (!light) {
+      await ensureStudentNotifications(email);
+    }
+
     const docs = await notificationsCollection(db)
-      .find({ email: actor.email })
+      .find({ email: { $regex: `^${escapeRegex(email)}$`, $options: "i" } })
       .sort({ createdAt: -1 })
       .limit(100)
       .toArray();
@@ -71,10 +88,16 @@ export async function PATCH(request: Request) {
   }
 
   try {
+    const email = actor.email.trim().toLowerCase();
     const db = await getUserDb();
     const col = notificationsCollection(db);
+    const emailFilter = { $regex: `^${escapeRegex(email)}$`, $options: "i" };
+
     if (body.markAllRead) {
-      await col.updateMany({ email: actor.email, read: { $ne: true } }, { $set: { read: true } });
+      await col.updateMany(
+        { email: emailFilter, read: { $ne: true } },
+        { $set: { read: true } },
+      );
       return NextResponse.json({ ok: true });
     }
 
@@ -87,10 +110,18 @@ export async function PATCH(request: Request) {
     if (typeof body.read === "boolean") update.read = body.read;
     if (typeof body.archived === "boolean") update.archived = body.archived;
     if (!Object.keys(update).length) {
-      update.read = body.read !== false;
+      update.read = true;
     }
 
-    await col.updateOne({ _id: new ObjectId(id), email: actor.email }, { $set: update });
+    const existing = await col.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return NextResponse.json({ error: "Notification not found." }, { status: 404 });
+    }
+    if (normalizeEmail(String(existing.email || "")) !== email) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    await col.updateOne({ _id: new ObjectId(id) }, { $set: update });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";

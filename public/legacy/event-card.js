@@ -17,8 +17,10 @@
     style.id = 'dc-bookmark-styles';
     style.textContent =
       '.event-card__venue,.event-card__time{margin:0;}' +
-      '.event-card__media{position:relative;overflow:hidden;}' +
-      '.event-card__image{width:100%;height:100%;object-fit:cover;display:block;}' +
+      '.event-card{overflow:hidden;border-radius:16px;}' +
+      '.event-card__media{position:relative;overflow:hidden;border-top-left-radius:16px;border-top-right-radius:16px;}' +
+      '.event-card__media>.event-card__image{position:absolute;inset:0;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center;display:block;filter:none!important;z-index:0;}' +
+      '.event-card__bookmark{z-index:2;}' +
       '.event-card__bookmark.is-saved{background:#FFE082;border:none;color:#448AFF;}' +
       '.event-card__bookmark.is-saved svg{fill:currentColor;stroke:currentColor;}';
     document.head.appendChild(style);
@@ -122,7 +124,7 @@
     if (event.imageUrl) {
       mediaHtml =
         '<img class="event-card__image" src="' + escapeHtml(String(event.imageUrl)) +
-        '" alt="" loading="eager" decoding="async" fetchpriority="high" />';
+        '" alt="" loading="eager" decoding="async" fetchpriority="high" onerror="this.remove()" />';
     }
 
     article.innerHTML =
@@ -158,10 +160,10 @@
     }
     try {
       window.dispatchEvent(new CustomEvent('dc-navigate', { detail: { href: url } }));
-      return;
     } catch (e) {
-      /* fall through */
+      /* ignore */
     }
+    // Always navigate — SoftNavEnhancer soft-routes same-origin location.assign.
     window.location.assign(url);
   }
 
@@ -192,6 +194,8 @@
     style.textContent =
       '.dc-empty-state,.home-empty-state{grid-column:1/-1;width:100%;min-height:min(360px,calc(100vh - 300px));display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:40px 24px 48px;text-align:center;color:#b7aa89;}' +
       '.dc-empty-state--compact{min-height:240px;padding:28px 16px 36px;}' +
+      '.dc-empty-state--section{min-height:min(420px,calc(100vh - 340px));padding:48px 24px;}' +
+      '.event-grid:has(> .dc-empty-state),.event-grid:has(> .home-empty-state){grid-template-columns:1fr !important;max-width:none !important;width:100%;}' +
       '.dc-empty-state__icon,.home-empty-state__icon{width:140px;height:140px;margin:0 auto 16px;display:block;}' +
       '.dc-empty-state--compact .dc-empty-state__icon{width:110px;height:110px;}' +
       '.dc-empty-state__title,.home-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
@@ -344,10 +348,15 @@
     };
   }
 
-  function createEmptyState(copy, compact) {
+  function createEmptyState(copy, compact, sectionCentered) {
     injectEmptyStateStyles();
     var emptyState = document.createElement('div');
-    emptyState.className = 'dc-empty-state home-empty-state' + (compact ? ' dc-empty-state--compact' : '');
+    var sizeClass = sectionCentered
+      ? ' dc-empty-state--section'
+      : compact
+        ? ' dc-empty-state--compact'
+        : '';
+    emptyState.className = 'dc-empty-state home-empty-state' + sizeClass;
     emptyState.setAttribute('role', 'status');
     emptyState.innerHTML =
       '<img class="dc-empty-state__icon home-empty-state__icon" src="/no-event.svg" width="160" height="160" alt="" aria-hidden="true" />' +
@@ -362,7 +371,13 @@
     if (root.querySelector('.event-card, .dc-empty-state, .home-empty-state')) return;
     var containerId = typeof container === 'string' ? container : root.id || '';
     var compact = Boolean(filter && filter.compactEmpty);
-    root.appendChild(createEmptyState(resolveEmptyCopy(containerId, filter), compact));
+    var sectionCentered =
+      Boolean(filter && filter.sectionCenteredEmpty) ||
+      containerId === 'attendance-today-grid' ||
+      root.classList.contains('event-grid--today');
+    root.appendChild(
+      createEmptyState(resolveEmptyCopy(containerId, filter), compact && !sectionCentered, sectionCentered),
+    );
   }
 
   function fillContainer(container, filter) {

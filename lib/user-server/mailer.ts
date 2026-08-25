@@ -68,7 +68,23 @@ function logCodeToTerminal(email: string, code: string, reason: string) {
   console.info(`[DC Space] Verification code for ${email}: ${code}`);
 }
 
-export async function sendVerificationEmail({ email, code }: { email: string; code: string }) {
+export async function sendVerificationEmail({
+  email,
+  code,
+  purpose = "registration",
+}: {
+  email: string;
+  code: string;
+  purpose?: "registration" | "password-reset";
+}) {
+  const isReset = purpose === "password-reset";
+  const subject = isReset
+    ? "Your DC Space password reset code"
+    : "Your DC Space verification code";
+  const actionLine = isReset
+    ? "Enter this code on the forgot-password screen to reset your password."
+    : "Enter this code on the registration screen to verify your school email.";
+
   if (!isSmtpConfigured()) {
     if (shouldLogVerificationCodeInsteadOfEmail() || shouldFallbackToTerminalOnSmtpFailure()) {
       logCodeToTerminal(email, code, "SMTP is not configured — using terminal code.");
@@ -97,13 +113,12 @@ export async function sendVerificationEmail({ email, code }: { email: string; co
     },
   });
 
-  const subject = "Your DC Space verification code";
   const text = [
     "Hello,",
     "",
-    `Your DC Space verification code is: ${code}`,
+    `Your DC Space ${isReset ? "password reset" : "verification"} code is: ${code}`,
     "",
-    "Enter this code on the registration screen to verify your school email.",
+    actionLine,
     "The code expires in 15 minutes.",
     "",
     "If you did not request this, you can ignore this email.",
@@ -123,7 +138,7 @@ export async function sendVerificationEmail({ email, code }: { email: string; co
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
           <tr>
             <td align="center" style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#334155;padding-bottom:28px;">
-              Your DC Space verification code
+              ${subject}
             </td>
           </tr>
           <tr>
@@ -135,7 +150,7 @@ export async function sendVerificationEmail({ email, code }: { email: string; co
           </tr>
           <tr>
             <td align="center" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#64748b;">
-              Enter this code on the registration screen to verify your school email.<br />
+              ${actionLine}<br />
               The code expires in 15 minutes.
             </td>
           </tr>

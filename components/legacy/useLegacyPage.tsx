@@ -93,6 +93,14 @@ export function LegacyContent({
     return bindPasswordToggles(host);
   }, [data.id, mounted]);
 
+  // Tell header/profile bridges the static HTML (with placeholders) is in the DOM.
+  useEffect(() => {
+    if (!mounted) return;
+    window.dispatchEvent(
+      new CustomEvent("dc-legacy-content-ready", { detail: { id: data.id } }),
+    );
+  }, [data.id, mounted, pageHtml]);
+
   return (
     <>
       {mounted ? (

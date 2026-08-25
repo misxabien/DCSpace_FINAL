@@ -102,8 +102,13 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const emailParam = searchParams.get("email");
+    const sourceMode = searchParams.get("source");
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
+    // Student RFID panel: only venue taps from admin live attendance scanner.
+    if (sourceMode === "live") {
+      filter.source = { $in: ["rfid", "rfid-desk"] };
+    }
 
     const email =
       !isAdmin && actor && !("error" in actor)

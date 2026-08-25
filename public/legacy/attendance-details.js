@@ -204,6 +204,19 @@
       }
     }
 
+    // Keep metadata icons sized — never let large SVG paths fill the page.
+    document.querySelectorAll(
+      '.detail-page .detail-list__item > svg, .detail-page .detail-types svg, .detail-page .detail-note > svg'
+    ).forEach(function (svg) {
+      svg.setAttribute('width', '22');
+      svg.setAttribute('height', '22');
+      svg.style.width = '22px';
+      svg.style.height = '22px';
+      svg.style.maxWidth = '22px';
+      svg.style.maxHeight = '22px';
+      svg.style.flexShrink = '0';
+    });
+
     setText('rfid-grace', rfid.graceRemaining || event.gracePeriod || '—');
     setText('rfid-progress', String(rfid.progress || 0) + '%');
     updateRfidNote(rfid, event);
@@ -220,6 +233,9 @@
     wirePagination();
     if (DCEvents.wireDetailActions) DCEvents.wireDetailActions(id);
     renderRfidLogs(rfid);
+
+    var rfidSection = document.querySelector('.rfid-section');
+    if (rfidSection) rfidSection.hidden = false;
   }
 
   DCEvents.renderAttendanceDetails = renderAttendanceDetails;

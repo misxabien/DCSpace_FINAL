@@ -210,8 +210,22 @@ function mapCardStatus(status?: string): string {
 }
 
 export function resolveEventImageUrl(e: SanitizedEvent): string {
-  if (e.posterImage) return e.posterImage;
-  if (e.attachments?.poster) return e.attachments.poster;
+  // Prefer the attachments URL so list cards stay light (detail payloads may
+  // include multi‑MB data: URLs via posterImage).
+  const attachmentPoster = String(e.attachments?.poster || "").trim();
+  if (attachmentPoster && !attachmentPoster.startsWith("data:")) {
+    return attachmentPoster;
+  }
+  if (e.hasPoster && e.id) {
+    return `/api/events/${encodeURIComponent(e.id)}/attachments/poster`;
+  }
+  const inline = String(e.posterImage || "").trim();
+  if (inline) {
+    if (inline.startsWith("data:") && e.id) {
+      return `/api/events/${encodeURIComponent(e.id)}/attachments/poster`;
+    }
+    return inline;
+  }
   return "";
 }
 

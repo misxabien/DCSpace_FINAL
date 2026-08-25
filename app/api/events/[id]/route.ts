@@ -88,8 +88,12 @@ export async function GET(request: Request, context: RouteContext) {
       if (!doc.location) doc.location = reservation.room.name;
     }
 
+    const light = new URL(request.url).searchParams.get("light") === "1";
     return NextResponse.json({
-      event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includeMedia: true }),
+      event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, {
+        // List/card hydration must stay light — posters load via /attachments/poster.
+        includeMedia: !light,
+      }),
       source: source || undefined,
     });
   } catch (error) {
@@ -230,6 +234,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
     if (typeof body.posterImageBase64 === "string") {
       update.posterImageBase64 = body.posterImageBase64.trim();
+      update.hasPoster = Boolean(update.posterImageBase64);
+      if (update.posterImageBase64 && !body.posterImageMimeType) {
+        update.posterImageMimeType = "image/jpeg";
+      }
     }
     if (typeof body.posterImageMimeType === "string") {
       update.posterImageMimeType = body.posterImageMimeType.trim();
@@ -360,6 +368,60 @@ export async function PATCH(request: Request, context: RouteContext) {
               eventId: event.id,
               eventTitle: event.title,
             }),
+          );
+        }
+
+        // Students: new/updated public events show up in Notifications.
+        if (body.status === "approved" || body.status === "live") {
+          void import("@/lib/user-server/portal").then(
+            async ({
+              notifyOrganizationMembers,
+              notifyUsers,
+              registrationsCollection,
+            }) => {
+              const { getUserDb } = await import("@/lib/user-server/get-user-db");
+              const { usersCollection } = await import("@/lib/db/user-collections");
+              const userDb = await getUserDb();
+              const regs = await registrationsCollection(userDb)
+                .find({ eventId: event.id })
+                .project({ email: 1 })
+                .limit(500)
+                .toArray();
+              const payload = {
+                title:
+                  body.status === "live"
+                    ? "Event is live"
+                    : "New Event Available",
+                body:
+                  body.status === "live"
+                    ? `${event.title} is now live.`
+                    : `A new event, ${event.title}, has been posted.`,
+                type: body.status === "live" ? "event-live" : "event-new",
+                eventId: event.id,
+                eventTitle: event.title,
+              };
+              await notifyUsers(
+                regs.map((row) => String(row.email || "")),
+                payload,
+              );
+
+              let org = String(event.department || "").trim();
+              if (!org && event.organizerEmail) {
+                const organizer = await usersCollection(userDb).findOne(
+                  {
+                    email: {
+                      $regex: `^${String(event.organizerEmail).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+                      $options: "i",
+                    },
+                  },
+                  { projection: { organizationPart: 1 } },
+                );
+                org = String(organizer?.organizationPart || "").trim();
+              }
+              if (org) {
+                await notifyOrganizationMembers(org, payload);
+              }
+            },
           );
         }
       }

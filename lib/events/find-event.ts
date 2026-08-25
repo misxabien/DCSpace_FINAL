@@ -4,6 +4,38 @@ import { eventsCollection, type SpaceEvent } from "@/lib/events/types";
 
 export type EventDoc = SpaceEvent & { _id: ObjectId };
 
+function mergeEventDocs(primary: EventDoc, secondary: EventDoc | null): EventDoc {
+  if (!secondary) return primary;
+  const merged: EventDoc = { ...secondary, ...primary };
+  // Keep attachment blobs from whichever copy still has them.
+  if (!merged.posterImageBase64 && secondary.posterImageBase64) {
+    merged.posterImageBase64 = secondary.posterImageBase64;
+    merged.posterImageMimeType =
+      secondary.posterImageMimeType || merged.posterImageMimeType || "image/jpeg";
+    merged.hasPoster = true;
+  }
+  if (!merged.conceptPaperBase64 && secondary.conceptPaperBase64) {
+    merged.conceptPaperBase64 = secondary.conceptPaperBase64;
+    merged.conceptPaperMimeType =
+      secondary.conceptPaperMimeType || merged.conceptPaperMimeType;
+    merged.conceptPaperName = secondary.conceptPaperName || merged.conceptPaperName;
+  }
+  if (!merged.programFileBase64 && secondary.programFileBase64) {
+    merged.programFileBase64 = secondary.programFileBase64;
+    merged.programFileMimeType =
+      secondary.programFileMimeType || merged.programFileMimeType;
+    merged.programFileName = secondary.programFileName || merged.programFileName;
+  }
+  if (!merged.certificateTemplateBase64 && secondary.certificateTemplateBase64) {
+    merged.certificateTemplateBase64 = secondary.certificateTemplateBase64;
+    merged.certificateTemplateMimeType =
+      secondary.certificateTemplateMimeType || merged.certificateTemplateMimeType;
+    merged.certificateTemplateName =
+      secondary.certificateTemplateName || merged.certificateTemplateName;
+  }
+  return merged;
+}
+
 /** Prefer admin DB (canonical), fall back to user DB for pre-merge events. */
 export async function findEventById(id: string): Promise<{
   event: EventDoc | null;
@@ -16,11 +48,19 @@ export async function findEventById(id: string): Promise<{
     return { event: null, adminDb, userDb, source: null };
   }
   const oid = new ObjectId(id);
-  const fromAdmin = await eventsCollection(adminDb).findOne({ _id: oid });
+  const [fromAdmin, fromUser] = await Promise.all([
+    eventsCollection(adminDb).findOne({ _id: oid }),
+    eventsCollection(userDb).findOne({ _id: oid }),
+  ]);
+
   if (fromAdmin) {
-    return { event: fromAdmin as EventDoc, adminDb, userDb, source: "admin" };
+    return {
+      event: mergeEventDocs(fromAdmin as EventDoc, (fromUser as EventDoc) || null),
+      adminDb,
+      userDb,
+      source: "admin",
+    };
   }
-  const fromUser = await eventsCollection(userDb).findOne({ _id: oid });
   if (fromUser) {
     return { event: fromUser as EventDoc, adminDb, userDb, source: "user" };
   }
@@ -58,14 +98,18 @@ export async function findEventsByIds(ids: string[]): Promise<EventDoc[]> {
   if (!objectIds.length) return [];
 
   const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
-  const adminDocs = await eventsCollection(adminDb)
-    .find({ _id: { $in: objectIds } })
-    .toArray();
-  const found = new Set(adminDocs.map((doc) => String(doc._id)));
-  const missing = objectIds.filter((id) => !found.has(String(id)));
-  const userDocs = missing.length
-    ? await eventsCollection(userDb).find({ _id: { $in: missing } }).toArray()
-    : [];
+  const [adminDocs, userDocs] = await Promise.all([
+    eventsCollection(adminDb).find({ _id: { $in: objectIds } }).toArray(),
+    eventsCollection(userDb).find({ _id: { $in: objectIds } }).toArray(),
+  ]);
 
-  return [...adminDocs, ...userDocs] as EventDoc[];
+  const userById = new Map(userDocs.map((doc) => [String(doc._id), doc as EventDoc]));
+  const merged = adminDocs.map((doc) =>
+    mergeEventDocs(doc as EventDoc, userById.get(String(doc._id)) || null),
+  );
+  const adminIds = new Set(merged.map((doc) => String(doc._id)));
+  for (const doc of userDocs) {
+    if (!adminIds.has(String(doc._id))) merged.push(doc as EventDoc);
+  }
+  return merged;
 }

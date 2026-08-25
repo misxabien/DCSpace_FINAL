@@ -12,6 +12,7 @@ import {
 } from "@/lib/navigation";
 import { NavIcon } from "@/components/layout/NavIcons";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { UserNotifBadgeBridge } from "@/components/legacy/UserNotifBadgeBridge";
 
 const SIDEBAR_STORAGE_KEY = "dc_sidebar_collapsed";
 
@@ -150,5 +151,10 @@ export function Sidebar() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  return <div className="app">{children}</div>;
+  return (
+    <div className="app">
+      {children}
+      <UserNotifBadgeBridge />
+    </div>
+  );
 }

@@ -313,7 +313,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
   color: var(--blue);
   cursor: pointer;
@@ -446,7 +446,7 @@
   width: 28px;
   height: 28px;
   border: 1px solid #d8dce3;
-  border-radius: 6px;
+  border-radius: 10px;
   background: #fff;
   color: var(--blue);
   cursor: pointer;
@@ -483,7 +483,7 @@
 .galleryItem {
   margin: 0;
   width: 100%;
-  border-radius: 4px;
+  border-radius: 16px;
   overflow: hidden;
   background: #d4e2f7;
 }

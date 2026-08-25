@@ -31,6 +31,20 @@ export function SoftNavEnhancer() {
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+    // Legacy event cards call this for soft App Router navigation.
+    window.__dcNavigate = (href: string) => {
+      try {
+        const next = new URL(href, window.location.href);
+        if (next.origin === window.location.origin) {
+          router.push(`${next.pathname}${next.search}${next.hash}`);
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      window.location.assign(href);
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       const target = (event.target as HTMLElement | null)?.closest(PRESS_SELECTOR);
@@ -158,6 +172,7 @@ export function SoftNavEnhancer() {
     }
 
     return () => {
+      if (window.__dcNavigate) delete window.__dcNavigate;
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("pointerup", onPointerUp, true);
       document.removeEventListener("pointercancel", onPointerUp, true);
@@ -175,4 +190,10 @@ export function SoftNavEnhancer() {
   }, [router]);
 
   return null;
+}
+
+declare global {
+  interface Window {
+    __dcNavigate?: (href: string) => void;
+  }
 }

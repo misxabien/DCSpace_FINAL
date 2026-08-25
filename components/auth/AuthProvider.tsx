@@ -58,6 +58,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const data = (await res.json()) as { user: SessionUser | null };
       setUser(data.user);
+      // Keep local profile name in sync so every page header resolves the same value.
+      if (data.user?.name && typeof window !== "undefined") {
+        try {
+          const raw = window.localStorage.getItem("dcspace_auth");
+          if (raw) {
+            const parsed = JSON.parse(raw) as {
+              token: string;
+              user: UserProfile;
+            };
+            if (parsed?.user) {
+              const parts = data.user.name.trim().split(/\s+/).filter(Boolean);
+              parsed.user.fullName = data.user.name;
+              if (!parsed.user.firstName && parts[0]) parsed.user.firstName = parts[0];
+              if (!parsed.user.lastName && parts.length > 1) {
+                parsed.user.lastName = parts.slice(1).join(" ");
+              }
+              window.localStorage.setItem("dcspace_auth", JSON.stringify(parsed));
+              syncProfileToLegacyStorage(parsed.user);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
     } catch {
       if (!hadCachedUser) setUser(null);
     } finally {
@@ -68,6 +92,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Keep header name in sync when profile is saved/hydrated from local session.
+  useEffect(() => {
+    const onProfileUpdated = () => {
+      const cached = readCachedAuthUser();
+      if (!cached) return;
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: cached.name || prev.name,
+              role: cached.role || prev.role,
+              isOrganizer: cached.isOrganizer,
+              isAdmin: cached.isAdmin,
+            }
+          : cached,
+      );
+    };
+    window.addEventListener("dcspace-profile-updated", onProfileUpdated);
+    return () => window.removeEventListener("dcspace-profile-updated", onProfileUpdated);
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string, options?: LoginOptions) => {
@@ -119,7 +164,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* still clear local session */
+    }
     clearAuthSession();
     clearRegistrationDraft();
     try {

@@ -8,6 +8,8 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { isEventSaved, toggleSavedEvent } from "@/lib/savedEvents";
 import { SavedEventsBridge } from "@/components/legacy/SavedEventsBridge";
 import { useProfileHydration } from "@/components/legacy/useProfileHydration";
+import { UserDisplayNameBridge } from "@/components/legacy/UserDisplayNameBridge";
+import { resolveUserDisplayName } from "@/lib/user-api";
 import styles from "@/components/organized/Organized.module.css";
 
 export type OrganizedEvent = {
@@ -61,7 +63,15 @@ export function OrganizedShell({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
+  const [displayName, setDisplayName] = useState("");
   useProfileHydration();
+
+  useEffect(() => {
+    const sync = () => setDisplayName(resolveUserDisplayName(user?.name));
+    sync();
+    window.addEventListener("dcspace-profile-updated", sync);
+    return () => window.removeEventListener("dcspace-profile-updated", sync);
+  }, [user?.name]);
 
   return (
     <AppShell>
@@ -86,14 +96,18 @@ export function OrganizedShell({
           </div>
           <div className={styles.tools}>
             <span className={`main__user-name ${styles.userName}`}>
-              {user?.name || "Your Name"}
+              {displayName}
             </span>
             <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
               </svg>
             </Link>
-            <Link className={styles.toolBtn} href="/notifications" aria-label="Notifications">
+            <Link
+              className={`${styles.toolBtn} tool-btn--notif`}
+              href="/notifications"
+              aria-label="Notifications"
+            >
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -118,6 +132,7 @@ export function OrganizedShell({
         {children}
       </main>
       <SavedEventsBridge />
+      <UserDisplayNameBridge />
     </AppShell>
   );
 }
@@ -236,6 +251,9 @@ export function OrganizedEventCard({
             loading="eager"
             decoding="async"
             fetchPriority="high"
+            onError={(e) => {
+              e.currentTarget.remove();
+            }}
           />
         ) : null}
         <button
