@@ -4921,7 +4921,7 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   margin: 10px 0 16px !important;
 }
 
-/* selection01 — Admin / Super Admin role cards */
+/* selection01 — Admin role card */
 [data-admin-page="selection01"] .roles {
   display: flex;
   justify-content: center;
