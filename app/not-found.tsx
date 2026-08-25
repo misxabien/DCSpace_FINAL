@@ -8,8 +8,8 @@ export default function NotFound() {
       <img
         src="/404-illustration.svg"
         alt="404 page not found"
-        width={806}
-        height={554}
+        width={480}
+        height={330}
         className={styles.illustration}
       />
 
@@ -17,7 +17,7 @@ export default function NotFound() {
         Oops! The page you&apos;re looking for could not be found.
       </p>
 
-      <Link href="/home" className={styles.button}>
+      <Link href="/login" className={styles.button}>
         <span className={styles.arrow} aria-hidden="true">
           ←
         </span>

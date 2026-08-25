@@ -51,32 +51,6 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
     return bindAdminFilterDropdowns(root, prefix);
   }, [data.id, data.route, data.html]);
 
-  // Admin login — Register CTA only for Admin role (not Super Admin)
-  useEffect(() => {
-    if (data.id !== "login02") return;
-    const root = document.querySelector(".admin-legacy-root");
-    if (!root) return;
-
-    const role =
-      new URLSearchParams(window.location.search).get("role") || "admin";
-    const isAdminOnly = role === "admin";
-
-    root.querySelectorAll<HTMLElement>(".register, #admin-register-cta").forEach((el) => {
-      el.hidden = !isAdminOnly;
-      el.style.display = isAdminOnly ? "" : "none";
-    });
-
-    if (!isAdminOnly) {
-      root
-        .querySelectorAll('a[href="/admin/register03"], a[href*="register03"]')
-        .forEach((el) => {
-          const wrap = el.closest(".register, #admin-register-cta") || el;
-          (wrap as HTMLElement).style.display = "none";
-          (wrap as HTMLElement).hidden = true;
-        });
-    }
-  }, [data.id, data.route, data.html]);
-
   // Profile banner — Super Admin: role label + hide Approved By
   useEffect(() => {
     if (data.id !== "profile") return;
@@ -208,41 +182,6 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       root.removeEventListener("click", onClick, true);
     };
   }, [data.id, data.route, data.title]);
-
-  // register03 — Save & Continue → school details
-  useEffect(() => {
-    if (data.id !== "register03") return;
-    const root = document.querySelector(".admin-legacy-root");
-    if (!root) return;
-
-    const goNext = (event: Event) => {
-      event.preventDefault();
-      window.location.assign("/admin/school04");
-    };
-
-    const onClick = (event: Event) => {
-      const target = event.target as HTMLElement | null;
-      if (!target) return;
-      const btn = target.closest(".continue-btn");
-      if (!btn || !root.contains(btn)) return;
-      // If it's already an anchor with href, let the browser navigate
-      if (btn.tagName === "A" && btn.getAttribute("href")) return;
-      goNext(event);
-    };
-
-    const onSubmit = (event: Event) => {
-      const form = event.target as HTMLElement | null;
-      if (!form || form.id !== "register-form") return;
-      goNext(event);
-    };
-
-    root.addEventListener("click", onClick);
-    root.addEventListener("submit", onSubmit, true);
-    return () => {
-      root.removeEventListener("click", onClick);
-      root.removeEventListener("submit", onSubmit, true);
-    };
-  }, [data.id, data.route]);
 
   // Admin Notes Resolve / Resolved pills — work on every event details page
   useEffect(() => {
@@ -622,14 +561,30 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   padding: 0 !important;
 }
 
-/* certdeets46: Asc/Desc + Show entries — Figma outline bar */
+/* certdeets46: Asc/Desc + Show entries — always at bottom of list card */
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-panel {
+  display: flex !important;
+  flex-direction: column !important;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-panel > .cd-event,
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-panel > a.cd-event,
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-panel > hr.cd-divider {
+  order: 0;
+}
+[data-admin-legacy][data-admin-page="certdeets46"] .cd-panel > .dc-events-empty {
+  order: 1;
+}
 [data-admin-legacy][data-admin-page="certdeets46"] .cd-footer {
+  order: 2 !important;
+  margin-top: auto !important;
   display: flex !important;
   flex-wrap: wrap !important;
   align-items: center !important;
   justify-content: space-between !important;
   gap: 12px !important;
   width: 100% !important;
+  padding-top: 12px !important;
+  border-top: 1px solid rgba(68, 138, 255, 0.14) !important;
 }
 [data-admin-legacy][data-admin-page="certdeets46"] .cd-sort {
   display: inline-flex !important;
@@ -1702,6 +1657,29 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   color: #000 !important;
   text-shadow: none !important;
   letter-spacing: -0.02em !important;
+}
+
+/* Hide template/demo event rows (beats .event-item { display: grid !important }) */
+[data-admin-legacy] a.event-item.dc-legacy-hidden,
+[data-admin-legacy] a.event-item[hidden],
+[data-admin-legacy] .event-item.dc-legacy-hidden,
+[data-admin-legacy] .event-item[hidden],
+[data-admin-legacy] article.event-card.dc-legacy-hidden,
+[data-admin-legacy] article.event-card[hidden],
+[data-admin-legacy] .card-row article.event-card.dc-legacy-hidden,
+[data-admin-legacy] .card-row article.event-card[hidden],
+[data-admin-legacy] table tbody tr.dc-legacy-hidden,
+[data-admin-legacy] table tbody tr[hidden] {
+  display: none !important;
+}
+
+/* Empty event panels: no nested card around the calendar empty state */
+[data-admin-legacy] .events-panel > .dc-events-empty {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
 }
 
 /* Event card header — Figma: large blue Event Name */
@@ -4943,10 +4921,19 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   margin: 10px 0 16px !important;
 }
 
-/* Admin login — Register CTA only for Admin (hidden for Super Admin via [hidden]/JS) */
-[data-admin-page="login02"] .register[hidden],
-[data-admin-page="login02"] #admin-register-cta[hidden] {
-  display: none !important;
+/* selection01 — Admin role card */
+[data-admin-page="selection01"] .roles {
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+[data-admin-page="selection01"] .role-card {
+  cursor: pointer;
+}
+[data-admin-page="selection01"] .role-card.is-selected {
+  outline: 2px solid #448aff;
+  outline-offset: 4px;
 }
 
 /* Recent Account Activity (profile) — left-align title/table text */

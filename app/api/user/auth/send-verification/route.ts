@@ -3,7 +3,6 @@ import type { Db } from "mongodb";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 import { issueRegistrationVerificationCode } from "@/lib/user-server/verification";
 import {
   MONGO_QUICK_TIMEOUT_MS,
@@ -36,7 +35,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Never block email delivery on a slow/unreachable Mongo — fail the lookup quickly.
     let db: Db | null = null;
     try {
       db = await withTimeout(
@@ -45,7 +43,7 @@ export async function POST(request: Request) {
         "MongoDB connect",
       );
       const existingUser = await withTimeout(
-        usersCollection(db).findOne({ email }),
+        db.collection("users").findOne({ email }),
         MONGO_QUICK_TIMEOUT_MS,
         "MongoDB user lookup",
       );
@@ -57,10 +55,8 @@ export async function POST(request: Request) {
           ),
         );
       }
-    } catch (error) {
+    } catch {
       db = null;
-      const details = error instanceof Error ? error.message : "Unknown error";
-      console.warn("[DC Space] Mongo unavailable during send-verification:", details);
     }
 
     const result = await issueRegistrationVerificationCode(email, { db });
@@ -83,10 +79,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const isEmailConfig =
-      /email is not set up|mail server|smtp|email server timed out|could not reach the email server|gmail/i.test(
+      /email is not set up|mail server|smtp|email server timed out|could not reach the email server/i.test(
         message,
       );
-    const isDatabase = /mongo|Missing MONGODB|Atlas/i.test(message);
+    const isDatabase = /mongo|Missing MONGODB/i.test(message);
 
     if (isEmailConfig) {
       return withCors(NextResponse.json({ error: message, details: message }, { status: 503 }));
@@ -95,9 +91,7 @@ export async function POST(request: Request) {
       return withCors(
         NextResponse.json(
           {
-            error: message.includes("Atlas")
-              ? message
-              : "Could not connect to the database. Check MONGODB_URI in .env.",
+            error: "Could not connect to the database. Check MONGODB_URI in .env.",
             details: message,
           },
           { status: 500 },

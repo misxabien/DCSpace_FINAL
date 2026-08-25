@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { certificatesCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
-import { resolveCertificatePdf } from "@/lib/user-server/certificates";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -23,31 +21,31 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const cert = await certificatesCollection(db).findOne({ _id: new ObjectId(id) });
+    const cert = await db.collection("certificates").findOne({ _id: new ObjectId(id) });
     if (!cert) {
       return NextResponse.json({ error: "Certificate not found." }, { status: 404 });
     }
 
     if (!isAdmin && actor && !("error" in actor)) {
-      const email = String(cert.email || "").trim().toLowerCase();
-      if (email !== actor.email.trim().toLowerCase()) {
+      const email = String(cert.email || "").toLowerCase();
+      if (email !== actor.email.toLowerCase()) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
     }
 
-    const resolved = await resolveCertificatePdf(db, cert);
-    if (!resolved?.base64) {
+    const base64 = String(cert.generatedPdfBase64 || "");
+    if (!base64) {
       return NextResponse.json(
         { error: "Certificate file is unavailable." },
         { status: 404 },
       );
     }
 
-    const bytes = Buffer.from(resolved.base64, "base64");
-    const fileName = resolved.fileName;
+    const bytes = Buffer.from(base64, "base64");
+    const fileName = String(cert.generatedPdfFileName || "certificate.pdf");
     return new NextResponse(bytes, {
       headers: {
-        "Content-Type": resolved.mimeType,
+        "Content-Type": String(cert.generatedPdfMimeType || "application/pdf"),
         "Content-Disposition": `inline; filename="${fileName.replace(/"/g, "")}"`,
         "Cache-Control": "private, no-store",
       },

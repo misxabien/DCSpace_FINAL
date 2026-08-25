@@ -5,7 +5,6 @@ import { decodeSession } from "@/lib/auth/session";
 import { SESSION_COOKIE, isAdminRole, type SessionUser } from "@/lib/auth/types";
 import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 
 type AdminAuthSuccess = {
   session: SessionUser;
@@ -21,7 +20,7 @@ async function liveAdminFromEmail(email: string): Promise<AdminAuthSuccess | nul
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
   const db = await getUserDb();
-  const user = await usersCollection(db).findOne({ email: normalized });
+  const user = await db.collection("users").findOne({ email: normalized });
   if (!user || !isAdminRole(String(user.role || ""))) return null;
   return {
     session: toSessionUser({
@@ -52,7 +51,7 @@ async function sessionFromBearer(request: Request): Promise<AdminAuthSuccess | n
 
     if (payload.sub && ObjectId.isValid(payload.sub)) {
       const db = await getUserDb();
-      const user = await usersCollection(db).findOne({ _id: new ObjectId(payload.sub) });
+      const user = await db.collection("users").findOne({ _id: new ObjectId(payload.sub) });
       if (!user || !isAdminRole(String(user.role || ""))) return null;
       return {
         session: toSessionUser({
@@ -89,7 +88,7 @@ export async function requireAdminAuth(
 
   try {
     const db = await getUserDb();
-    const user = await usersCollection(db).findOne({
+    const user = await db.collection("users").findOne({
       email: session.email.trim().toLowerCase(),
     });
     if (user && !isAdminRole(String(user.role || ""))) {

@@ -52,50 +52,6 @@ function bytesFromBase64(base64: string): Uint8Array {
   return Uint8Array.from(Buffer.from(normalized, "base64"));
 }
 
-/** Blank landscape template used when an event has e-cert enabled but no uploaded PDF yet. */
-export async function buildDefaultCertificateTemplate(): Promise<string> {
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([792, 612]);
-  const { width, height } = page.getSize();
-  const titleFont = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const bodyFont = await pdf.embedFont(StandardFonts.Helvetica);
-
-  page.drawRectangle({
-    x: 24,
-    y: 24,
-    width: width - 48,
-    height: height - 48,
-    borderColor: rgb(0.27, 0.54, 1),
-    borderWidth: 3,
-    color: rgb(0.98, 0.99, 1),
-  });
-
-  const heading = "Certificate of Participation";
-  const headingSize = 28;
-  const headingWidth = titleFont.widthOfTextAtSize(heading, headingSize);
-  page.drawText(heading, {
-    x: (width - headingWidth) / 2,
-    y: height * 0.72,
-    size: headingSize,
-    font: titleFont,
-    color: rgb(0.13, 0.2, 0.34),
-  });
-
-  const subtitle = "St. Dominic College of Asia · DC Space";
-  const subtitleSize = 14;
-  const subtitleWidth = bodyFont.widthOfTextAtSize(subtitle, subtitleSize);
-  page.drawText(subtitle, {
-    x: (width - subtitleWidth) / 2,
-    y: height * 0.64,
-    size: subtitleSize,
-    font: bodyFont,
-    color: rgb(0.35, 0.4, 0.48),
-  });
-
-  const bytes = await pdf.save();
-  return Buffer.from(bytes).toString("base64");
-}
-
 export async function buildCertificatePdfFromTemplate(input: {
   templateBase64: string;
   recipientName: string;

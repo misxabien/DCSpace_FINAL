@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { hashPassword, verifyPassword } from "@/lib/user-server/password";
@@ -14,21 +13,15 @@ export async function OPTIONS() {
 async function requirePasswordUser(request: Request) {
   const jwtAuth = await requireUserAuth(request);
   if (!("error" in jwtAuth)) return jwtAuth;
-
   const actor = await requireSessionActor(request);
-  if ("error" in actor) {
-    return jwtAuth;
-  }
-
+  if ("error" in actor) return jwtAuth;
   const db = await getUserDb();
   const user =
     actor.userId && ObjectId.isValid(actor.userId)
-      ? await usersCollection(db).findOne({ _id: new ObjectId(actor.userId) })
-      : await usersCollection(db).findOne({ email: actor.email });
-  if (!user) {
-    return { error: "User not found.", status: 404 } as const;
-  }
-  return { user: user as { _id: ObjectId; passwordHash?: string } };
+      ? await db.collection("users").findOne({ _id: new ObjectId(actor.userId) })
+      : await db.collection("users").findOne({ email: actor.email });
+  if (!user) return { error: "User not found.", status: 404 } as const;
+  return { user };
 }
 
 export async function POST(request: Request) {
@@ -74,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     const db = await getUserDb();
-    const user = await usersCollection(db).findOne({ _id: new ObjectId(authResult.user._id) });
+    const user = await db.collection("users").findOne({ _id: new ObjectId(authResult.user._id) });
     if (!user) {
       return withCors(NextResponse.json({ error: "User not found." }, { status: 404 }));
     }
@@ -85,7 +78,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await usersCollection(db).updateOne(
+    await db.collection("users").updateOne(
       { _id: user._id },
       {
         $set: {

@@ -1,7 +1,6 @@
 import { ObjectId } from "mongodb";
 import jwt from "jsonwebtoken";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 
 type AuthSuccess = {
   user: {
@@ -48,7 +47,7 @@ export async function requireUserAuth(request: Request): Promise<AuthSuccess | A
     }
 
     const db = await getUserDb();
-    const user = await usersCollection(db).findOne({ _id: new ObjectId(userId) });
+    const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
 
     if (!user) {
       return { error: "User not found.", status: 404 };

@@ -57,12 +57,19 @@ export type SpaceEvent = {
   submittedByPortal?: "user" | "admin";
   reviewedByEmail?: string;
   reviewNote?: string;
+  /** iRoom / eRoomReserve reservation (organizer create-event flow). */
   iroomReservationId?: string;
   iroomStatus?: IroomReservationStatus;
   iroomRoomId?: string;
   iroomRoomName?: string;
   iroomRejectionReason?: string;
   iroomSyncedAt?: string;
+  /** Linked eRoomReserve reservation id (synced via /api/integrations/reservation-info). */
+  reservationId?: string;
+  reservationStatus?: string;
+  reservationRoomId?: string;
+  reservationRoomName?: string;
+  reservationCapacity?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -94,11 +101,14 @@ function deriveStartsAt(doc: {
   return `${day}T${normalizeClock(String(doc.startTime || "00:00"))}`;
 }
 
-function deriveEndsAt(doc: {
-  endsAt?: string;
-  date?: string;
-  endTime?: string;
-}, startsAt: string): string {
+function deriveEndsAt(
+  doc: {
+    endsAt?: string;
+    date?: string;
+    endTime?: string;
+  },
+  startsAt: string,
+): string {
   if (doc.endsAt) return String(doc.endsAt);
   const day =
     String(doc.date || "").trim() ||
@@ -196,6 +206,12 @@ export function sanitizeEvent(
     iroomRoomName: doc.iroomRoomName || "",
     iroomRejectionReason: doc.iroomRejectionReason || "",
     iroomSyncedAt: doc.iroomSyncedAt || "",
+    reservationId: doc.reservationId || "",
+    reservationStatus: doc.reservationStatus || "",
+    reservationRoomId: doc.reservationRoomId || "",
+    reservationRoomName: doc.reservationRoomName || "",
+    reservationCapacity:
+      typeof doc.reservationCapacity === "number" ? doc.reservationCapacity : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

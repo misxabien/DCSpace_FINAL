@@ -1,19 +1,31 @@
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import {
-  savedEventsCollection,
-  usersCollection,
   attendanceCollection,
   certificatesCollection,
   feedbackCollection,
-} from "@/lib/db/user-collections";
+} from "@/lib/user-server/activity";
+import { loadAttendanceSecurityStats } from "@/lib/user-server/attendance-security";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 
 function hourLabel(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
+}
+
+function stampOf(row: { scannedAt?: unknown; createdAt?: unknown } | Record<string, unknown>) {
+  const stamp = new Date(String(row.scannedAt || row.createdAt || "")).getTime();
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function formatClock(ms: number) {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 function peakFromHours(hours: string[]) {
@@ -27,6 +39,53 @@ function peakFromHours(hours: string[]) {
   };
 }
 
+/** Densest 30-minute arrival window from tap-in timestamps. */
+function peakArrivalWindow(tapInStamps: number[]) {
+  const stamps = tapInStamps.filter((n) => n > 0).sort((a, b) => a - b);
+  if (!stamps.length) {
+    return { peakPeriod: "TBA", peakHourCount: 0, predictedPeakTime: "TBA" };
+  }
+  if (stamps.length === 1) {
+    const label = formatClock(stamps[0]);
+    return {
+      peakPeriod: label,
+      peakHourCount: 1,
+      predictedPeakTime: `Around ${label}`,
+    };
+  }
+
+  const windowMs = 30 * 60 * 1000;
+  let bestStart = stamps[0];
+  let bestCount = 1;
+  let left = 0;
+  for (let right = 0; right < stamps.length; right += 1) {
+    while (stamps[right] - stamps[left] > windowMs) left += 1;
+    const count = right - left + 1;
+    if (count > bestCount) {
+      bestCount = count;
+      bestStart = stamps[left];
+    }
+  }
+  const bestEnd = bestStart + windowMs;
+  const predictedPeakTime = `Between ${formatClock(bestStart)} to ${formatClock(bestEnd)}`;
+  return {
+    peakPeriod: predictedPeakTime,
+    peakHourCount: bestCount,
+    predictedPeakTime,
+  };
+}
+
+function rateLabel(count: number, windowMinutes: number, noun = "people") {
+  if (count <= 0) return `0 ${noun} / ${windowMinutes} min`;
+  if (windowMinutes <= 1) return `${count} ${noun} per minute`;
+  const perMinute = count / windowMinutes;
+  if (perMinute >= 1) {
+    const rounded = Math.round(perMinute * 10) / 10;
+    return `${rounded} ${noun} per minute`;
+  }
+  return `${count} ${noun} per ${windowMinutes} minutes`;
+}
+
 function sentimentFromRating(avgRating: number) {
   if (avgRating >= 4.2) return "Positive";
   if (avgRating >= 3) return "Mixed";
@@ -35,17 +94,25 @@ function sentimentFromRating(avgRating: number) {
 }
 
 export async function loadEventAiContext(eventId: string) {
-  const userDb = await getUserDb();
-  const adminDb = await getAdminDb();
+  const db = await getUserDb();
   if (!ObjectId.isValid(eventId)) return null;
-  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
+  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
   if (!event) return null;
 
-  const [registrationCount, attendanceDocs, feedbackDocs, savedCount] = await Promise.all([
-    registrationsCollection(userDb).countDocuments({ eventId }),
-    attendanceCollection(userDb).find({ eventId }).limit(400).toArray(),
-    feedbackCollection(userDb).find({ eventId }).limit(80).toArray(),
-    savedEventsCollection(userDb).countDocuments({ eventIds: eventId }).catch(() => 0),
+  const [registrationCount, attendanceDocs, feedbackDocs, savedCount, security] =
+    await Promise.all([
+    registrationsCollection(db).countDocuments({
+      eventId,
+      status: { $in: ["joined", "approved"] },
+    }),
+    attendanceCollection(db)
+      .find({ eventId })
+      .sort({ scannedAt: 1, createdAt: 1 })
+      .limit(5000)
+      .toArray(),
+    feedbackCollection(db).find({ eventId }).limit(80).toArray(),
+    db.collection("saved_events").countDocuments({ eventIds: eventId }).catch(() => 0),
+    loadAttendanceSecurityStats(eventId),
   ]);
 
   const tapIn = attendanceDocs.filter((row) => String(row.action || "in") === "in").length;
@@ -66,18 +133,44 @@ export async function loadEventAiContext(eventId: string) {
     if (!email) return;
     byEmail.set(email, (byEmail.get(email) || 0) + 1);
   });
-  const duplicateScans = [...byEmail.values()].filter((count) => count > 4).length;
-  const { peakPeriod, lowestPeriod } = peakFromHours(
-    attendanceDocs
-      .filter((row) => String(row.action || "in") === "in")
-      .map((row) => hourLabel(String(row.scannedAt || row.createdAt || "")))
-      .filter(Boolean),
-  );
+  const highScanParticipants = [...byEmail.values()].filter((count) => count > 4).length;
+  const duplicateScans = security.duplicateScans;
+  const tapInDocs = attendanceDocs.filter((row) => String(row.action || "in") === "in");
+  const tapInHours = tapInDocs
+    .map((row) => hourLabel(String(row.scannedAt || row.createdAt || "")))
+    .filter(Boolean);
+  const hourPeaks = peakFromHours(tapInHours);
+  const tapInStamps = tapInDocs.map((row) => stampOf(row));
+  const arrivalPeak = peakArrivalWindow(tapInStamps);
+  const peakPeriod = arrivalPeak.peakPeriod !== "TBA" ? arrivalPeak.peakPeriod : hourPeaks.peakPeriod;
+  const lowestPeriod = hourPeaks.lowestPeriod;
+  const peakHourCount = arrivalPeak.peakHourCount;
 
-  const currentlyInside = Math.max(0, tapIn - tapOut);
+  const uniqueTapIns = new Set(
+    tapInDocs.map((row) => String(row.email || "").toLowerCase()).filter(Boolean),
+  ).size;
+
+  const recentWindowMinutes = 15;
+  const recentCutoff = Date.now() - recentWindowMinutes * 60 * 1000;
+  const recentDocs = attendanceDocs.filter((row) => stampOf(row) >= recentCutoff);
+  const recentTapIn = recentDocs.filter((row) => String(row.action || "in") === "in").length;
+  const recentTapOut = recentDocs.filter((row) => String(row.action) === "out").length;
+  const entryRate = rateLabel(recentTapIn, recentWindowMinutes);
+  const exitRate = rateLabel(recentTapOut, recentWindowMinutes);
+
+  // Chronological open-session reconstruction (oldest → newest).
+  const openTapIns = new Set<string>();
+  for (const row of attendanceDocs) {
+    const email = String(row.email || "").toLowerCase();
+    if (!email) continue;
+    if (String(row.action || "in") === "in") openTapIns.add(email);
+    else openTapIns.delete(email);
+  }
+  const currentlyInside = openTapIns.size;
   const attendanceRate = registrationCount
-    ? Math.round((tapIn / registrationCount) * 100)
+    ? Math.round((uniqueTapIns / registrationCount) * 100)
     : 0;
+  const venueCapacity = Math.max(0, Number(event.reservationCapacity || 0));
 
   return {
     event: {
@@ -98,6 +191,7 @@ export async function loadEventAiContext(eventId: string) {
       collaboratingDepartments: event.collaboratingDepartments || [],
       programActivities: event.programActivities || [],
       organizerName: event.organizerName || event.organizerEmail || "",
+      reservationCapacity: venueCapacity,
     },
     stats: {
       registrations: registrationCount,
@@ -105,6 +199,7 @@ export async function loadEventAiContext(eventId: string) {
       tapOut,
       currentlyInside,
       attendanceRate: Math.min(100, attendanceRate),
+      venueCapacity,
       qualifiedForCertificate: qualified,
       uniqueScans: attendanceDocs.length,
       uniqueParticipants: byEmail.size,
@@ -115,8 +210,25 @@ export async function loadEventAiContext(eventId: string) {
       overallSentiment: sentimentFromRating(avgRating),
       savedInterest: savedCount,
       duplicateScans,
+      duplicateWarnings: security.duplicateWarnings,
+      highScanParticipants,
+      rapidConsecutiveScans: security.rapidConsecutiveScans + security.concurrentEventTaps,
+      invalidScans: security.invalidScans,
+      concurrentEventTaps: security.concurrentEventTaps,
+      manualOverrideCount: security.manualOverrideCount,
+      totalSecurityEvents: security.totalSecurityEvents,
+      securityRisk: security.securityRisk,
+      securityEvents: security.recentEvents,
       peakPeriod,
       lowestPeriod,
+      uniqueTapIns,
+      peakHourCount,
+      recentTapIn,
+      recentTapOut,
+      recentWindowMinutes,
+      entryRate,
+      exitRate,
+      predictedPeakTime: arrivalPeak.predictedPeakTime,
     },
     feedbackSamples: feedbackDocs
       .map((row) => String(row.comment || "").trim())
@@ -126,17 +238,17 @@ export async function loadEventAiContext(eventId: string) {
 }
 
 export async function loadUserAiContext(userId: string) {
-  const userDb = await getUserDb();
+  const db = await getUserDb();
   if (!ObjectId.isValid(userId)) return null;
-  const user = await usersCollection(userDb).findOne({ _id: new ObjectId(userId) });
+  const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
   if (!user) return null;
   const email = String(user.email || "").toLowerCase();
 
   const [attendanceDocs, registrationCount, certificateCount, feedbackCount] = await Promise.all([
-    attendanceCollection(userDb).find({ email }).limit(120).toArray(),
-    registrationsCollection(userDb).countDocuments({ email }),
-    certificatesCollection(userDb).countDocuments({ email }),
-    feedbackCollection(userDb).countDocuments({ email }),
+    attendanceCollection(db).find({ email }).limit(120).toArray(),
+    registrationsCollection(db).countDocuments({ email }),
+    certificatesCollection(db).countDocuments({ email }),
+    feedbackCollection(db).countDocuments({ email }),
   ]);
 
   const qualified = attendanceDocs.filter((row) => Boolean(row.qualifiedForCertificate)).length;
@@ -169,21 +281,20 @@ export async function loadUserAiContext(userId: string) {
 }
 
 export async function loadCampusAiContext(limit = 12) {
-  const userDb = await getUserDb();
-  const adminDb = await getAdminDb();
-  const events = await eventsCollection(adminDb)
+  const db = await getUserDb();
+  const events = await eventsCollection(db)
     .find({})
     .sort({ updatedAt: -1 })
     .limit(limit)
     .toArray();
 
   const [pending, live, completed, attendanceCount, feedbackCount, userCount] = await Promise.all([
-    eventsCollection(adminDb).countDocuments({ status: "pending" }),
-    eventsCollection(adminDb).countDocuments({ status: "live" }),
-    eventsCollection(adminDb).countDocuments({ status: "completed" }),
-    attendanceCollection(userDb).countDocuments({}),
-    feedbackCollection(userDb).countDocuments({}),
-    usersCollection(userDb).countDocuments({ role: { $nin: ["admin", "super-admin"] } }),
+    eventsCollection(db).countDocuments({ status: "pending" }),
+    eventsCollection(db).countDocuments({ status: "live" }),
+    eventsCollection(db).countDocuments({ status: "completed" }),
+    attendanceCollection(db).countDocuments({}),
+    feedbackCollection(db).countDocuments({}),
+    db.collection("users").countDocuments({ role: { $nin: ["admin", "super-admin"] } }),
   ]);
 
   return {
@@ -220,20 +331,19 @@ export async function loadReportAiContext(eventIds: string[]) {
 }
 
 export async function loadStudentAiContext(email: string) {
-  const userDb = await getUserDb();
-  const adminDb = await getAdminDb();
+  const db = await getUserDb();
   const normalized = email.trim().toLowerCase();
-  const user = await usersCollection(userDb).findOne({ email: normalized });
-  const events = await eventsCollection(adminDb)
+  const user = await db.collection("users").findOne({ email: normalized });
+  const events = await eventsCollection(db)
     .find({ status: { $in: ["approved", "live"] } })
     .sort({ startsAt: 1 })
     .limit(16)
     .toArray();
 
   const [registrationCount, attendanceCount, certificateCount] = await Promise.all([
-    registrationsCollection(userDb).countDocuments({ email: normalized }),
-    attendanceCollection(userDb).countDocuments({ email: normalized }),
-    certificatesCollection(userDb).countDocuments({ email: normalized }),
+    registrationsCollection(db).countDocuments({ email: normalized }),
+    attendanceCollection(db).countDocuments({ email: normalized }),
+    certificatesCollection(db).countDocuments({ email: normalized }),
   ]);
 
   return {

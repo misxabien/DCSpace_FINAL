@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 import { verifyPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
@@ -33,7 +32,7 @@ export async function POST(request: Request) {
     }
 
     const db = await getUserDb();
-    const user = await usersCollection(db).findOne({ email });
+    const user = await db.collection("users").findOne({ email });
     if (!user || !verifyPassword(password, String(user.passwordHash || ""))) {
       return withCors(NextResponse.json({ error: "Invalid email or password." }, { status: 401 }));
     }
@@ -81,7 +80,7 @@ export async function POST(request: Request) {
           {
             error: "Failed to login.",
             details:
-              "Could not reach MongoDB. In Atlas → Network Access, allow your current IP (or temporarily 0.0.0.0/0), confirm the cluster is not paused, then try again.",
+              "Could not reach the database in time. Check MONGODB_URI / Atlas Network Access, then try again.",
           },
           { status: 503 },
         ),

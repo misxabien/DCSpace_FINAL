@@ -24,6 +24,10 @@
     var tbody = document.getElementById('rfid-log-body');
     if (!tbody) return;
 
+    if (!rfid.logs || rfid.logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:#94a3b8;">No attendance records yet.</td></tr>';
+      return;
+    }
     tbody.innerHTML = rfid.logs.map(function (row) {
       return (
         '<tr>' +

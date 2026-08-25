@@ -7,7 +7,7 @@ import {
   resolveEventAttachment,
 } from "@/lib/events/files";
 import { eventsCollection } from "@/lib/events/types";
-import { getAdminDb } from "@/lib/db/get-db";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string; kind: string }> };
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getAdminDb();
+    const db = await getUserDb();
     const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
@@ -61,15 +61,11 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     const fileName = file.name.replace(/["\r\n]/g, "") || "download";
-    const cacheControl =
-      kind === "poster"
-        ? "private, max-age=86400, stale-while-revalidate=604800"
-        : "private, max-age=3600";
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": file.mimeType || "application/octet-stream",
         "Content-Disposition": `inline; filename="${fileName}"`,
-        "Cache-Control": cacheControl,
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (error) {

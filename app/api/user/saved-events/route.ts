@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { savedEventsCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+
+function savedCollection(db: Awaited<ReturnType<typeof getUserDb>>) {
+  return db.collection("saved_events");
+}
 
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -19,14 +22,12 @@ export async function GET(request: Request) {
       isAdmin && emailParam
         ? emailParam.trim().toLowerCase()
         : actor && !("error" in actor)
-          ? actor.email.trim().toLowerCase()
+          ? actor.email
           : "";
     if (!email) {
       return NextResponse.json({ eventIds: [] });
     }
-    const doc = await savedEventsCollection(db).findOne({
-      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
-    });
+    const doc = await savedCollection(db).findOne({ email });
     return NextResponse.json({
       eventIds: Array.isArray(doc?.eventIds) ? doc.eventIds.map(String) : [],
     });
@@ -54,11 +55,8 @@ export async function PUT(request: Request) {
 
   try {
     const db = await getUserDb();
-    const col = savedEventsCollection(db);
-    const email = actor.email.trim().toLowerCase();
-    const existing = await col.findOne({
-      email: { $regex: `^${email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
-    });
+    const col = savedCollection(db);
+    const existing = await col.findOne({ email: actor.email });
     let ids: string[] = Array.isArray(existing?.eventIds)
       ? existing!.eventIds.map(String)
       : [];
@@ -76,10 +74,10 @@ export async function PUT(request: Request) {
     }
 
     await col.updateOne(
-      { email },
+      { email: actor.email },
       {
         $set: {
-          email,
+          email: actor.email,
           userId: actor.userId || "",
           eventIds: ids,
           updatedAt: new Date().toISOString(),

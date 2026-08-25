@@ -6,15 +6,14 @@ import {
   sanitizeEvent,
   type SpaceEvent,
 } from "@/lib/events/types";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import {
-  usersCollection,
+  activitiesCollection,
   attendanceCollection,
-  feedbackCollection,
   certificatesCollection,
-} from "@/lib/db/user-collections";
-import { activitiesCollection } from "@/lib/db/admin-collections";
-import type { ActivityDoc } from "@/lib/user-server/activity";
+  feedbackCollection,
+  type ActivityDoc,
+} from "@/lib/user-server/activity";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import {
   MONGO_QUICK_TIMEOUT_MS,
@@ -43,6 +42,7 @@ function emptyDashboard(details?: string) {
       activeUsers: 0,
     },
     attention: [],
+    todayEvents: [],
     events: { pending: [], approved: [] },
     users: [],
     activities: [],
@@ -54,6 +54,34 @@ function emptyDashboard(details?: string) {
 
 function daysAgoIso(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function isEventToday(startsAt?: string, endsAt?: string) {
+  if (!startsAt) return false;
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return false;
+  const end = endsAt ? new Date(endsAt) : start;
+  if (Number.isNaN(end.getTime())) return false;
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date();
+  dayEnd.setHours(23, 59, 59, 999);
+  return start <= dayEnd && end >= dayStart;
+}
+
+function formatTimeRemaining(endsAt?: string, startsAt?: string) {
+  const now = Date.now();
+  let endMs = endsAt ? new Date(endsAt).getTime() : Number.NaN;
+  if (!Number.isFinite(endMs) && startsAt) {
+    endMs = new Date(startsAt).getTime() + 2 * 60 * 60 * 1000;
+  }
+  if (!Number.isFinite(endMs)) return "Schedule TBA";
+  const diff = endMs - now;
+  if (diff <= 0) return "Ended";
+  const hrs = Math.floor(diff / 3_600_000);
+  const mins = Math.floor((diff % 3_600_000) / 60_000);
+  if (hrs <= 0) return `${mins} MIN${mins === 1 ? "" : "S"}`;
+  return `${hrs} HR${hrs === 1 ? "" : "S"} ${mins} MIN${mins === 1 ? "" : "S"}`;
 }
 
 function formatDate(value?: string) {
@@ -75,15 +103,18 @@ export async function GET(request: Request) {
   }
 
   try {
-    const userDb = await withTimeout(getUserDb(), DASHBOARD_TIMEOUT_MS, "MongoDB connect");
-    const adminDb = await getAdminDb();
+    const db = await withTimeout(
+      getUserDb(),
+      DASHBOARD_TIMEOUT_MS,
+      "MongoDB connect",
+    );
 
-    const usersCol = usersCollection(userDb);
-    const eventsCol = eventsCollection(adminDb);
-    const activitiesCol = activitiesCollection(adminDb);
-    const attendanceCol = attendanceCollection(userDb);
-    const feedbackCol = feedbackCollection(userDb);
-    const certificatesCol = certificatesCollection(userDb);
+    const usersCol = db.collection("users");
+    const eventsCol = eventsCollection(db);
+    const activitiesCol = activitiesCollection(db);
+    const attendanceCol = attendanceCollection(db);
+    const feedbackCol = feedbackCollection(db);
+    const certificatesCol = certificatesCollection(db);
 
     const weekAgo = daysAgoIso(7);
     const monthAgo = daysAgoIso(30);
@@ -102,6 +133,7 @@ export async function GET(request: Request) {
       attentionEvents,
       recentSubmitted,
       recentApproved,
+      scheduledEvents,
       recentActivities,
       attendanceCount,
       feedbackCount,
@@ -124,7 +156,7 @@ export async function GET(request: Request) {
       usersCol
         .find({ role: { $nin: ["admin", "super-admin"] } })
         .sort({ createdAt: -1 })
-        .limit(50)
+        .limit(500)
         .toArray(),
       eventsCol.countDocuments({}),
       eventsCol.countDocuments({ status: "pending" }),
@@ -141,12 +173,17 @@ export async function GET(request: Request) {
       eventsCol
         .find({ status: "pending" })
         .sort({ createdAt: -1 })
-        .limit(50)
+        .limit(500)
         .toArray(),
       eventsCol
         .find({ status: { $in: ["approved", "live", "completed"] } })
-        .sort({ startsAt: 1, updatedAt: -1 })
-        .limit(50)
+        .sort({ updatedAt: -1 })
+        .limit(500)
+        .toArray(),
+      eventsCol
+        .find({ status: { $in: ["approved", "live"] } })
+        .sort({ startsAt: 1 })
+        .limit(40)
         .toArray(),
       activitiesCol.find({}).sort({ createdAt: -1 }).limit(40).toArray(),
       attendanceCol.countDocuments({}),
@@ -207,6 +244,22 @@ export async function GET(request: Request) {
       return { ...e, reason };
     });
 
+    const todayEvents = scheduledEvents
+      .filter((doc) =>
+        isEventToday(
+          String((doc as SpaceEvent).startsAt || ""),
+          String((doc as SpaceEvent).endsAt || ""),
+        ),
+      )
+      .slice(0, 6)
+      .map((doc) => {
+        const e = mapEvent(doc as SpaceEvent & { _id: ObjectId });
+        return {
+          ...e,
+          timeRemaining: formatTimeRemaining(e.endsAt, e.startsAt),
+        };
+      });
+
     const activityRows = (recentActivities as ActivityDoc[]).map((a) => ({
       type: a.type,
       actorEmail: a.actorEmail || "",
@@ -236,6 +289,7 @@ export async function GET(request: Request) {
         activeUsers: recentLogins,
       },
       attention,
+      todayEvents,
       events: {
         pending: recentSubmitted.map((d) =>
           mapEvent(d as SpaceEvent & { _id: ObjectId }),

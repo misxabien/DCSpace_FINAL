@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  analyticsNarrative,
+  computeAttendanceAnalytics,
+} from "@/lib/ai/attendance-analytics";
 import { loadEventAiContext } from "@/lib/ai/context";
 import { generateGeminiJson, geminiErrorResponse } from "@/lib/ai/gemini";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
@@ -27,13 +31,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
 
-    const result = await generateGeminiJson<{
-      expectedAttendees?: number;
-      expectedAttendanceRate?: number;
-      predictionConfidence?: number;
-      capacityRisk?: string;
-      overbookingRisk?: string;
-      underutilizationRisk?: string;
+    const analyticsInput = {
+      status: String(context.event.status || ""),
+      registrations: context.stats.registrations,
+      tapIn: context.stats.tapIn,
+      tapOut: context.stats.tapOut,
+      currentlyInside: context.stats.currentlyInside,
+      uniqueParticipants: context.stats.uniqueParticipants,
+      uniqueTapIns: Number(context.stats.uniqueTapIns || 0),
+      savedInterest: context.stats.savedInterest,
+      peakPeriod: context.stats.peakPeriod,
+      peakHourCount: Number(context.stats.peakHourCount || 0),
+      recentTapIn: Number(context.stats.recentTapIn || 0),
+      recentTapOut: Number(context.stats.recentTapOut || 0),
+      venueCapacity: Number(context.stats.venueCapacity || 0),
+      predictedPeakTime: String(context.stats.predictedPeakTime || context.stats.peakPeriod || ""),
+    };
+    const analytics = computeAttendanceAnalytics(analyticsInput);
+    const fallbackCopy = analyticsNarrative(analytics, analyticsInput, {
+      location: context.event.location,
+      venueCapacity: Number(context.stats.venueCapacity || 0),
+    });
+
+    let result: {
       capacityConclusion?: string;
       crowdInsight?: string;
       attendanceInsight?: string;
@@ -41,66 +61,43 @@ export async function POST(request: Request) {
       eventSummary?: string;
       performanceSummary?: string;
       futureRecommendations?: string;
-      peakPeriod?: string;
-      lowestPeriod?: string;
-      avgDurationLabel?: string;
-      comparedToPrediction?: number;
-      crowdDensity?: string;
-      congestionRisk?: string;
-      predictedPeakTime?: string;
-      predictedPeakOccupancy?: number;
-      crowdFlow?: string;
-      flowStatus?: string;
-      securityRisk?: string;
       overallSentiment?: string;
       interestFlow?: string;
       registrationStatus?: string;
       recommendations?: unknown;
-    }>(
-      `You are DC Space campus admin AI. Analyze this event snapshot and return JSON only.
-Event status is "${context.event.status}". Adapt the analysis:
-- approved / pending live: focus on pre-event capacity planning, expected turnout, registration health, and readiness evaluation.
-- live: focus on crowd, RFID taps, congestion, and real-time attendance.
-- completed / cancelled / postponed: focus on performance evaluation, feedback sentiment, and future recommendations.
+    } = {};
+    let aiAvailable = false;
+
+    try {
+      result = await generateGeminiJson(
+        `You are DC Space campus admin AI. Explain the AUTHORITATIVE metrics below. Do not invent different numbers or risk labels.
+Return JSON only:
 {
-  "expectedAttendees": 0,
-  "expectedAttendanceRate": 0,
-  "predictionConfidence": 0,
-  "capacityRisk": "Low Risk|Moderate Risk|Critical Risk",
-  "overbookingRisk": "Low|Moderate|High|Pending",
-  "underutilizationRisk": "Low Risk|Moderate Risk|Critical Risk",
-  "capacityConclusion": "2-3 sentences",
-  "crowdInsight": "1-2 sentences",
-  "attendanceInsight": "1-2 sentences",
+  "capacityConclusion": "2-3 sentences using the provided expected attendees, rate, and capacity risk",
+  "crowdInsight": "1-2 sentences using crowd density, occupancy, and congestion risk",
+  "attendanceInsight": "1-2 sentences using crowd flow, tap-in/out, and flow status",
   "securityInsight": "1-2 sentences about RFID/tap anomalies",
   "eventSummary": "2-3 sentences",
   "performanceSummary": "1-2 sentences",
   "futureRecommendations": "1-2 sentences",
-  "peakPeriod": "short label",
-  "lowestPeriod": "short label",
-  "avgDurationLabel": "e.g. 42 min",
-  "comparedToPrediction": 0,
-  "crowdDensity": "Low|Moderate|High",
-  "congestionRisk": "Low|Moderate|High",
-  "predictedPeakTime": "short label",
-  "predictedPeakOccupancy": 0,
-  "crowdFlow": "Stable|Building|Clearing",
-  "flowStatus": "Normal|Watch|Alert",
-  "securityRisk": "Low|Moderate|High",
   "overallSentiment": "Positive|Mixed|Needs attention|Pending",
   "interestFlow": "Rising|Steady|Falling",
   "registrationStatus": "Open|Closing|Closed|Complete",
   "recommendations": ["bullet 1","bullet 2","bullet 3"]
 }
-Rates are 0-100 integers. Base claims on the numbers. If data is sparse, say so and keep risk Low. Approved events with registrations should still receive capacity conclusions and evaluation recommendations.
+If data is sparse, say so.
 
-Data:
-${JSON.stringify(context, null, 2)}`,
-      {
-        cacheKey: `event-insights:${eventId}:${context.event.status}:${context.stats.registrations}:${context.stats.uniqueScans}:${context.stats.feedbackCount}`,
-        skipCache: Boolean(body.refresh),
-      },
-    );
+Authoritative metrics:
+${JSON.stringify({ event: context.event, stats: context.stats, analytics }, null, 2)}`,
+        {
+          cacheKey: `event-insights:${eventId}:${context.stats.registrations}:${context.stats.currentlyInside}:${context.stats.tapIn}:${context.stats.tapOut}:${context.stats.feedbackCount}:${analytics.expectedAttendees}:${analytics.crowdFlow}:${analytics.crowdDensity}`,
+          skipCache: Boolean(body.refresh),
+        },
+      );
+      aiAvailable = true;
+    } catch (error) {
+      console.warn("[DC Space] Gemini event insights unavailable, using computed analytics.", error);
+    }
 
     const recommendations = Array.isArray(result.recommendations)
       ? result.recommendations.map((item) => String(item).trim()).filter(Boolean).slice(0, 6)
@@ -108,60 +105,77 @@ ${JSON.stringify(context, null, 2)}`,
 
     return NextResponse.json({
       eventId,
-      aiAvailable: true,
-      eventStatus: context.event.status,
-      evaluationMode:
-        context.event.status === "approved"
-          ? "pre-event"
-          : context.event.status === "live"
-            ? "live"
-            : context.event.status === "completed"
-              ? "post-event"
-              : "status-review",
-      expectedAttendees: Number(result.expectedAttendees || context.stats.registrations || 0),
-      expectedAttendanceRate: Number(result.expectedAttendanceRate || context.stats.attendanceRate || 0),
-      predictionConfidence: Number(result.predictionConfidence || 0),
-      capacityRisk: String(result.capacityRisk || "Moderate Risk"),
-      overbookingRisk: String(result.overbookingRisk || "Pending"),
-      underutilizationRisk: String(result.underutilizationRisk || "Low Risk"),
-      capacityConclusion: String(result.capacityConclusion || ""),
-      crowdInsight: String(result.crowdInsight || ""),
-      attendanceInsight: String(result.attendanceInsight || ""),
-      securityInsight: String(result.securityInsight || ""),
-      eventSummary: String(result.eventSummary || ""),
-      performanceSummary: String(result.performanceSummary || ""),
-      futureRecommendations: String(result.futureRecommendations || ""),
-      peakPeriod: String(result.peakPeriod || context.stats.peakPeriod),
-      lowestPeriod: String(result.lowestPeriod || context.stats.lowestPeriod),
-      avgDurationLabel: String(result.avgDurationLabel || context.stats.avgDurationLabel),
-      comparedToPrediction: Number(result.comparedToPrediction || result.expectedAttendanceRate || context.stats.attendanceRate || 0),
+      aiAvailable,
+      expectedAttendees: analytics.expectedAttendees,
+      expectedAttendanceRate: analytics.expectedAttendanceRate,
+      predictionConfidence: analytics.predictionConfidence,
+      capacityRisk: analytics.capacityRisk,
+      overbookingRisk: analytics.overbookingRisk,
+      underutilizationRisk: analytics.underutilizationRisk,
+      occupancyPercent: analytics.occupancyPercent,
+      capacityConclusion: String(result.capacityConclusion || fallbackCopy.capacityConclusion),
+      crowdInsight: String(result.crowdInsight || fallbackCopy.crowdInsight),
+      attendanceInsight: String(result.attendanceInsight || fallbackCopy.attendanceInsight),
+      securityInsight: String(
+        result.securityInsight ||
+          (context.stats.totalSecurityEvents
+            ? `${context.stats.totalSecurityEvents} suspicious alert(s): ${context.stats.duplicateScans} repeated duplicate${context.stats.duplicateScans === 1 ? "" : "s"}, ${context.stats.concurrentEventTaps || 0} concurrent event, ${context.stats.invalidScans} unregistered/invalid.${context.stats.duplicateWarnings ? ` ${context.stats.duplicateWarnings} warning(s).` : ""}`
+            : context.stats.duplicateWarnings
+              ? `${context.stats.duplicateWarnings} duplicate tap warning(s). No suspicious alerts yet.`
+              : "No RFID scan errors recorded for this event yet."),
+      ),
+      eventSummary: String(result.eventSummary || `${context.event.title} is ${context.event.status}.`),
+      performanceSummary: String(
+        result.performanceSummary ||
+          `Tap-in ${context.stats.tapIn}, tap-out ${context.stats.tapOut}, ${context.stats.currentlyInside} currently inside.`,
+      ),
+      futureRecommendations: String(
+        result.futureRecommendations ||
+          (analytics.congestionRisk === "High"
+            ? "Open additional entry lanes and stagger arrivals near the predicted peak."
+            : "Keep monitoring RFID taps and send reminders to registered students who have not arrived."),
+      ),
+      peakPeriod: context.stats.peakPeriod,
+      lowestPeriod: context.stats.lowestPeriod,
+      avgDurationLabel: context.stats.avgDurationLabel,
+      comparedToPrediction: analytics.comparedToPrediction,
       tappedIn: context.stats.tapIn,
       tappedOut: context.stats.tapOut,
       currentlyInside: context.stats.currentlyInside,
       attendanceRate: context.stats.attendanceRate,
       registrations: context.stats.registrations,
+      uniqueTapIns: context.stats.uniqueTapIns,
+      venueCapacity: context.stats.venueCapacity,
+      eventLocation: context.event.location,
       savedInterest: context.stats.savedInterest,
       feedbackCount: context.stats.feedbackCount,
       averageRating: context.stats.averageRating,
       overallSentiment: String(result.overallSentiment || context.stats.overallSentiment),
-      crowdDensity: String(result.crowdDensity || "Low"),
-      congestionRisk: String(result.congestionRisk || "Low"),
-      predictedPeakTime: String(result.predictedPeakTime || context.stats.peakPeriod),
-      predictedPeakOccupancy: Number(result.predictedPeakOccupancy || context.stats.currentlyInside),
-      crowdFlow: String(result.crowdFlow || "Stable"),
-      flowStatus: String(result.flowStatus || "Normal"),
-      securityRisk: String(result.securityRisk || (context.stats.duplicateScans ? "Moderate" : "Low")),
+      crowdDensity: analytics.crowdDensity,
+      congestionRisk: analytics.congestionRisk,
+      predictedPeakTime: analytics.predictedPeakTime,
+      predictedPeakOccupancy: analytics.predictedPeakOccupancy,
+      crowdFlow: analytics.crowdFlow,
+      flowStatus: analytics.flowStatusLabel,
+      entryRate: String(context.stats.entryRate || "—"),
+      exitRate: String(context.stats.exitRate || "—"),
+      securityRisk: context.stats.securityRisk,
       duplicateScans: context.stats.duplicateScans,
+      duplicateWarnings: context.stats.duplicateWarnings,
+      rapidConsecutiveScans: context.stats.rapidConsecutiveScans,
+      concurrentEventTaps: context.stats.concurrentEventTaps,
+      invalidScans: context.stats.invalidScans,
+      manualOverrideCount: context.stats.manualOverrideCount,
+      securityEvents: context.stats.securityEvents,
       interestFlow: String(result.interestFlow || "Steady"),
-      registrationStatus: String(
-        result.registrationStatus ||
-          (context.event.status === "approved" || context.event.status === "live"
-            ? "Open"
-            : context.event.status === "completed"
-              ? "Complete"
-              : "Closed"),
-      ),
-      recommendations,
+      registrationStatus: String(result.registrationStatus || "Open"),
+      recommendations: recommendations.length
+        ? recommendations
+        : [
+            `Plan for ${analytics.expectedAttendees} attendees (${analytics.expectedAttendanceRate}% of registrations).`,
+            `Crowd flow is ${analytics.crowdFlow}; status ${analytics.flowStatus}.`,
+            `Density is ${analytics.crowdDensity} with ${analytics.congestionRisk.toLowerCase()} congestion risk.`,
+          ],
     });
   } catch (error) {
     const mapped = geminiErrorResponse(error);

@@ -95,4 +95,8 @@
   } else {
     renderFeedbackDetails();
   }
+
+  if (window.DCFeedback) {
+    window.DCFeedback.renderFeedbackDetails = renderFeedbackDetails;
+  }
 })();

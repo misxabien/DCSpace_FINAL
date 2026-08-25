@@ -5,8 +5,8 @@ import {
   requireSuperAdmin,
 } from "@/lib/admin-server/require-admin-auth";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
+import { buildUserAttendanceSummary } from "@/lib/user-server/attendance-summary";
 
 const ALLOWED_ROLES = new Set([
   "student",
@@ -50,11 +50,13 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const doc = await usersCollection(db).findOne({ _id: new ObjectId(id) });
+    const doc = await db.collection("users").findOne({ _id: new ObjectId(id) });
     if (!doc) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
-    return NextResponse.json({ user: asSanitized(doc) });
+    const user = asSanitized(doc);
+    const attendanceSummary = await buildUserAttendanceSummary(user.email);
+    return NextResponse.json({ user, attendanceSummary });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to load user.", details }, { status: 500 });
@@ -108,7 +110,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const existing = await usersCollection(db).findOne({ _id: new ObjectId(id) });
+    const existing = await db.collection("users").findOne({ _id: new ObjectId(id) });
     if (!existing) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
@@ -126,7 +128,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     if (body.role && currentRole === "super-admin" && body.role !== "super-admin") {
-      const superCount = await usersCollection(db).countDocuments({ role: "super-admin" });
+      const superCount = await db.collection("users").countDocuments({ role: "super-admin" });
       if (superCount <= 1) {
         return NextResponse.json(
           { error: "The last Super Admin account cannot be demoted." },
@@ -157,7 +159,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
   if (typeof body.rfidNumber === "string") update.rfidNumber = body.rfidNumber.trim();
 
-    const result = await usersCollection(db).findOneAndUpdate(
+    const result = await db.collection("users").findOneAndUpdate(
       { _id: new ObjectId(id) },
       { $set: update },
       { returnDocument: "after" },

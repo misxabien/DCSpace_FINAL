@@ -8,9 +8,7 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
-import { getAdminDb } from "@/lib/db/get-db";
-import { eventOwnedBy } from "@/lib/events/ownership";
-import { isPublicEventStatus } from "@/lib/events/public-status";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 const REVIEW_STATUSES: EventStatus[] = [
@@ -40,7 +38,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getAdminDb();
+    const db = await getUserDb();
     const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
@@ -48,11 +46,30 @@ export async function GET(request: Request, context: RouteContext) {
 
     if (!isAdmin && actor && !("error" in actor)) {
       const visible =
-        isPublicEventStatus(doc.status) ||
-        eventOwnedBy(doc, actor.email, actor.userId);
+        ["approved", "live", "completed"].includes(doc.status) ||
+        doc.organizerEmail === actor.email ||
+        doc.organizerId === actor.userId;
       if (!visible) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
+    }
+
+    // Merge latest eRoomReserve sync onto the event payload for approval UI.
+    const { findReservationForEvent } = await import(
+      "@/lib/integrations/reservation-status"
+    );
+    const reservation = await findReservationForEvent(db, {
+      id: String(doc._id),
+      reservationId: String(doc.reservationId || ""),
+      location: String(doc.location || ""),
+    });
+    if (reservation) {
+      doc.reservationId = reservation.reservationId;
+      doc.reservationStatus = reservation.status;
+      doc.reservationRoomId = reservation.room.id;
+      doc.reservationRoomName = reservation.room.name;
+      doc.reservationCapacity = reservation.room.capacity;
+      if (!doc.location) doc.location = reservation.room.name;
     }
 
     return NextResponse.json({
@@ -113,6 +130,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     programFileMimeType?: string;
     programFileBase64?: string;
     programFileVisibility?: "everyone" | "organizers";
+    reservationId?: string;
   };
   try {
     body = await request.json();
@@ -121,7 +139,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getAdminDb();
+    const db = await getUserDb();
     const existing = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
     if (!existing) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
@@ -129,9 +147,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (!isAdmin) {
       const owns =
-        actor && !("error" in actor)
-          ? eventOwnedBy(existing, actor.email, actor.userId)
-          : false;
+        existing.organizerEmail === (actor && !("error" in actor) ? actor.email : "") ||
+        existing.organizerId === (actor && !("error" in actor) ? actor.userId : "");
       if (!owns) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
@@ -230,6 +247,46 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (body.programFileVisibility === "organizers" || body.programFileVisibility === "everyone") {
       update.programFileVisibility = body.programFileVisibility;
     }
+    if (typeof body.reservationId === "string" && body.reservationId.trim()) {
+      update.reservationId = body.reservationId.trim();
+    }
+
+    // DC Space final approve requires eRoomReserve room approval first.
+    if (isAdmin && body.status === "approved") {
+      const {
+        findReservationForEvent,
+        isRoomValidatedForEventApproval,
+      } = await import("@/lib/integrations/reservation-status");
+      const reservation = await findReservationForEvent(db, {
+        id,
+        reservationId: String(
+          (update.reservationId as string | undefined) || existing.reservationId || "",
+        ),
+        location: String(
+          (update.location as string | undefined) || existing.location || "",
+        ),
+      });
+      const reservationStatus =
+        reservation?.status || String(existing.reservationStatus || "");
+      if (!isRoomValidatedForEventApproval(reservationStatus)) {
+        return NextResponse.json(
+          {
+            error:
+              "eRoomReserve has not approved this room yet. Wait for reservation status sync before approving the event.",
+            reservationStatus: reservationStatus || "pending",
+          },
+          { status: 409 },
+        );
+      }
+      if (reservation) {
+        update.reservationId = reservation.reservationId;
+        update.reservationStatus = reservation.status;
+        update.reservationRoomId = reservation.room.id;
+        update.reservationRoomName = reservation.room.name;
+        update.reservationCapacity = reservation.room.capacity;
+        if (!update.location) update.location = reservation.room.name;
+      }
+    }
 
     const result = await eventsCollection(db).findOneAndUpdate(
       { _id: new ObjectId(id) },
@@ -288,6 +345,25 @@ export async function PATCH(request: Request, context: RouteContext) {
             }),
           );
         }
+      }
+
+      // Feature #8: auto-generate PDF report when event is marked completed.
+      // Failures are logged only — status update already succeeded.
+      if (body.status === "completed") {
+        void import("@/lib/admin/event-report")
+          .then(({ generateAndStoreEventReport }) =>
+            generateAndStoreEventReport({
+              eventId: event.id,
+              generatedByEmail: actorEmail,
+              generatedByName: actorName,
+              trigger: "status_completed",
+              db,
+            }),
+          )
+          .catch((error) => {
+            const details = error instanceof Error ? error.message : "Unknown error";
+            console.error("[DC Space] Auto event report failed:", details);
+          });
       }
     }
 

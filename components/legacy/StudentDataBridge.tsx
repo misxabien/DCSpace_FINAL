@@ -1,37 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import {
   bucketCategory,
-  compareEventsForDisplay,
-  eventTimingBucket,
   mapDbEventToCard,
-  timingToJoinedCategory,
-  thematicCategory,
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
-import { getSavedEventIds, setSavedEventIds } from "@/lib/savedEvents";
-import {
-  fetchPortalData,
-  invalidatePortalCache,
-  isPortalCacheStale,
-  readCachedPortalData,
-  type PortalPayload,
-} from "@/lib/portal-data-client";
-import { preloadImageUrls } from "@/lib/image-preload";
-import { authFetch, readAuthSession } from "@/lib/user-api";
-
-function cardsStorageKey() {
-  const session = readAuthSession();
-  const email = session?.user.email?.trim().toLowerCase() || "guest";
-  return `dc_events_cards_v1:${email}`;
-}
+import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 
 declare global {
   interface Window {
-    __dcNavigate?: (href: string) => void;
     DCEvents?: {
       list: unknown[];
       attendanceRfid?: Record<string, unknown>;
@@ -50,18 +30,6 @@ declare global {
         id: string,
         options?: { timing?: string; detailContext?: string; limit?: number },
       ) => void;
-      showEmptyState?: (
-        id: string | HTMLElement,
-        options?: {
-          emptyTitle?: string;
-          emptyDescription?: string;
-          compactEmpty?: boolean;
-          category?: string;
-          timing?: string;
-        },
-      ) => void;
-      upsertEvent?: (event: unknown) => void;
-      renderDetailContent?: (event: unknown) => void;
       renderEventDetails?: () => void;
       renderExploreDetails?: () => void;
       renderAttendanceDetails?: () => void;
@@ -75,11 +43,7 @@ declare global {
     DCCertificates?: {
       list: unknown[];
       getCertificatesByCategory?: (category: string, limit?: number) => unknown[];
-      fillCertificateContainer?: (
-        id: string,
-        categoryOrOptions: string | { category?: string; limit?: number },
-        limit?: number,
-      ) => void;
+      fillCertificateContainer?: (id: string, category: string, limit?: number) => void;
     };
   }
 }
@@ -139,7 +103,7 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
 
 async function fetchAttendanceBuckets() {
   try {
-    const res = await fetch("/api/user/attendance", { cache: "no-store" });
+    const res = await fetch("/api/user/attendance", { cache: "no-store", credentials: "include" });
     if (!res.ok) return new Map<string, "attendance-completed" | "attendance-incomplete" | "attendance-today">();
     const data = (await res.json()) as {
       attendance?: Array<{
@@ -152,9 +116,11 @@ async function fetchAttendanceBuckets() {
       string,
       "attendance-completed" | "attendance-incomplete" | "attendance-today"
     >();
+    const seen = new Set<string>();
     for (const row of data.attendance || []) {
       const eventId = String(row.eventId || "");
       if (!eventId) continue;
+      seen.add(eventId);
       if (row.qualifiedForCertificate || row.action === "out") {
         buckets.set(eventId, "attendance-completed");
         continue;
@@ -183,152 +149,15 @@ function applyAttendanceCategories(
   });
 }
 
-function tagsForApprovedEvent(
-  event: SanitizedEvent,
-  invited: boolean,
-  isJoined: boolean,
-) {
-  const timing = eventTimingBucket(event.startsAt, event.status);
-  const theme = thematicCategory(event);
-  const tags = new Set<string>();
-
-  // Browse / Explore — every admin-approved event from every organizer
-  tags.add(timing);
-  if (timing !== "past") tags.add("browse");
-  if (theme) tags.add(theme);
-  if (timing === "today") tags.add("today");
-
-  // Home "Events Joined" — only when this user actually registered
-  if (isJoined) {
-    tags.add(timingToJoinedCategory(timing));
-  }
-
-  if (invited) tags.add("invited");
-
-  return Array.from(tags);
-}
-
-function updateSavedPageEmptyState() {
-  const pageEmpty = document.getElementById("saved-page-empty");
-  const sections = document.getElementById("saved-sections");
-  if (!pageEmpty || !sections) return;
-
-  const hasSaved = getSavedEventIds().length > 0;
-  pageEmpty.classList.toggle("is-visible", !hasSaved);
-  sections.classList.toggle("is-hidden", !hasSaved);
-
-  const searchBar = document.querySelector(".search-bar");
-  if (searchBar instanceof HTMLElement) {
-    searchBar.hidden = !hasSaved;
-  }
-
-  const sectionEmpties: Array<[string, string]> = [
-    ["saved-today-empty", "saved-today-grid"],
-    ["saved-upcoming-empty", "saved-upcoming-grid"],
-    ["saved-past-empty", "saved-past-grid"],
-  ];
-  sectionEmpties.forEach(([emptyId, gridId]) => {
-    const empty = document.getElementById(emptyId);
-    const grid = document.getElementById(gridId);
-    if (empty && grid) {
-      empty.hidden = grid.children.length > 0;
-    }
-  });
-}
-
-function refreshSavedViews() {
-  if (!window.DCEvents?.fillSavedContainer) return;
-
-  const grids: Array<{
-    id: string;
-    options: { timing?: string; limit?: number; detailContext: string };
-  }> = [
-    { id: "saved-grid", options: { detailContext: "explore" } },
-    { id: "saved-today-grid", options: { timing: "today", limit: 2, detailContext: "explore" } },
-    { id: "saved-upcoming-grid", options: { timing: "upcoming", limit: 2, detailContext: "explore" } },
-    { id: "saved-past-grid", options: { timing: "past", limit: 2, detailContext: "explore" } },
-  ];
-
-  grids.forEach(({ id, options }) => {
-    if (!document.getElementById(id)) return;
-    try {
-      window.DCEvents?.fillSavedContainer?.(id, options);
-    } catch {
-      /* ignore */
-    }
-  });
-
-  updateSavedPageEmptyState();
-}
-
-async function hydrateEventDetailPage(pathname: string) {
-  if (!pathname.startsWith("/events/details") && !pathname.startsWith("/events/explore")) {
-    return false;
-  }
-  const detailId = new URLSearchParams(window.location.search).get("id");
-  if (!detailId || !window.DCEvents) return false;
-
-  // Instant paint from whatever we already have in memory / cache.
-  const existing = window.DCEvents.getEventById?.(detailId) as LegacyCardEvent | null;
-  if (existing) {
-    renderLegacyDetailViews(pathname);
-  }
-
-  try {
-    const res = await authFetch(`/api/events/${encodeURIComponent(detailId)}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      if (!existing) markDetailMissing();
-      return false;
-    }
-    const payload = (await res.json()) as { event?: SanitizedEvent };
-    if (!payload.event) {
-      if (!existing) markDetailMissing();
-      return false;
-    }
-
-    const card = mapDbEventToCard(payload.event, bucketCategory(payload.event));
-    const merged = existing
-      ? {
-          ...card,
-          category: existing.category,
-          tags: existing.tags,
-          status: existing.status,
-          filesApproved: existing.filesApproved,
-        }
-      : card;
-
-    window.DCEvents.upsertEvent?.(merged);
-    preloadImageUrls([merged.imageUrl]);
-    return true;
-  } catch {
-    if (!existing) markDetailMissing();
-    return false;
-  }
-}
-
-function markDetailMissing() {
-  document.body.classList.add("detail-page--missing");
-  const title = document.getElementById("detail-title");
-  if (title) title.textContent = "Event Not Found";
-  const action = document.getElementById("detail-action");
-  if (action) action.hidden = true;
-}
-
-function renderLegacyDetailViews(pathname: string) {
-  if (pathname.startsWith("/events/details") && window.DCEvents?.renderEventDetails) {
-    window.DCEvents.renderEventDetails();
-  }
-  if (pathname.startsWith("/events/explore") && window.DCEvents?.renderExploreDetails) {
-    window.DCEvents.renderExploreDetails();
-  }
-  if (pathname.startsWith("/attendance/details") && window.DCEvents?.renderAttendanceDetails) {
-    window.DCEvents.renderAttendanceDetails();
-  }
-  if (pathname.startsWith("/events/submit") && window.DCEvents?.renderSubmitPage) {
-    window.DCEvents.renderSubmitPage();
-  }
+function joinedTagForEvent(event: LegacyCardEvent) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(`${event.date}T12:00:00`);
+  if (Number.isNaN(day.getTime())) return "joined-upcoming";
+  day.setHours(0, 0, 0, 0);
+  if (day.getTime() === today.getTime()) return "joined-today";
+  if (day.getTime() > today.getTime()) return "joined-upcoming";
+  return "joined-past";
 }
 
 function refreshLegacyEventViews(pathname: string) {
@@ -356,22 +185,29 @@ function refreshLegacyEventViews(pathname: string) {
     }
   }
 
+  if (pathname.startsWith("/events/details") && window.DCEvents.renderEventDetails) {
+    window.DCEvents.renderEventDetails();
+  }
+  if (pathname.startsWith("/events/explore") && window.DCEvents.renderExploreDetails) {
+    window.DCEvents.renderExploreDetails();
+  }
+  if (pathname.startsWith("/attendance/details") && window.DCEvents.renderAttendanceDetails) {
+    window.DCEvents.renderAttendanceDetails();
+  }
+  if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
+    window.DCEvents.renderSubmitPage();
+  }
+
   if (pathname.startsWith("/saved")) {
-    refreshSavedViews();
-  }
-
-  const isDetailPage =
-    pathname.startsWith("/events/details") || pathname.startsWith("/events/explore");
-
-  if (isDetailPage) {
-    renderLegacyDetailViews(pathname);
-    void hydrateEventDetailPage(pathname).then((hydrated) => {
-      if (hydrated) renderLegacyDetailViews(pathname);
+    ["saved-grid"].forEach((id) => {
+      if (!document.getElementById(id)) return;
+      try {
+        window.DCEvents?.fillSavedContainer?.(id, { detailContext: "explore" });
+      } catch {
+        /* ignore */
+      }
     });
-    return;
   }
-
-  renderLegacyDetailViews(pathname);
 }
 
 function formatClock(iso: string) {
@@ -413,6 +249,80 @@ function notifIconClass(type: string) {
   return "notif-item__icon notif-item__icon--blue";
 }
 
+function studentNotifBellTargets() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('a.tool-btn--notif[href="/notifications"]'),
+  );
+}
+
+function setStudentNotifBadge(unreadCount: number) {
+  const hasUnread = unreadCount > 0;
+  for (const el of studentNotifBellTargets()) {
+    el.classList.toggle("has-unread", hasUnread);
+    let dot = el.querySelector<HTMLElement>(".notif-unread-dot");
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = "notif-unread-dot";
+      dot.setAttribute("aria-hidden", "true");
+      el.appendChild(dot);
+    }
+    dot.hidden = !hasUnread;
+    el.setAttribute(
+      "aria-label",
+      hasUnread
+        ? unreadCount === 1
+          ? "Notifications, 1 unread"
+          : `Notifications, ${unreadCount} unread`
+        : "Notifications",
+    );
+  }
+}
+
+async function updateStudentNotifBadge() {
+  try {
+    const res = await fetch("/api/user/notifications", {
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      notifications?: Array<{ read: boolean }>;
+    };
+    const unread = (data.notifications || []).filter((item) => !item.read).length;
+    setStudentNotifBadge(unread);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function markStudentNotificationRead(id: string) {
+  await fetch("/api/user/notifications", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ id, read: true }),
+  });
+}
+
+function wireStudentNotificationClicks() {
+  if (document.documentElement.dataset.dcStudentNotifWired === "1") return;
+  document.documentElement.dataset.dcStudentNotifWired = "1";
+  document.addEventListener("click", (event) => {
+    const btn = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(".notif-item");
+    if (!btn) return;
+    const id = btn.getAttribute("data-notif-id");
+    const eventId = btn.getAttribute("data-event-id");
+    if (id && btn.classList.contains("is-highlighted")) {
+      btn.classList.remove("is-highlighted");
+      void markStudentNotificationRead(id).then(() => void updateStudentNotifBadge());
+    }
+    if (eventId) {
+      event.preventDefault();
+      window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
+    }
+  });
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -427,229 +337,139 @@ function fileToDataUrl(file: File) {
  */
 export function StudentDataBridge() {
   const pathname = usePathname();
-  const router = useRouter();
-  const listenersWired = useRef(false);
-
-  useEffect(() => {
-    window.__dcNavigate = (href: string) => {
-      router.push(href);
-    };
-    return () => {
-      if (window.__dcNavigate) delete window.__dcNavigate;
-    };
-  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
 
-    const onSoftNavigate = (event: Event) => {
-      const detail = (event as CustomEvent<{ href?: string }>).detail || {};
-      const href = String(detail.href || "");
-      if (!href) return;
-      event.preventDefault();
-      router.push(href);
-    };
+    const injectEvents = async () => {
+      if (!window.DCEvents) return;
 
-    const mapPortalToLive = (data: PortalPayload) => {
-      const joined = new Map(
-        (data.registrations || []).map((row) => [
-          String(row.eventId || ""),
-          String(row.status || "joined"),
-        ]),
-      );
-      const invited = new Set(
-        (data.invitations || [])
-          .filter((row) => String(row.status || "pending") !== "joined")
-          .map((row) => String(row.eventId || "")),
-      );
-
-      return (data.events || [])
-        .map((event): LegacyCardEvent => {
-        const registrationStatus = joined.get(String(event.id));
-        const isJoined = Boolean(registrationStatus);
-        const timing = eventTimingBucket(event.startsAt, event.status);
-        const theme = thematicCategory(event);
-        const card = mapDbEventToCard(event, bucketCategory(event));
-        const tags = tagsForApprovedEvent(event, invited.has(card.id), isJoined);
-        return {
-          ...card,
-          category: isJoined
-            ? timingToJoinedCategory(timing)
-            : theme || (timing === "today" ? "today" : timing),
-          tags,
-          status:
-            registrationStatus === "pending"
-              ? "pending"
-              : registrationStatus
-                ? "joined"
-                : card.status,
-        };
-      })
-        .sort((a, b) =>
-          compareEventsForDisplay(
-            { startsAt: a.date, status: a.dbStatus || a.status, name: a.name },
-            { startsAt: b.date, status: b.dbStatus || b.status, name: b.name },
-          ),
-        );
-    };
-
-    const commitLiveEvents = (live: LegacyCardEvent[]) => {
-      if (!window.DCEvents || cancelled) return;
-      window.DCEvents.list = live;
       try {
-        window.sessionStorage.setItem(
-          cardsStorageKey(),
-          JSON.stringify(
-            live.map((event) => ({
-              ...event,
-              imageUrl: event.imageUrl?.startsWith("data:") ? "" : event.imageUrl,
-            })),
-          ),
+        const [eventsRes, registrationsRes, invitationsRes] = await Promise.all([
+          fetch("/api/events?limit=200", { cache: "no-store" }),
+          fetch("/api/user/registrations", { cache: "no-store" }),
+          fetch("/api/user/invitations", { cache: "no-store" }),
+        ]);
+        if (!eventsRes.ok || cancelled) return;
+
+        const data = (await eventsRes.json()) as { events?: SanitizedEvent[] };
+        const registrations = registrationsRes.ok
+          ? ((await registrationsRes.json()) as {
+              registrations?: Array<{ eventId?: string; status?: string }>;
+            }).registrations || []
+          : [];
+        const invitations = invitationsRes.ok
+          ? ((await invitationsRes.json()) as {
+              invitations?: Array<{ eventId?: string; status?: string }>;
+            }).invitations || []
+          : [];
+
+        const joined = new Map(
+          registrations.map((row) => [String(row.eventId || ""), String(row.status || "joined")]),
         );
-      } catch {
-        /* quota */
-      }
-      preloadImageUrls(live.map((event) => event.imageUrl));
-      refreshLegacyEventViews(pathname);
-      window.dispatchEvent(new CustomEvent("dc-events-ready"));
-    };
+        const invited = new Set(
+          invitations
+            .filter((row) => String(row.status || "pending") !== "joined")
+            .map((row) => String(row.eventId || "")),
+        );
 
-    const hydrateFromPortal = async (data: PortalPayload, enrich = true) => {
-      if (!window.DCEvents || cancelled) return;
+        let live: LegacyCardEvent[] = (data.events || [])
+          .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
+          .map((event) => {
+            const card = mapDbEventToCard(event, bucketCategory(event));
+            const tags = [card.category];
+            if (invited.has(card.id)) tags.push("invited");
+            if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
+            const status = joined.get(card.id);
+            return {
+              ...card,
+              tags,
+              status: status === "pending" ? "pending" : status ? "joined" : card.status,
+            };
+          });
 
-      if (Array.isArray(data.savedEventIds)) {
-        setSavedEventIds(data.savedEventIds.map(String));
-      }
+        if (pathname.startsWith("/attendance")) {
+          const registeredIds = new Set(
+            registrations
+              .filter((row) => ["joined", "approved"].includes(String(row.status || "joined")))
+              .map((row) => String(row.eventId || "")),
+          );
+          live = live.filter((event) => registeredIds.has(String(event.id)));
+          const buckets = await fetchAttendanceBuckets();
+          live = applyAttendanceCategories(live, buckets);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          live = live.map((event) => {
+            if (buckets.has(String(event.id))) return event;
+            const day = new Date(`${event.date}T12:00:00`);
+            if (Number.isNaN(day.getTime())) return event;
+            day.setHours(0, 0, 0, 0);
+            if (day.getTime() === today.getTime() && event.status === "live") {
+              return { ...event, category: "attendance-today" };
+            }
+            return event;
+          });
+        }
 
-      let live: LegacyCardEvent[] = mapPortalToLive(data);
-
-      if (pathname.startsWith("/attendance")) {
-        const buckets = await fetchAttendanceBuckets();
-        live = applyAttendanceCategories(live, buckets);
-      }
-
-      if (!enrich) {
-        commitLiveEvents(live);
-        return;
-      }
-
-      const params = new URLSearchParams(window.location.search);
-      const detailId = params.get("id");
-      if (detailId) {
-        try {
-          const one = await authFetch(`/api/events/${encodeURIComponent(detailId)}`, {
+        const params = new URLSearchParams(window.location.search);
+        const detailId = params.get("id");
+        if (detailId && !live.some((event) => String(event.id) === detailId)) {
+          const one = await fetch(`/api/events/${encodeURIComponent(detailId)}`, {
             cache: "no-store",
           });
           if (one.ok) {
             const payload = (await one.json()) as { event?: SanitizedEvent };
             if (payload.event) {
-              const full = mapDbEventToCard(payload.event, bucketCategory(payload.event));
-              const index = live.findIndex((event) => String(event.id) === detailId);
-              if (index >= 0) {
-                live[index] = {
-                  ...full,
-                  category: live[index].category,
-                  tags: live[index].tags,
-                  status: live[index].status,
-                  filesApproved: live[index].filesApproved,
-                };
-              } else {
-                live = [full, ...live];
-              }
+              live = [
+                mapDbEventToCard(payload.event, bucketCategory(payload.event)),
+                ...live,
+              ];
             }
           }
-        } catch {
-          /* keep list entry */
         }
-      }
 
-      const savedIds = getSavedEventIds();
-      const missingSavedIds = savedIds.filter(
-        (id) => !live.some((event) => String(event.id) === id),
-      );
-      if (missingSavedIds.length > 0) {
-        const fetched = await Promise.all(
-          missingSavedIds.map(async (id) => {
-            try {
-              const res = await authFetch(`/api/events/${encodeURIComponent(id)}`, {
-                cache: "no-store",
-              });
-              if (!res.ok) return null;
-              const payload = (await res.json()) as { event?: SanitizedEvent };
-              if (!payload.event) return null;
-              return mapDbEventToCard(payload.event, bucketCategory(payload.event));
-            } catch {
-              return null;
-            }
-          }),
-        );
-        live = [...live, ...fetched.filter((event): event is LegacyCardEvent => Boolean(event))];
+        window.DCEvents.list = live;
+        if (pathname.startsWith("/attendance") && !pathname.startsWith("/attendance/details")) {
+          const grids = ["attendance-today-grid", "attendance-completed-grid", "attendance-incomplete-grid"];
+          const hasAny = grids.some((id) => {
+            const el = document.getElementById(id);
+            return el && live.some((event) => {
+              const cat = String(event.category || "");
+              if (id === "attendance-today-grid") return cat === "attendance-today";
+              if (id === "attendance-completed-grid") return cat === "attendance-completed";
+              if (id === "attendance-incomplete-grid") return cat === "attendance-incomplete";
+              return false;
+            });
+          });
+          if (!hasAny && live.length === 0) {
+            grids.forEach((id) => {
+              const el = document.getElementById(id);
+              if (!el) return;
+              el.innerHTML =
+                '<div style="padding:24px;text-align:center;color:#64748b;font-size:14px;line-height:1.5;">' +
+                "No registered events yet. Join an event first, then return here to track your tap-in and tap-out." +
+                "</div>";
+            });
+          }
+        }
+        refreshLegacyEventViews(pathname);
+        window.dispatchEvent(new CustomEvent("dc-events-ready"));
+      } catch {
+        /* keep existing list */
       }
-
-      commitLiveEvents(live);
     };
 
-    const injectEvents = async (force = false) => {
-      if (!window.DCEvents) return;
-
-      // Restore last mapped cards instantly so detail clicks never wait on the network.
-      if (!force && window.DCEvents.list.length === 0) {
-        try {
-          const raw = window.sessionStorage.getItem(cardsStorageKey());
-          if (raw) {
-            const cards = JSON.parse(raw) as LegacyCardEvent[];
-            if (Array.isArray(cards) && cards.length) {
-              window.DCEvents.list = cards;
-              refreshLegacyEventViews(pathname);
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (!force && window.DCEvents.list.length > 0) {
-        refreshLegacyEventViews(pathname);
-      }
-
-      // Detail pages: fetch the single event in parallel with portal refresh.
-      if (
-        pathname.startsWith("/events/details") ||
-        pathname.startsWith("/events/explore")
-      ) {
-        void hydrateEventDetailPage(pathname).then((hydrated) => {
-          if (hydrated && !cancelled) renderLegacyDetailViews(pathname);
-        });
-      }
-
-      const cached = !force ? readCachedPortalData() : null;
-      if (!force && cached && window.DCEvents.list.length === 0) {
-        await hydrateFromPortal(cached, false);
-      } else if (!force && cached && window.DCEvents.list.length > 0) {
-        // Keep UI responsive; refresh portal in background.
-      }
-
-      if (!force && cached && !isPortalCacheStale()) {
-        void fetchPortalData(false).then((fresh) => {
-          if (fresh && !cancelled) void hydrateFromPortal(fresh, true);
-        });
-        return;
-      }
-
+    const syncSaved = async () => {
       try {
-        const data = await fetchPortalData(force);
-        if (!data || cancelled) {
-          if (!cancelled && window.DCEvents && window.DCEvents.list.length === 0) {
-            refreshLegacyEventViews(pathname);
-          }
-          return;
+        const res = await fetch("/api/user/saved-events", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { eventIds?: string[] };
+        if (Array.isArray(data.eventIds)) {
+          setSavedEventIds(data.eventIds);
+          window.DCEvents?.fillSavedContainer?.("saved-grid", { detailContext: "explore" });
         }
-
-        await hydrateFromPortal(data, true);
       } catch {
-        if (!cancelled && window.DCEvents && window.DCEvents.list.length === 0) {
-          refreshLegacyEventViews(pathname);
-        }
+        /* local only */
       }
     };
 
@@ -660,10 +480,7 @@ export function StudentDataBridge() {
       if (!greeting || greeting.parentElement?.querySelector("[data-dc-ai-home]")) return;
 
       try {
-        const res = await fetch("/api/ai/student-home", {
-          cache: "no-store",
-          credentials: "include",
-        });
+        const res = await fetch("/api/ai/student-home", { cache: "no-store" });
         const payload = await res.json().catch(() => ({}));
         const insight = String(payload.insight || "").trim();
         if (!res.ok || !insight) return;
@@ -677,14 +494,18 @@ export function StudentDataBridge() {
       }
     };
 
-    const onEventsReady = () => {
-      refreshLegacyEventViews(pathname);
-      if (pathname.startsWith("/saved")) {
-        refreshSavedViews();
+    const persistSaved = async () => {
+      const ids = getSavedEventIds();
+      try {
+        await fetch("/api/user/saved-events", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventIds: ids }),
+        });
+      } catch {
+        /* ignore */
       }
     };
-
-    window.addEventListener("dc-events-ready", onEventsReady);
 
     const wireFeedbackForm = () => {
       if (pathname !== "/feedback/sign") return;
@@ -742,61 +563,90 @@ export function StudentDataBridge() {
       if (!pathname.startsWith("/attendance")) return;
       const params = new URLSearchParams(window.location.search);
       const eventId = params.get("id");
-      if (!eventId) return;
+      if (!eventId || pathname !== "/attendance/details") return;
 
-      if (pathname === "/attendance/details") {
-        const footer = document.querySelector(".rfid-panel__footer");
-        if (footer && !document.getElementById("dc-tap-out-btn")) {
-          const button = document.createElement("button");
+      const footer = document.querySelector(".rfid-panel__footer");
+      if (!footer) return;
+
+      const ensureButton = (
+        id: string,
+        label: string,
+        action: "in" | "out",
+        active: boolean,
+      ) => {
+        let button = document.getElementById(id) as HTMLButtonElement | null;
+        if (!button) {
+          button = document.createElement("button");
           button.type = "button";
-          button.id = "dc-tap-out-btn";
-          button.className = "rfid-sort__btn is-active";
-          button.textContent = "Tap Out";
-          button.addEventListener("click", async () => {
-            button.disabled = true;
-            try {
-              const res = await fetch("/api/user/attendance", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  eventId,
-                  eventName:
-                    document.getElementById("detail-name")?.textContent || "",
-                  action: "out",
-                }),
-              });
-              const data = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                window.alert(data.error || "Failed to tap out.");
-                return;
-              }
-              if (data.certificate?.id) {
-                window.alert(
-                  "Attendance completed. Your certificate is now available in Certificates.",
-                );
-              } else {
-                window.alert("Tap out recorded.");
-              }
-              window.location.assign("/certificates");
-            } catch {
-              window.alert("Failed to tap out.");
-            } finally {
-              button.disabled = false;
-            }
-          });
+          button.id = id;
+          button.className = `rfid-sort__btn${active ? " is-active" : ""}`;
           footer.prepend(button);
         }
+        button.textContent = label;
+        if (button.dataset.dcWired === "1") return;
+        button.dataset.dcWired = "1";
+        button.addEventListener("click", async () => {
+          button!.disabled = true;
+          try {
+            const res = await fetch("/api/user/attendance", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                eventId,
+                eventName: document.getElementById("detail-name")?.textContent || "",
+                action,
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              window.alert(data.error || `Failed to tap ${action}.`);
+              return;
+            }
+            if (data.duplicate) {
+              window.alert(
+                action === "in"
+                  ? "You are already tapped in for this event."
+                  : "Tap out was already recorded.",
+              );
+            } else if (data.certificate?.id) {
+              window.alert(
+                "Attendance completed. Your certificate is now available in Certificates.",
+              );
+            } else {
+              window.alert(
+                action === "in"
+                  ? "Tap in recorded to your account."
+                  : "Tap out recorded to your account.",
+              );
+            }
+            try {
+              window.sessionStorage.setItem("dc_attendance_bump", String(Date.now()));
+            } catch {
+              /* ignore */
+            }
+            void injectAttendanceRfid();
+            void injectEvents();
+          } catch {
+            window.alert(`Failed to tap ${action}.`);
+          } finally {
+            button!.disabled = false;
+          }
+        });
+      };
 
-        void fetch("/api/user/attendance", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            eventId,
-            eventName: document.getElementById("detail-name")?.textContent || "",
-            action: "in",
-          }),
-        }).catch(() => undefined);
+      ensureButton("dc-tap-in-btn", "Tap In", "in", true);
+      ensureButton("dc-tap-out-btn", "Tap Out", "out", false);
+
+      let note = document.getElementById("dc-attendance-rfid-note");
+      if (!note) {
+        note = document.createElement("p");
+        note.id = "dc-attendance-rfid-note";
+        note.style.cssText = "margin:0 0 10px;font-size:13px;color:#64748b;line-height:1.4;";
+        footer.prepend(note);
       }
+      note.textContent =
+        "RFID tap in/out at the venue is saved to MongoDB instantly. This page refreshes your records in real time.";
     };
 
     const injectAttendanceRfid = async () => {
@@ -804,9 +654,13 @@ export function StudentDataBridge() {
       const eventId = new URLSearchParams(window.location.search).get("id");
       if (!eventId) return;
       try {
-        const res = await fetch(`/api/user/attendance?eventId=${encodeURIComponent(eventId)}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(
+          `/api/user/attendance?eventId=${encodeURIComponent(eventId)}`,
+          {
+            cache: "no-store",
+            credentials: "include",
+          },
+        );
         if (!res.ok) return;
         const data = (await res.json()) as {
           attendance?: Array<{
@@ -816,72 +670,117 @@ export function StudentDataBridge() {
             attendanceMinutes?: number;
             qualifiedForCertificate?: boolean;
           }>;
+          sessions?: Array<{
+            tapInAt?: string;
+            tapOutAt?: string;
+            attendanceMinutes?: number;
+            qualifiedForCertificate?: boolean;
+            open?: boolean;
+          }>;
         };
+
+        const sessions = data.sessions || [];
         const rows = [...(data.attendance || [])].reverse();
-        const logs: Array<{ tapIn: string; tapOut: string }> = [];
+        let logs: Array<{ tapIn: string; tapOut: string }> = [];
         let openIn = "";
         let lastMinutes = 0;
         let qualified = false;
-        for (const row of rows) {
-          const stamp = String(row.scannedAt || row.createdAt || "");
-          if (row.action === "in") {
-            if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "00:00 PM" });
-            openIn = stamp;
-          } else {
-            logs.push({
-              tapIn: formatClock(openIn || stamp),
-              tapOut: formatClock(stamp),
-            });
-            openIn = "";
-            lastMinutes = Number(row.attendanceMinutes || lastMinutes);
-            qualified = Boolean(row.qualifiedForCertificate || qualified);
+
+        if (sessions.length) {
+          logs = sessions.map((session) => ({
+            tapIn: session.tapInAt ? formatClock(session.tapInAt) : "—",
+            tapOut: session.tapOutAt ? formatClock(session.tapOutAt) : "—",
+          }));
+          const open = sessions.find((session) => session.open);
+          openIn = open?.tapInAt || "";
+          lastMinutes = sessions.find((session) => session.attendanceMinutes)?.attendanceMinutes || 0;
+          qualified = sessions.some((session) => session.qualifiedForCertificate);
+        } else {
+          for (const row of rows) {
+            const stamp = String(row.scannedAt || row.createdAt || "");
+            if (row.action === "in") {
+              if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
+              openIn = stamp;
+            } else {
+              logs.push({
+                tapIn: formatClock(openIn || stamp),
+                tapOut: formatClock(stamp),
+              });
+              openIn = "";
+              lastMinutes = Number(row.attendanceMinutes || lastMinutes);
+              qualified = Boolean(row.qualifiedForCertificate || qualified);
+            }
+          }
+          if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "—" });
+        }
+        if (!logs.length) logs.push({ tapIn: "—", tapOut: "—" });
+
+        const statusEl = document.getElementById("dc-attendance-status");
+        if (!statusEl) {
+          const host =
+            document.querySelector(".rfid-panel__header") ||
+            document.querySelector(".rfid-panel");
+          if (host) {
+            const banner = document.createElement("p");
+            banner.id = "dc-attendance-status";
+            banner.style.cssText =
+              "margin:0 0 12px;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.4;";
+            host.prepend(banner);
           }
         }
-        if (openIn) logs.push({ tapIn: formatClock(openIn), tapOut: "00:00 PM" });
-        while (logs.length < 5) logs.push({ tapIn: "00:00 AM", tapOut: "00:00 PM" });
+        const banner = document.getElementById("dc-attendance-status");
+        if (banner) {
+          if (openIn) {
+            banner.style.background = "#ecfdf5";
+            banner.style.color = "#047857";
+            banner.textContent = `You are currently tapped in (since ${formatClock(openIn)}). Tap out when you leave.`;
+          } else if (qualified) {
+            banner.style.background = "#eff6ff";
+            banner.style.color = "#1d4ed8";
+            banner.textContent =
+              "Attendance completed for this event. Check Certificates if you qualified.";
+          } else if (rows.length > 0 || sessions.length > 0) {
+            banner.style.background = "#f8fafc";
+            banner.style.color = "#475569";
+            banner.textContent = "Your tap records are synced from MongoDB in real time.";
+          } else {
+            banner.style.background = "#fffbeb";
+            banner.style.color = "#b45309";
+            banner.textContent =
+              "No attendance yet. Tap in at the venue with your RFID tag (or use Tap In below).";
+          }
+        }
 
         const event = window.DCEvents.getEventById?.(eventId) as
-          | { attendanceRequired?: string; gracePeriod?: string }
+          | { attendanceRequired?: string; gracePeriod?: string; name?: string }
           | undefined;
-        const required = Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
-        const progress = qualified ? 100 : Math.min(100, Math.round((lastMinutes / required) * 100));
+        const detailName = document.getElementById("detail-name");
+        if (detailName && event?.name) detailName.textContent = event.name;
+        const required =
+          Number(String(event?.attendanceRequired || "30").replace(/\D/g, "")) || 30;
+        const progress = qualified
+          ? 100
+          : Math.min(100, Math.round((lastMinutes / required) * 100));
 
         window.DCEvents.attendanceRfid = {
           ...(window.DCEvents.attendanceRfid || {}),
           [eventId]: {
-            graceRemaining: openIn ? event?.gracePeriod || "15:00" : "00:00",
+            graceRemaining: openIn ? event?.gracePeriod || "15 minutes" : "Complete",
             progress,
-            logs: logs.slice(0, 8),
-            page: { current: logs.some((row) => row.tapIn !== "00:00 AM") ? 1 : 0, total: 1 },
+            logs: logs.slice(0, 12),
+            page: { current: logs.some((row) => row.tapIn !== "—") ? 1 : 0, total: 1 },
           },
         };
         window.DCEvents.renderAttendanceDetails?.();
       } catch {
-        if (window.DCEvents) {
-          window.DCEvents.attendanceRfid = {
-            ...(window.DCEvents.attendanceRfid || {}),
-            [eventId]: {
-              graceRemaining: "00:00",
-              progress: 0,
-              logs: [],
-              page: { current: 0, total: 1 },
-            },
-          };
-          window.DCEvents.renderAttendanceDetails?.();
-        }
+        /* keep static panel */
       }
     };
 
     const injectFeedbackList = async () => {
       if (!pathname.startsWith("/feedback")) return;
-      if (window.DCFeedback) {
-        window.DCFeedback.FEEDBACK_ITEMS = [];
-      }
       try {
-        const res = await fetch("/api/user/feedback?mine=1", {
-          cache: "no-store",
-          credentials: "include",
-        });
+        const res = await fetch("/api/user/feedback?mine=1", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           feedback?: Array<{
@@ -918,68 +817,39 @@ export function StudentDataBridge() {
 
         const list = document.getElementById("feedback-list");
         if (list) {
-          list.querySelectorAll(".dc-empty-state").forEach((el) => el.remove());
           const lis = Array.from(list.querySelectorAll<HTMLLIElement>("li"));
-          if (!items.length) {
-            lis.forEach((li) => {
-              li.style.display = "none";
-            });
-            if (!list.querySelector(".dc-empty-state") && window.DCEvents?.showEmptyState) {
-              window.DCEvents.showEmptyState(list, {
-                emptyTitle: "No feedback submitted yet.",
-                emptyDescription:
-                  "Feedback you send from Submit Feedback will appear here.",
-                compactEmpty: true,
-              });
+          items.forEach((f, index) => {
+            let li = lis[index];
+            if (!li && lis[0]) {
+              li = lis[0].cloneNode(true) as HTMLLIElement;
+              list.appendChild(li);
             }
-          } else {
-            items.forEach((f, index) => {
-              let li = lis[index];
-              if (!li && lis[0]) {
-                li = lis[0].cloneNode(true) as HTMLLIElement;
-                list.appendChild(li);
-              }
-              if (!li) return;
-              li.style.display = "";
-              const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
-              if (btn) btn.setAttribute("data-feedback-id", f.id);
-              const title = li.querySelector(".feedback-item__title");
-              const type = li.querySelector(".feedback-item__type");
-              if (title) title.textContent = f.title;
-              if (type) type.textContent = f.type;
-            });
-            list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
-              if (index >= items.length) li.style.display = "none";
-            });
-          }
+            if (!li) return;
+            li.style.display = "";
+            const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
+            if (btn) btn.setAttribute("data-feedback-id", f.id);
+            const title = li.querySelector(".feedback-item__title");
+            const type = li.querySelector(".feedback-item__type");
+            if (title) title.textContent = f.title;
+            if (type) type.textContent = f.type;
+          });
+          list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
+            if (index >= items.length) li.style.display = "none";
+          });
         }
 
         if (pathname.startsWith("/feedback/details")) {
           window.DCFeedback?.renderFeedbackDetails?.();
         }
       } catch {
-        if (window.DCFeedback) {
-          window.DCFeedback.FEEDBACK_ITEMS = [];
-        }
-        const list = document.getElementById("feedback-list");
-        if (list) {
-          list.querySelectorAll<HTMLLIElement>("li").forEach((li) => {
-            li.style.display = "none";
-          });
-        }
+        /* keep mock */
       }
     };
 
     const injectCertificates = async () => {
       if (!pathname.startsWith("/certificates")) return;
-      if (window.DCCertificates) {
-        window.DCCertificates.list = [];
-      }
       try {
-        const res = await fetch("/api/user/certificates", {
-          cache: "no-store",
-          credentials: "include",
-        });
+        const res = await fetch("/api/user/certificates", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           certificates?: Array<{
@@ -1013,34 +883,17 @@ export function StudentDataBridge() {
           },
         );
       } catch {
-        if (window.DCCertificates) {
-          window.DCCertificates.list = [];
-          ["cert-today-grid", "cert-weekend-grid", "cert-month-grid", "cert-grid"].forEach(
-            (id) => {
-              try {
-                window.DCCertificates?.fillCertificateContainer?.(
-                  id,
-                  id.includes("today")
-                    ? "cert-today"
-                    : id.includes("weekend")
-                      ? "cert-weekend"
-                      : "cert-month",
-                  12,
-                );
-              } catch {
-                const host = document.getElementById(id);
-                if (host) host.innerHTML = "";
-              }
-            },
-          );
-        }
+        /* keep mock */
       }
     };
 
     const injectNotifications = async () => {
-      if (pathname !== "/notifications") return;
+      wireStudentNotificationClicks();
       try {
-        const res = await fetch("/api/user/notifications", { cache: "no-store" });
+        const res = await fetch("/api/user/notifications", {
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           notifications?: Array<{
@@ -1054,6 +907,8 @@ export function StudentDataBridge() {
           }>;
         };
         const items = data.notifications || [];
+        setStudentNotifBadge(items.filter((item) => !item.read).length);
+        if (pathname !== "/notifications") return;
         const todayList = document.getElementById("notif-today-list");
         const yesterdayList = document.getElementById("notif-yesterday-list") ||
           document.querySelector('[data-group="yesterday"] .notif-list');
@@ -1097,33 +952,13 @@ export function StudentDataBridge() {
 
         const empty = document.getElementById("notif-empty");
         if (empty) empty.hidden = items.length > 0;
-
-        if (todayList.dataset.dcWired !== "1") {
-          todayList.dataset.dcWired = "1";
-          document.addEventListener("click", (event) => {
-            const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(".notif-item");
-            if (!btn) return;
-            const id = btn.getAttribute("data-notif-id");
-            const eventId = btn.getAttribute("data-event-id");
-            if (id) {
-              void fetch("/api/user/notifications", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id, read: true }),
-              });
-            }
-            if (eventId) {
-              window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
-            }
-          });
-        }
       } catch {
         /* keep static markup */
       }
     };
 
     const joinEvent = async (eventId: string, eventTitle: string, files?: unknown[]) => {
-      const res = await authFetch("/api/user/registrations", {
+      const res = await fetch("/api/user/registrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1137,67 +972,7 @@ export function StudentDataBridge() {
       if (!res.ok) {
         throw new Error(data.error || "Failed to join event.");
       }
-      return data as {
-        registration?: { status?: string };
-        registrationCount?: number;
-        duplicate?: boolean;
-      };
-    };
-
-    const markLocalRegistration = (
-      eventId: string,
-      status: "joined" | "pending",
-    ) => {
-      if (!window.DCEvents?.list) return;
-      const list = window.DCEvents.list as LegacyCardEvent[];
-      const next = list.map((event) => {
-        if (String(event.id) !== eventId) return event;
-        const timing = eventTimingBucket(event.date, event.dbStatus || event.status);
-        const joinedCategory = timingToJoinedCategory(timing);
-        const tags = new Set(Array.isArray(event.tags) ? event.tags : []);
-        tags.add(joinedCategory);
-        tags.add(timing);
-        return {
-          ...event,
-          status,
-          category: joinedCategory,
-          tags: Array.from(tags),
-        };
-      });
-      window.DCEvents.list = next;
-      try {
-        window.sessionStorage.setItem(
-          cardsStorageKey(),
-          JSON.stringify(
-            next.map((event) => ({
-              ...event,
-              imageUrl: event.imageUrl?.startsWith("data:") ? "" : event.imageUrl,
-            })),
-          ),
-        );
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const showRegisteredBanner = (message: string) => {
-      let wrap = document.getElementById("detail-status-wrap");
-      let status = document.getElementById("detail-status");
-      if (!wrap) {
-        const page = document.querySelector(".detail-page");
-        if (page) {
-          wrap = document.createElement("div");
-          wrap.id = "detail-status-wrap";
-          wrap.className = "detail-status-wrap";
-          wrap.innerHTML = `<p id="detail-status" class="detail-status"></p>`;
-          const actionWrap = page.querySelector(".detail-action-wrap");
-          if (actionWrap) page.insertBefore(wrap, actionWrap);
-          else page.appendChild(wrap);
-          status = wrap.querySelector("#detail-status");
-        }
-      }
-      if (status) status.textContent = message;
-      if (wrap) wrap.hidden = false;
+      return data;
     };
 
     const onJoinEvent = async (event: Event) => {
@@ -1210,36 +985,12 @@ export function StudentDataBridge() {
         actionBtn.textContent = "Joining…";
       }
       try {
-        const result = await joinEvent(eventId, String(detail.eventTitle || ""));
-        const status =
-          result.registration?.status === "pending" ? "pending" : "joined";
-        markLocalRegistration(eventId, status);
-        invalidatePortalCache();
+        await joinEvent(eventId, String(detail.eventTitle || ""));
         if (actionBtn) {
-          actionBtn.textContent =
-            status === "pending" ? "Registration Pending" : "You Are Registered";
-          actionBtn.className =
-            status === "pending"
-              ? "detail-action detail-action--pending"
-              : "detail-action detail-action--joined";
-          actionBtn.disabled = true;
+          actionBtn.textContent = "Registration Successful";
+          actionBtn.className = "detail-action detail-action--joined";
         }
-        showRegisteredBanner(
-          status === "pending"
-            ? "Registration pending file approval"
-            : "You are registered for this event",
-        );
-        window.DCEvents?.renderExploreDetails?.();
-        window.DCEvents?.renderEventDetails?.();
-        await injectEvents(true);
-        window.DCEvents?.renderExploreDetails?.();
-        window.DCEvents?.renderEventDetails?.();
-        window.dispatchEvent(new CustomEvent("dc-events-ready"));
-        if (typeof result.registrationCount === "number") {
-          console.info(
-            `[DC Space] Registered. Event now has ${result.registrationCount} student(s).`,
-          );
-        }
+        void injectEvents();
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to join event.");
         if (actionBtn) {
@@ -1275,61 +1026,79 @@ export function StudentDataBridge() {
           });
         }
         await joinEvent(eventId, String(detail.eventTitle || ""), files);
-        markLocalRegistration(eventId, "pending");
-        invalidatePortalCache();
         if (submitBtn) {
           submitBtn.textContent = "Registration Pending";
           submitBtn.disabled = true;
           submitBtn.className = "detail-action detail-action--pending";
         }
-        void injectEvents(true);
       } catch (error) {
         window.alert(error instanceof Error ? error.message : "Failed to submit registration.");
       }
     };
 
-    window.addEventListener("dc-events-ready", onEventsReady);
-    window.addEventListener("dc-navigate", onSoftNavigate as EventListener);
-    const onPortalInvalidated = () => {
-      void injectEvents(true);
+    const onSavedChanged = () => {
+      void persistSaved();
     };
-    window.addEventListener("dc-portal-invalidated", onPortalInvalidated);
-    if (!listenersWired.current) {
-      listenersWired.current = true;
-      window.addEventListener("dc-join-event", onJoinEvent as EventListener);
-      window.addEventListener("dc-submit-event", onSubmitEvent as EventListener);
-    }
 
-    const runPageHooks = () => {
+    const onEventsReady = () => {
+      refreshLegacyEventViews(pathname);
+    };
+
+    window.addEventListener("dc-saved-changed", onSavedChanged);
+    window.addEventListener("dc-events-ready", onEventsReady);
+    window.addEventListener("dc-join-event", onJoinEvent as EventListener);
+    window.addEventListener("dc-submit-event", onSubmitEvent as EventListener);
+
+    const run = () => {
+      void injectEvents();
+      void syncSaved();
       wireFeedbackForm();
       wireAttendanceTap();
       void injectAttendanceRfid();
       void injectFeedbackList();
       void injectCertificates();
       void injectNotifications();
+      void updateStudentNotifBadge();
     };
 
-    async function bootstrap() {
-      for (let i = 0; i < 40 && !window.DCEvents; i += 1) {
-        if (cancelled) return;
-        await new Promise((resolve) => setTimeout(resolve, 10));
+    const t1 = window.setTimeout(run, 80);
+    const t2 = window.setTimeout(run, 400);
+    const t3 = window.setTimeout(run, 900);
+    // Attendance details: poll Mongo tap logs near real-time.
+    const pollMs = pathname.startsWith("/attendance/details")
+      ? 1500
+      : pathname.startsWith("/attendance")
+        ? 3000
+        : 10000;
+    const poll = window.setInterval(run, pollMs);
+    const notifBadgePoll = window.setInterval(() => void updateStudentNotifBadge(), 4000);
+    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
+
+    const onFocusRefresh = () => {
+      if (pathname.startsWith("/attendance")) {
+        void injectAttendanceRfid();
+        void injectEvents();
       }
-      void injectEvents();
-      runPageHooks();
-    }
-
-    void bootstrap();
-
-    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 800);
+    };
+    window.addEventListener("focus", onFocusRefresh);
+    document.addEventListener("visibilitychange", onFocusRefresh);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
       window.clearTimeout(aiTimer);
+      window.clearInterval(poll);
+      window.clearInterval(notifBadgePoll);
+      window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);
-      window.removeEventListener("dc-navigate", onSoftNavigate as EventListener);
-      window.removeEventListener("dc-portal-invalidated", onPortalInvalidated);
+      window.removeEventListener("dc-join-event", onJoinEvent as EventListener);
+      window.removeEventListener("dc-submit-event", onSubmitEvent as EventListener);
+      window.removeEventListener("focus", onFocusRefresh);
+      document.removeEventListener("visibilitychange", onFocusRefresh);
     };
-  }, [pathname, router]);
+  }, [pathname]);
 
   return null;
 }

@@ -1,11 +1,5 @@
 import type { Db } from "mongodb";
-import { getUserDb } from "@/lib/db/get-db";
-import {
-  notificationsCollection,
-  registrationsCollection,
-  invitationsCollection,
-  usersCollection,
-} from "@/lib/db/user-collections";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 
 export type NotificationDoc = {
   email: string;
@@ -16,10 +10,21 @@ export type NotificationDoc = {
   eventId?: string;
   eventTitle?: string;
   read: boolean;
+  archived?: boolean;
   createdAt: string;
 };
 
-export { registrationsCollection, invitationsCollection, notificationsCollection };
+export function registrationsCollection(db: Db) {
+  return db.collection("event_registrations");
+}
+
+export function invitationsCollection(db: Db) {
+  return db.collection("event_invitations");
+}
+
+export function notificationsCollection(db: Db) {
+  return db.collection<NotificationDoc>("notifications");
+}
 
 export async function notifyUser(input: Omit<NotificationDoc, "read" | "createdAt"> & {
   read?: boolean;
@@ -30,6 +35,7 @@ export async function notifyUser(input: Omit<NotificationDoc, "read" | "createdA
     await notificationsCollection(db).insertOne({
       ...input,
       read: input.read ?? false,
+      archived: input.archived ?? false,
       createdAt: input.createdAt || new Date().toISOString(),
     });
   } catch (error) {
@@ -46,7 +52,8 @@ export async function notifyAdmins(
 ) {
   try {
     const db = await getUserDb();
-    const admins = await usersCollection(db)
+    const admins = await db
+      .collection("users")
       .find({ role: { $in: ["admin", "super-admin"] } })
       .project({ email: 1 })
       .toArray();

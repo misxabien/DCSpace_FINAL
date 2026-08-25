@@ -1,1 +1,1 @@
-export { getUserDb } from "@/lib/db/get-db";
+export { getUserDb, resetMongoConnection } from "@/lib/db/get-db";

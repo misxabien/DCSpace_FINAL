@@ -26,7 +26,7 @@
 
     var files = event.requiredFiles && event.requiredFiles.length
       ? event.requiredFiles
-      : ["Parent's Consent Form"];
+      : [];
 
     list.innerHTML = files.map(function (fileName, index) {
       return (
@@ -75,9 +75,9 @@
     if (!submitBtn) return;
 
     submitBtn.onclick = function () {
-      submitBtn.textContent = 'Registration Pending';
-      submitBtn.disabled = true;
-      submitBtn.className = 'detail-action detail-action--pending';
+      window.dispatchEvent(new CustomEvent('dc-submit-event', {
+        detail: { eventId: String(id), eventTitle: event.name }
+      }));
     };
   }
 

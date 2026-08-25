@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
 import {
-  logUserActivity,
+  attendanceCollection,
+  certificatesCollection,
 } from "@/lib/user-server/activity";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
-import { attendanceCollection, certificatesCollection } from "@/lib/db/user-collections";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { eventsCollection } from "@/lib/events/types";
@@ -21,33 +22,26 @@ export async function GET(request: Request) {
   }
 
   try {
-    const userDb = await getUserDb();
+    const db = await getUserDb();
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
     const email = searchParams.get("email");
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
     if (!isAdmin && actor && !("error" in actor)) {
-      filter.email = actor.email.trim().toLowerCase();
+      filter.email = actor.email;
     } else if (isAdmin && email) {
       filter.email = email.trim().toLowerCase();
     }
 
-    const docs = await certificatesCollection(userDb)
+    const docs = await certificatesCollection(db)
       .find(filter)
       .sort({ createdAt: -1 })
       .limit(200)
       .toArray();
 
-    const actorEmail = actor && !("error" in actor) ? actor.email.trim().toLowerCase() : "";
-
     return NextResponse.json({
-      certificates: docs
-        .filter((doc) => {
-          if (isAdmin || !actorEmail) return true;
-          return String(doc.email || "").trim().toLowerCase() === actorEmail;
-        })
-        .map((doc) => ({
+      certificates: docs.map((doc) => ({
         id: String(doc._id),
         name: String(doc.name || "Certificate of Participation"),
         eventId: String(doc.eventId || ""),
@@ -72,14 +66,28 @@ export async function GET(request: Request) {
   }
 }
 
-/** Admin generates certificates for an event's attendees (or organizer). */
+type IssueTarget = {
+  email: string;
+  userName: string;
+  studentNumber?: string;
+  course?: string;
+  school?: string;
+};
+
+/** Admin issues certificates for an event template — one user or selected/all attendees. */
 export async function POST(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  let body: { eventId?: string; email?: string; name?: string };
+  let body: {
+    eventId?: string;
+    email?: string;
+    name?: string;
+    emails?: string[];
+    regenerate?: boolean;
+  };
   try {
     body = await request.json();
   } catch {
@@ -90,77 +98,165 @@ export async function POST(request: Request) {
   if (!eventId) {
     return NextResponse.json({ error: "eventId is required." }, { status: 400 });
   }
+  if (!ObjectId.isValid(eventId)) {
+    return NextResponse.json({ error: "Invalid event id." }, { status: 400 });
+  }
 
   try {
-    const userDb = await getUserDb();
-    const { ObjectId } = await import("mongodb");
-    if (!ObjectId.isValid(eventId)) {
-      return NextResponse.json({ error: "Invalid event id." }, { status: 400 });
-    }
-
-    const event = await eventsCollection(await getAdminDb()).findOne({ _id: new ObjectId(eventId) });
+    const db = await getUserDb();
+    const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
-
-    const email = String(body.email || "").trim().toLowerCase();
-    // If email provided, generate one; otherwise generate for all attendance on event.
-    const targets: Array<{ email: string; userName: string }> = [];
-    if (email) {
-      targets.push({
-        email,
-        userName: String(body.name || email),
-      });
-    } else {
-      const attendees = await attendanceCollection(userDb)
-        .find({ eventId })
-        .toArray();
-      const seen = new Set<string>();
-      for (const row of attendees) {
-        const em = String(row.email || "").toLowerCase();
-        if (!em || seen.has(em)) continue;
-        seen.add(em);
-        targets.push({
-          email: em,
-          userName: String(row.participantName || row.userName || em),
-        });
-      }
-      if (!targets.length && event.organizerEmail) {
-        targets.push({
-          email: String(event.organizerEmail),
-          userName: String(event.organizerName || event.organizerEmail),
-        });
-      }
-    }
-
-    const created = [];
-    for (const target of targets) {
-      const existing = await certificatesCollection(userDb).findOne({
-        eventId,
-        email: target.email,
-      });
-      if (existing) {
-        continue;
-      }
-      created.push(
-        await createCertificateDoc({
-          db: userDb,
-          event: {
-            id: eventId,
-            title: String(event.title || ""),
-            startsAt: String(event.startsAt || ""),
-            certificateTemplateBase64: String(
-              event.certificateTemplateBase64 || "",
-            ),
-          },
-          recipient: target,
-          generatedBy: auth.session,
-          qualificationSource: "admin",
-        }),
+    if (!event.certificateTemplateBase64) {
+      return NextResponse.json(
+        {
+          error:
+            "This event has no certificate template. Upload an e-certificate template on the event first.",
+        },
+        { status: 400 },
       );
     }
 
-    return NextResponse.json({ certificates: created }, { status: 201 });
+    const regenerate = Boolean(body.regenerate);
+    const requestedEmails = Array.isArray(body.emails)
+      ? body.emails.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    const singleEmail = String(body.email || "").trim().toLowerCase();
+    if (singleEmail) requestedEmails.unshift(singleEmail);
+
+    const uniqueRequested = [...new Set(requestedEmails)];
+    const targets: IssueTarget[] = [];
+
+    if (uniqueRequested.length) {
+      for (const email of uniqueRequested) {
+        const user = await db.collection("users").findOne({ email });
+        const attendance = await attendanceCollection(db)
+          .find({ eventId, email })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .toArray();
+        const fromAttendance = attendance.find((row) => row.participantName || row.userName);
+        const fullName = user
+          ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+          : "";
+        const explicitName =
+          uniqueRequested.length === 1 ? String(body.name || "").trim() : "";
+        targets.push({
+          email,
+          userName:
+            explicitName ||
+            fullName ||
+            String(fromAttendance?.participantName || fromAttendance?.userName || "") ||
+            email,
+          studentNumber: String(user?.studentNumber || fromAttendance?.studentNumber || ""),
+          course: String(user?.course || fromAttendance?.course || ""),
+          school: String(user?.school || ""),
+        });
+      }
+    } else {
+      // Bulk: attendees who tapped in (prefer those with a profile name).
+      const attendees = await attendanceCollection(db)
+        .find({ eventId, action: "in" })
+        .sort({ createdAt: 1 })
+        .toArray();
+      const seen = new Set<string>();
+      for (const row of attendees) {
+        const email = String(row.email || "").toLowerCase();
+        if (!email || seen.has(email)) continue;
+        seen.add(email);
+        const user = await db.collection("users").findOne({ email });
+        const fullName = user
+          ? `${user.firstName || ""} ${user.lastName || ""}`.trim()
+          : "";
+        targets.push({
+          email,
+          userName:
+            fullName ||
+            String(row.participantName || row.userName || email),
+          studentNumber: String(user?.studentNumber || row.studentNumber || ""),
+          course: String(user?.course || row.course || ""),
+          school: String(user?.school || ""),
+        });
+      }
+    }
+
+    if (!targets.length) {
+      return NextResponse.json(
+        {
+          error:
+            "No recipients found. Select a participant or record attendance for this event first.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const created = [];
+    const skipped = [];
+    for (const target of targets) {
+      const existing = await certificatesCollection(db).findOne({
+        eventId,
+        email: target.email,
+      });
+      if (existing && !regenerate) {
+        skipped.push({
+          email: target.email,
+          userName: target.userName,
+          id: String(existing._id),
+          downloadUrl: certificateDownloadUrl(String(existing._id)),
+        });
+        continue;
+      }
+      if (existing && regenerate) {
+        await certificatesCollection(db).deleteOne({ _id: existing._id });
+      }
+
+      const doc = await createCertificateDoc({
+        db,
+        event: {
+          id: eventId,
+          title: String(event.title || ""),
+          startsAt: String(event.startsAt || ""),
+          certificateTemplateBase64: String(event.certificateTemplateBase64 || ""),
+        },
+        recipient: {
+          email: target.email,
+          userName: target.userName,
+        },
+        generatedBy: auth.session,
+        qualificationSource: "admin",
+      });
+
+      // Enrich stored certificate with school identity fields for admin tables.
+      await certificatesCollection(db).updateOne(
+        { _id: new ObjectId(doc.id) },
+        {
+          $set: {
+            studentNumber: target.studentNumber || "",
+            course: target.course || "",
+            school: target.school || "",
+          },
+        },
+      );
+
+      created.push({
+        ...doc,
+        studentNumber: target.studentNumber || "",
+        course: target.course || "",
+        school: target.school || "",
+      });
+    }
+
+    return NextResponse.json(
+      {
+        certificates: created,
+        skipped,
+        message: `Issued ${created.length} certificate(s) for "${event.title}".${
+          skipped.length ? ` ${skipped.length} already had a certificate.` : ""
+        }`,
+      },
+      { status: created.length ? 201 : 200 },
+    );
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

@@ -12,17 +12,8 @@ import {
   type SpaceEvent,
 } from "@/lib/events/types";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
-import { getAdminDb } from "@/lib/db/get-db";
-import { requireUserAuth } from "@/lib/user-server/require-user-auth";
-import {
-  normalizeOrganizerEmail,
-  organizerEmailClause,
-} from "@/lib/events/ownership";
-import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
-import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
-import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
+import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 
 const WRITABLE_STATUSES: EventStatus[] = [
   "draft",
@@ -55,28 +46,8 @@ async function resolveActor(request: Request) {
   const jar = await cookies();
   const session = decodeSession(jar.get(SESSION_COOKIE)?.value);
   if (session) {
-    if (session.isAdmin) {
-      return { kind: "admin" as const, session };
-    }
-    try {
-      const db = await getUserDb();
-      const user = await usersCollection(db).findOne({
-        email: session.email.trim().toLowerCase(),
-      });
-      if (user) {
-        return {
-          kind: "user" as const,
-          user,
-          email: String(user.email).trim().toLowerCase(),
-          name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || session.name,
-          id: String(user._id),
-        };
-      }
-    } catch {
-      /* fall through */
-    }
     return {
-      kind: "session" as const,
+      kind: session.isAdmin ? ("admin" as const) : ("session" as const),
       session,
     };
   }
@@ -86,88 +57,45 @@ async function resolveActor(request: Request) {
 
 /** Shared events list — admins see all; organizers see their own + approved. */
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const scope = searchParams.get("scope");
-  const limit = Math.min(Number(searchParams.get("limit") || 200) || 200, 500);
-
-  if (scope === "public") {
-    const jar = await cookies();
-    const session = decodeSession(jar.get(SESSION_COOKIE)?.value);
-    const hasBearer = Boolean(request.headers.get("authorization")?.startsWith("Bearer "));
-    if (!session && !hasBearer) {
-      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-    }
-
-    try {
-      const db = await getAdminDb();
-      const docs = await eventsCollection(db)
-        .find({ status: { $in: [...PUBLIC_EVENT_STATUSES] } })
-        .project(EVENT_LIST_PROJECTION)
-        .sort({ startsAt: 1, updatedAt: -1 })
-        .limit(limit)
-        .toArray();
-
-      const events = docs
-        .map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }))
-        .sort(compareEventsForDisplay);
-
-      return NextResponse.json({ events });
-    } catch (error) {
-      const details = error instanceof Error ? error.message : "Unknown error";
-      return NextResponse.json(
-        { error: "Failed to load events.", details },
-        { status: 500 },
-      );
-    }
-  }
-
   const actor = await resolveActor(request);
   if (!actor) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   try {
+    const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
+    const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 500);
 
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
+    if (searchParams.get("hasCertificateTemplate") === "1") {
+      filter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+    }
 
     if (actor.kind === "user") {
-      // Own events (any status) + every public event from all organizers.
       filter.$or = [
         { organizerId: actor.id },
-        organizerEmailClause(actor.email),
-        { status: { $in: [...PUBLIC_EVENT_STATUSES] } },
+        { organizerEmail: actor.email },
+        { status: { $in: ["approved", "live", "completed"] } },
       ];
     } else if (actor.kind === "session" && !actor.session.isAdmin) {
       filter.$or = [
-        organizerEmailClause(actor.session.email),
-        { status: { $in: [...PUBLIC_EVENT_STATUSES] } },
+        { organizerEmail: actor.session.email },
+        { status: { $in: ["approved", "live", "completed"] } },
       ];
     }
 
-    const db = await getAdminDb();
-    const isAdminList = actor.kind === "admin";
+    const db = await getUserDb();
     const docs = await eventsCollection(db)
       .find(filter)
-      .project(EVENT_LIST_PROJECTION)
-      .sort(
-        status === "pending" || (isAdminList && !status)
-          ? { updatedAt: -1, startsAt: 1 }
-          : { startsAt: 1, updatedAt: -1 },
-      )
+      .sort({ updatedAt: -1 })
       .limit(limit)
       .toArray();
 
-    const events = docs
-      .map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }))
-      .sort(
-        status === "pending"
-          ? (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
-          : compareEventsForDisplay,
-      );
-
-    return NextResponse.json({ events });
+    return NextResponse.json({
+      events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
+    });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
@@ -215,6 +143,7 @@ export async function POST(request: Request) {
     posterImageBase64?: string;
     posterImageMimeType?: string;
     status?: EventStatus;
+    reservationId?: string;
   };
   try {
     body = await request.json();
@@ -286,26 +215,27 @@ export async function POST(request: Request) {
     posterImageBase64: String(body.posterImageBase64 || "").trim(),
     posterImageMimeType: String(body.posterImageMimeType || "").trim(),
     status,
+    reservationId: String(body.reservationId || "").trim() || undefined,
     submittedByPortal: actor.kind === "admin" ? "admin" : "user",
     createdAt: now,
     updatedAt: now,
   };
 
   if (actor.kind === "admin") {
-    doc.organizerEmail = normalizeOrganizerEmail(actor.session.email);
+    doc.organizerEmail = actor.session.email;
     doc.organizerName = actor.session.name;
-    doc.reviewedByEmail = normalizeOrganizerEmail(actor.session.email);
+    doc.reviewedByEmail = actor.session.email;
   } else if (actor.kind === "user") {
     doc.organizerId = actor.id;
-    doc.organizerEmail = normalizeOrganizerEmail(actor.email);
+    doc.organizerEmail = actor.email;
     doc.organizerName = actor.name;
   } else {
-    doc.organizerEmail = normalizeOrganizerEmail(actor.session.email);
+    doc.organizerEmail = actor.session.email;
     doc.organizerName = actor.session.name;
   }
 
   try {
-    const db = await getAdminDb();
+    const db = await getUserDb();
     const result = await eventsCollection(db).insertOne(doc);
     const event = sanitizeEvent({ ...doc, _id: result.insertedId });
 

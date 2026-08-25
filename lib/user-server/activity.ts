@@ -1,8 +1,5 @@
-import { getAdminDb } from "@/lib/db/get-db";
-import {
-  activitiesCollection,
-  eventsCollection,
-} from "@/lib/db/admin-collections";
+import type { Db } from "mongodb";
+import { getUserDb } from "@/lib/user-server/get-user-db";
 
 export type ActivityType =
   | "user_registered"
@@ -29,20 +26,28 @@ export type ActivityDoc = {
   createdAt: string;
 };
 
-export { activitiesCollection, eventsCollection };
+export function activitiesCollection(db: Db) {
+  return db.collection<ActivityDoc>("user_activities");
+}
 
-export {
-  attendanceCollection,
-  certificatesCollection,
-  feedbackCollection,
-} from "@/lib/db/user-collections";
+export function attendanceCollection(db: Db) {
+  return db.collection("attendance_records");
+}
+
+export function feedbackCollection(db: Db) {
+  return db.collection("feedback_entries");
+}
+
+export function certificatesCollection(db: Db) {
+  return db.collection("certificates");
+}
 
 /** Best-effort activity log — never blocks the main request path. */
 export async function logUserActivity(
   input: Omit<ActivityDoc, "createdAt"> & { createdAt?: string },
 ) {
   try {
-    const db = await getAdminDb();
+    const db = await getUserDb();
     await activitiesCollection(db).insertOne({
       ...input,
       createdAt: input.createdAt || new Date().toISOString(),

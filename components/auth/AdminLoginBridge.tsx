@@ -6,26 +6,40 @@ import { useAuth } from "@/components/auth/AuthProvider";
 /**
  * Wires admin login/logout to the shared API without changing admin page markup.
  * Errors only appear after a failed submit (same pattern as student LoginBridge).
+ * Portal role hint (Admin vs Super Admin) comes from selection01; the signed-in
+ * account role from MongoDB controls Administration access.
  */
 export function AdminLoginBridge() {
   const { login, logout } = useAuth();
 
   useEffect(() => {
     let submitting = false;
-    const expectedFromQuery =
-      (new URLSearchParams(window.location.search).get("role") as
-        | "admin"
-        | "super-admin"
-        | null) || "admin";
+    const params = new URLSearchParams(window.location.search);
+    const portalRole =
+      params.get("role") === "super-admin" ? "super-admin" : "admin";
     const welcome = document.getElementById("welcome-title");
     const loginTitle = document.getElementById("login-title");
     if (welcome) {
       welcome.textContent =
-        expectedFromQuery === "super-admin"
+        portalRole === "super-admin"
           ? "Welcome, Super Admin!"
           : "Welcome, Administrator!";
     }
     if (loginTitle) loginTitle.textContent = "LOG IN TO DC SPACE";
+
+    const registerCta = document.getElementById("admin-register-cta");
+    if (registerCta) {
+      registerCta.hidden = false;
+      registerCta.removeAttribute("hidden");
+      registerCta.style.display = "";
+      const link = registerCta.querySelector("a");
+      if (link) {
+        link.setAttribute(
+          "href",
+          `/admin/register03?role=${encodeURIComponent(portalRole)}`,
+        );
+      }
+    }
 
     const ensureErrorEl = (form: HTMLFormElement) => {
       let errorEl = form.querySelector<HTMLParagraphElement>(".login-error");
@@ -54,12 +68,6 @@ export function AdminLoginBridge() {
       const errorEl = ensureErrorEl(form);
       errorEl.textContent = "";
 
-      const expectedRole =
-        (new URLSearchParams(window.location.search).get("role") as
-          | "admin"
-          | "super-admin"
-          | null) || expectedFromQuery;
-
       if (!email || !password) {
         errorEl.textContent = "Please enter your school email and password.";
         return;
@@ -69,7 +77,6 @@ export function AdminLoginBridge() {
       try {
         const result = await login(email, password, {
           portal: "admin",
-          expectedRole,
         });
         if (!result.ok) {
           errorEl.textContent = result.error || "Unable to sign in.";
@@ -81,6 +88,7 @@ export function AdminLoginBridge() {
             "dc_admin_role",
             result.user?.role === "super-admin" ? "super-admin" : "admin",
           );
+          localStorage.removeItem("dc_admin_pending_role");
         } catch {
           /* ignore */
         }

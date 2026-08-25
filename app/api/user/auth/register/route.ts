@@ -5,7 +5,6 @@ import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { validateRegistrationBody } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
-import { usersCollection } from "@/lib/db/user-collections";
 import { hashPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
@@ -51,7 +50,7 @@ export async function POST(request: Request) {
     };
 
     const db = await getUserDb();
-    const users = usersCollection(db);
+    const users = db.collection("users");
     const existingFilters: Array<Record<string, string>> = [
       { email: newUser.email },
       { studentNumber: newUser.studentNumber },

@@ -180,6 +180,19 @@ export function bindAdminFilterDropdowns(root: ParentNode, prefix: string) {
   let viewYear = new Date().getFullYear();
   let viewMonth = new Date().getMonth();
 
+  const emitChange = () => {
+    window.dispatchEvent(
+      new CustomEvent("dc-admin-filter-change", {
+        detail: {
+          prefix,
+          organization: selectedOrg,
+          course: selectedCourse,
+          date: selectedDate ? selectedDate.toISOString().slice(0, 10) : "",
+        },
+      }),
+    );
+  };
+
   const closeAll = () => {
     dateMenu.hidden = true;
     orgMenu.hidden = true;
@@ -212,6 +225,7 @@ export function bindAdminFilterDropdowns(root: ParentNode, prefix: string) {
         if (courseLabel) courseLabel.textContent = name;
         courseBtn.setAttribute("aria-label", `Selected course: ${name}`);
         closeAll();
+        emitChange();
       });
       courseMenu.appendChild(opt);
     });
@@ -248,6 +262,7 @@ export function bindAdminFilterDropdowns(root: ParentNode, prefix: string) {
         if (orgLabel) orgLabel.textContent = item.label;
         orgBtn.setAttribute("aria-label", `Selected organization: ${item.label}`);
         closeAll();
+        emitChange();
       });
       orgMenu.appendChild(opt);
     });
@@ -339,6 +354,7 @@ export function bindAdminFilterDropdowns(root: ParentNode, prefix: string) {
         if (dateLabel) dateLabel.textContent = formatDate(cellDate);
         dateBtn.setAttribute("aria-label", `Selected date: ${formatDate(cellDate)}`);
         closeAll();
+        emitChange();
       });
       grid.appendChild(btn);
     }

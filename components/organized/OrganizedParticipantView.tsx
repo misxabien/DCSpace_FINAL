@@ -95,8 +95,18 @@ export function OrganizedParticipantView({
                   <td>
                     <p className={styles.fileName}>{file.name}</p>
                     {file.viewed ? (
-                      <button type="button" className={styles.fileViewed}>
-                        File viewed
+                      <button
+                        type="button"
+                        className={styles.fileViewed}
+                        onClick={() => {
+                          window.open(
+                            `/api/organized/events/${encodeURIComponent(event.id)}/registrations/${encodeURIComponent(participant.id)}/files/${encodeURIComponent(file.id)}?download=1`,
+                            "_blank",
+                            "noopener,noreferrer",
+                          );
+                        }}
+                      >
+                        View file
                       </button>
                     ) : null}
                   </td>

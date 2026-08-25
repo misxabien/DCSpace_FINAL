@@ -3,31 +3,9 @@
  *
  * Usage: npm run seed:admins
  */
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
 import crypto from "node:crypto";
 import { MongoClient } from "mongodb";
-
-function loadEnv() {
-  const envPath = resolve(process.cwd(), ".env");
-  if (!existsSync(envPath)) return;
-  const text = readFileSync(envPath, "utf8");
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq < 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
+import { loadEnv } from "./load-env.mjs";
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -40,7 +18,7 @@ loadEnv();
 const uri = process.env.MONGODB_URI?.trim();
 const dbName = process.env.MONGODB_DB_NAME?.trim();
 if (!uri || !dbName) {
-  console.error("Missing MONGODB_URI or MONGODB_DB_NAME in .env");
+  console.error("Missing MONGODB_URI or MONGODB_DB_NAME in .env.local (or .env)");
   process.exit(1);
 }
 
@@ -82,7 +60,7 @@ const SEEDS = [
 const envEmail = process.env.DEV_ADMIN_EMAIL?.trim().toLowerCase();
 const envPassword = process.env.DEV_ADMIN_PASSWORD?.trim();
 const envName = process.env.DEV_ADMIN_NAME?.trim() || "Dev Admin";
-if (envEmail && envPassword) {
+if (envEmail && envPassword && !SEEDS.some((s) => s.email.toLowerCase() === envEmail)) {
   const [firstName, ...rest] = envName.split(/\s+/);
   SEEDS.push({
     email: envEmail,
