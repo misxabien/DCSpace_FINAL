@@ -29,11 +29,14 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
     document.title = data.title || "DC Space Admin";
     document.documentElement.setAttribute("data-admin-legacy", "true");
     document.body.setAttribute("data-admin-legacy", "true");
+    document.dispatchEvent(
+      new CustomEvent("dc-legacy-content-ready", { detail: { pageId: data.id } }),
+    );
     return () => {
       document.documentElement.removeAttribute("data-admin-legacy");
       document.body.removeAttribute("data-admin-legacy");
     };
-  }, [data.title]);
+  }, [data.title, data.id, data.route]);
 
   // Password show/hide (eye icon) — event delegation survives HTML remounts
   useEffect(() => {

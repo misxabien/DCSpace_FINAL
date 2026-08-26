@@ -8673,6 +8673,32 @@ h2.section-title,
   background: rgba(68, 138, 255, 0.06);
 }
 
+/* Admin tutorial (?) button — keep clickable and sized like the topbar icons */
+.top-actions .icon-btn.help,
+button.icon-btn.help[aria-label="Tutorial"] {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: #448aff !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  flex: 0 0 auto !important;
+}
+.top-actions .icon-btn.help svg,
+button.icon-btn.help[aria-label="Tutorial"] svg {
+  width: 28px !important;
+  height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  pointer-events: none !important;
+}
+
 .dc-report-empty {
   margin: 0;
   padding: 18px 8px;

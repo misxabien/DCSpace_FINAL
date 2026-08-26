@@ -67,7 +67,11 @@ export function LegacyContent({
   useEffect(() => {
     const host = document.querySelector("[data-legacy-content]");
     if (!host) return;
-    return bindPasswordToggles(host);
+    const unbind = bindPasswordToggles(host);
+    document.dispatchEvent(
+      new CustomEvent("dc-legacy-content-ready", { detail: { pageId: data.id } }),
+    );
+    return unbind;
   }, [data.id]);
 
   return (

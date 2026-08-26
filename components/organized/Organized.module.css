@@ -128,12 +128,18 @@
 }
 
 .toolBtnHelp {
-  background: var(--blue);
-  color: #fff;
+  background: transparent;
+  color: var(--blue, #448aff);
 }
 
 .toolBtnHelp:hover {
-  background: var(--blue-dark);
+  background: rgba(68, 138, 255, 0.1);
+  color: var(--blue, #448aff);
+}
+
+.toolBtnHelp svg {
+  width: 24px;
+  height: 24px;
 }
 
 .banner {

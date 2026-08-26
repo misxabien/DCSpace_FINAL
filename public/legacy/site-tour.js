@@ -30,16 +30,22 @@
     '/feedback/details': '34-feedback-details.html',
     '/feedback/sign': '35-feedback-sign.html',
     '/profile': '36-profile.html',
-    '/notifications': '37-notif.html'
+    '/notifications': '37-notif.html',
+    '/admin/home12': 'admin-home12.html',
+    '/admin': 'admin-home12.html'
   };
+
+  var HELP_BUTTON_SELECTOR =
+    '.tool-btn--help, .icon-btn.help, [aria-label="Help"], [aria-label="Tutorial"]';
 
   function resolvePageName() {
     var path = window.location.pathname.replace(/\/$/, '');
-    if (!path) return '09-home.html';
-    return PATH_TO_PAGE[path] || '09-home.html';
+    if (!path || path === '/') return '09-home.html';
+    if (PATH_TO_PAGE[path]) return PATH_TO_PAGE[path];
+    if (path.indexOf('/admin') === 0) return 'admin-generic.html';
+    return '09-home.html';
   }
 
-  var pageName = resolvePageName();
   var layer = null;
   var steps = [];
   var currentIndex = 0;
@@ -47,11 +53,59 @@
   var resizeTimer = null;
 
   var pageSteps = {
+    'admin-home12.html': [
+      step(
+        '.stats',
+        'Overview stats',
+        'See Total Events, Ongoing Events, Total Users, Certificates Generated, Attendance Rate, and Feedback Received at a glance.'
+      ),
+      step(
+        'h2.section-title',
+        'Events Requiring Attention',
+        'Review events that need follow-up, approval, or other admin action.',
+        'Events Requiring Attention'
+      ),
+      step(
+        'h2.section-title',
+        "Today's Events",
+        'See which events are scheduled for today and how much time is remaining.',
+        "Today's Events"
+      ),
+      step(
+        'h2.section-title',
+        'Recent Activities',
+        'Track the latest admin and user activity across the platform.',
+        'Recent Activities'
+      ),
+      step(
+        'h2.section-title',
+        'Quick Charts',
+        'Check monthly activity, which event has the highest attendance, and which type of event is most commonly held.',
+        'Quick Charts'
+      ),
+      step(
+        'h2.section-title',
+        'Notifications',
+        'Read the latest notifications from this panel.',
+        'Notifications'
+      ),
+      step(
+        'h2.section-title',
+        'Pending Tasks',
+        'Work through pending admin tasks such as reviewing event submissions.',
+        'Pending Tasks'
+      )
+    ],
+    'admin-generic.html': [
+      step('.topbar, .top-actions', 'Welcome', 'Search, notifications, and this tutorial live in the top bar.'),
+      step('.sidebar, aside.sidebar', 'DC SPACE Admin Console', 'Move between Dashboard, Events, Users, Attendance, Certificates, Feedback, and Reports.'),
+      step('main .main, main', 'Page content', 'The main tools and data for this admin page are shown in this area.')
+    ],
     '09-home.html': [
-      step('.search-bar', 'Search for events', 'Use the search bar to quickly find an event by its name or topic.'),
-      step('.row-invited', 'Your invitations', 'Events you have been invited to appear here so you can review them right away.'),
-      step('.calendar', 'Event calendar', 'Use the calendar to keep track of today and plan around upcoming events.'),
-      step('[aria-labelledby="joined-heading"]', 'Events you joined', 'Track today, upcoming, and past events you have already joined.')
+      step('.search-bar', 'Search for events', 'Type an event name or topic here to find it quickly across DC Space.'),
+      step('.row-invited', 'Your invitations', 'Events you have been invited to show up here first so you can review and join them.'),
+      step('.calendar', 'Event calendar', 'Use the calendar to see what is happening today and plan around upcoming events.'),
+      step('[aria-labelledby="joined-heading"], .joined-block', 'Events you joined', 'Track today, upcoming, and past events you have already joined from this section.')
     ],
     '14-event.html': [
       step('.search-bar', 'Find an event', 'Search the complete events catalogue from here.'),
@@ -124,8 +178,13 @@
 
   var certificateListPages = ['27-certificates-weekend.html', '28-certificates-month.html'];
 
-  function step(selector, title, description) {
-    return { selector: selector, title: title, description: description };
+  function step(selector, title, description, heading) {
+    return {
+      selector: selector,
+      title: title,
+      description: description,
+      heading: heading || null
+    };
   }
 
   function detailSteps() {
@@ -163,6 +222,7 @@
   }
 
   function getPageSteps() {
+    var pageName = resolvePageName();
     var specific = pageSteps[pageName];
     if (!specific && eventListPages.indexOf(pageName) !== -1) specific = listingSteps();
     if (!specific && savedListPages.indexOf(pageName) !== -1) specific = savedListingSteps();
@@ -170,19 +230,62 @@
     if (!specific) {
       specific = [
         step('.search-bar', 'Search this page', 'Use search to quickly find what you need.'),
-        step('main section, main article', 'Page content', 'The main information and actions for this page are shown here.')
+        step('main section, main article, main', 'Page content', 'The main information and actions for this page are shown here.')
       ];
     }
 
+    var isAdmin = pageName.indexOf('admin-') === 0;
+    if (pageName === 'admin-home12.html') {
+      return [
+        step(
+          '.topbar .welcome, .topbar',
+          'Welcome',
+          'Your admin greeting appears here. Use search, notifications, and the ? button from the top bar.'
+        ),
+        step(
+          '.sidebar, aside.sidebar',
+          'DC SPACE Admin Console',
+          'Use the sidebar to open Dashboard, Events, Users, Attendance, Certificates, Feedback, and Reports.'
+        ),
+        step(
+          '.top-actions .search-bar, .search-bar',
+          'Search',
+          'Search across the admin console from this bar. Use the filter icon to narrow results.'
+        )
+      ].concat(specific);
+    }
+    if (isAdmin) {
+      return [
+        step('.topbar, .top-actions', 'Welcome', 'This short tour highlights the most useful parts of the admin screen. You can close it anytime.'),
+        step(
+          '.sidebar, aside.sidebar',
+          'DC SPACE Admin Console',
+          'Use the sidebar to move between dashboard areas like Events, Users, Attendance, and Reports.'
+        )
+      ].concat(specific);
+    }
+
     return [
-      step('.main__top, .detail-topbar', 'Welcome to this page', 'This short tour highlights the most useful parts of the screen. You can close it at any time.'),
+      step('.main__top, .detail-topbar', 'Welcome to your dashboard', 'This short tour shows how to use the main parts of DC Space. You can close it anytime with Esc or the × button.'),
       step('.sidebar', 'Main navigation', 'Use the sidebar to move between Home, Events, Attendance, Saved Events, Certificates, and Feedback.')
     ].concat(specific);
   }
 
+  function resolveTarget(item) {
+    if (item.heading) {
+      var nodes = document.querySelectorAll(item.selector);
+      for (var i = 0; i < nodes.length; i += 1) {
+        var text = (nodes[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if (text === item.heading) return nodes[i];
+      }
+      return null;
+    }
+    return document.querySelector(item.selector);
+  }
+
   function resolveSteps() {
-    return getPageSteps().map(function (item) {
-      var target = document.querySelector(item.selector);
+    var resolved = getPageSteps().map(function (item) {
+      var target = resolveTarget(item);
       if (!target) return null;
       var rect = target.getBoundingClientRect();
       if (!rect.width || !rect.height) return null;
@@ -192,6 +295,21 @@
         description: item.description
       };
     }).filter(Boolean);
+
+    if (!resolved.length) {
+      var fallback =
+        document.querySelector('.topbar, .main__top, main, .admin-legacy-root') ||
+        document.body;
+      resolved = [
+        {
+          target: fallback,
+          title: 'Website tour',
+          description: 'Use this tour anytime from the ? button to learn the main parts of the screen.'
+        }
+      ];
+    }
+
+    return resolved;
   }
 
   function createLayer() {
@@ -228,7 +346,7 @@
   }
 
   function startTour(trigger) {
-    if (layer) return;
+    if (layer) closeTour();
     steps = resolveSteps();
     if (!steps.length) return;
     currentIndex = 0;
@@ -386,20 +504,22 @@
   }
 
   function bindHelpButtons() {
-    document.querySelectorAll('.tool-btn--help, [aria-label="Help"]').forEach(function (button) {
+    document.querySelectorAll(HELP_BUTTON_SELECTOR).forEach(function (button) {
       if (button.dataset.tourBound === 'true') return;
       button.dataset.tourBound = 'true';
       button.setAttribute('aria-haspopup', 'dialog');
-      button.setAttribute('title', 'Start page tour');
-      button.addEventListener('click', function () {
+      button.setAttribute('title', 'How to use this page');
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
         startTour(button);
       });
     });
   }
 
   window.DCWebsiteTour = {
-    start: function () { startTour(document.activeElement); },
-    close: closeTour
+    start: function (from) { startTour(from || document.activeElement); },
+    close: closeTour,
+    bind: bindHelpButtons
   };
 
   if (document.readyState === 'loading') {
@@ -407,4 +527,6 @@
   } else {
     bindHelpButtons();
   }
+
+  document.addEventListener('dc-legacy-content-ready', bindHelpButtons);
 })();
