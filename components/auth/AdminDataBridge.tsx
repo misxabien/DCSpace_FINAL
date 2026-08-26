@@ -46,6 +46,30 @@ type DashboardPayload = {
     endsAt?: string;
     timeRemaining?: string;
   }>;
+  charts?: {
+    monthly: {
+      labels: string[];
+      counts: number[];
+      peakIndex: number;
+      peakLabel: string;
+    };
+    topAttendance: Array<{
+      eventId: string;
+      title: string;
+      present: number;
+      capacity: number | null;
+      percent: number;
+      detail: string;
+    }>;
+    eventTypes: Array<{
+      key: string;
+      label: string;
+      color: string;
+      count: number;
+      percent: number;
+    }>;
+    range?: string;
+  };
   events: {
     pending: Array<{
       id: string;
@@ -192,6 +216,8 @@ function hydrateHome(root: Element, data: DashboardPayload) {
     text: "Approved and live events happening today will appear here.",
   });
 
+  hydrateQuickCharts(root, data.charts);
+
   const patchEventTable = (
     panel: string,
     rows: Array<{
@@ -264,6 +290,147 @@ function hydrateHome(root: Element, data: DashboardPayload) {
     if (cells[3]) cells[3].textContent = row.submittedBy;
     if (cells[4]) cells[4].textContent = row.dateLabel;
   });
+}
+
+function hydrateQuickCharts(
+  root: Element,
+  charts: DashboardPayload["charts"] | undefined,
+) {
+  if (!charts) return;
+
+  const monthlyBox = root.querySelector<HTMLElement>('[data-chart="monthly"]');
+  if (monthlyBox) {
+    const counts = charts.monthly.counts || [];
+    const max = Math.max(1, ...counts);
+    const bars = monthlyBox.querySelectorAll<HTMLElement>(".bars span");
+    bars.forEach((bar, index) => {
+      const count = Number(counts[index] || 0);
+      const height = Math.max(8, Math.round((count / max) * 100));
+      bar.style.height = `${height}%`;
+      bar.classList.toggle("active", index === charts.monthly.peakIndex && count > 0);
+      bar.title = `${charts.monthly.labels[index] || ""}: ${count} event${count === 1 ? "" : "s"}`;
+    });
+    const caption = monthlyBox.querySelector(".chart-caption");
+    if (caption) {
+      const peakCount = counts[charts.monthly.peakIndex] || 0;
+      caption.textContent =
+        peakCount > 0
+          ? `When are events usually the busiest? Peak: ${charts.monthly.peakLabel}`
+          : "When are events usually the busiest?";
+    }
+  }
+
+  const attendanceBox = root.querySelector<HTMLElement>('[data-chart="attendance"]');
+  if (attendanceBox) {
+    const list =
+      attendanceBox.querySelector(".qc-attend-list") ||
+      attendanceBox.querySelector(".rank-list");
+    if (list) {
+      const rows = charts.topAttendance || [];
+      list.classList.add("qc-attend-list");
+      list.classList.remove("rank-list");
+      if (!rows.length) {
+        list.innerHTML =
+          '<p class="chart-caption" style="margin:8px 0 0;text-align:left;">No attendance records yet.</p>';
+      } else {
+        list.innerHTML = rows
+          .map(
+            (row) => `
+          <article class="qc-attend-row">
+            <h5 class="qc-attend-title">${escapeHtml(row.title)}</h5>
+            <p class="qc-attend-meta">${escapeHtml(row.detail)}</p>
+            <div class="qc-attend-track" role="presentation">
+              <span class="qc-attend-fill" style="width:${Math.max(6, Math.min(100, row.percent))}%"></span>
+            </div>
+          </article>`,
+          )
+          .join("");
+      }
+    }
+  }
+
+  const typesBox = root.querySelector<HTMLElement>('[data-chart="event-types"]');
+  if (typesBox) {
+    const types = charts.eventTypes || [];
+    const total = types.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const donutHost = typesBox.querySelector<HTMLElement>("[data-donut-host]");
+    const legend = typesBox.querySelector("[data-chart-legend]");
+
+    const highlight =
+      total > 0
+        ? [...types].sort((a, b) => b.count - a.count || b.percent - a.percent)[0]
+        : null;
+
+    if (donutHost) {
+      donutHost.innerHTML = buildDonutSvg(types, total, highlight?.percent || 0, highlight?.color);
+    }
+
+    if (legend) {
+      legend.innerHTML = (types.length ? types : [])
+        .map(
+          (row) =>
+            `<span><i style="background:${escapeHtml(row.color)}"></i> ${escapeHtml(row.label)}${
+              total > 0 ? ` (${row.count})` : ""
+            }</span>`,
+        )
+        .join("");
+    }
+  }
+}
+
+function buildDonutSvg(
+  types: Array<{ color: string; count: number; percent: number; label: string }>,
+  total: number,
+  labelPercent: number,
+  labelColor?: string,
+) {
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = 58;
+  const stroke = 26;
+  const circumference = 2 * Math.PI * radius;
+
+  if (total <= 0) {
+    return `
+      <svg class="qc-donut-svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+        <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#e8eef8" stroke-width="${stroke}" />
+        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" class="qc-donut-text" fill="#94a3b8">0%</text>
+      </svg>`;
+  }
+
+  let cursor = 0;
+  const arcs = types
+    .filter((row) => row.count > 0)
+    .map((row) => {
+      const length = (row.count / total) * circumference;
+      // Draw from the top (-90deg); dashoffset walks clockwise.
+      const circle = `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${escapeHtml(
+        row.color,
+      )}" stroke-width="${stroke}" stroke-linecap="butt" stroke-dasharray="${length} ${
+        circumference - length
+      }" stroke-dashoffset="${circumference - cursor}" transform="rotate(-90 ${cx} ${cy})" />`;
+      cursor += length;
+      return circle;
+    })
+    .join("");
+
+  return `
+    <svg class="qc-donut-svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+      <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#edf2f7" stroke-width="${stroke}" />
+      ${arcs}
+      <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" class="qc-donut-text" fill="${escapeHtml(
+        labelColor || "#448aff",
+      )}">${labelPercent}%</text>
+    </svg>`;
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function hydrateUsers(root: Element, data: DashboardPayload) {

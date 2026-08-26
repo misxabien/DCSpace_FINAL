@@ -894,6 +894,22 @@ a.event-item:hover {
   margin-bottom: 28px !important;
 }
 
+.card-row > .dc-events-empty.dc-card-row-empty {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-height: 240px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+.card-row > .dc-events-empty.dc-card-row-empty.dc-legacy-hidden,
+.card-row > .dc-events-empty.dc-card-row-empty[hidden] {
+  display: none !important;
+}
+
 .event-card {
   min-height: 148px !important;
   padding: 22px 20px !important;
@@ -8454,6 +8470,133 @@ h2.section-title,
 }
 .chart-box h4 svg path {
   stroke: #1357C9 !important;
+}
+
+.chart-box--monthly .bars span {
+  background: #f6d7a8 !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+.chart-box--monthly .bars span.active {
+  background: #448AFF !important;
+}
+
+.chart-box--types .donut-wrap,
+.chart-box--types [data-donut-host] {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 12px 0 8px !important;
+  width: 100% !important;
+}
+/* Old CSS-donut hole/label — do not fight the SVG chart. */
+.chart-box--types .donut,
+.chart-box--types .donut::before,
+.chart-box--types .donut span {
+  display: none !important;
+}
+.chart-box--types .qc-donut-svg {
+  width: 180px !important;
+  height: 180px !important;
+  max-width: 100% !important;
+  display: block !important;
+  margin: 0 auto !important;
+  overflow: visible !important;
+}
+.chart-box--types .qc-donut-text {
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  font-family: Montserrat, system-ui, sans-serif !important;
+  dominant-baseline: central;
+  text-anchor: middle;
+}
+
+.chart-box--attendance .qc-attend-list,
+.chart-box--attendance .rank-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.chart-box--attendance .qc-attend-row {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+.chart-box--attendance .qc-attend-title {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  color: #0f172a !important;
+  line-height: 1.35 !important;
+  text-align: left !important;
+}
+.chart-box--attendance .qc-attend-meta {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  font-style: italic !important;
+  font-weight: 500 !important;
+  color: #023fa6 !important;
+  text-align: left !important;
+}
+.chart-box--attendance .qc-attend-track {
+  display: block !important;
+  width: 100% !important;
+  height: 10px !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  background: #dbe7ff !important;
+  box-shadow: inset 0 0 0 1px rgba(68, 138, 255, 0.12) !important;
+}
+.chart-box--attendance .qc-attend-fill {
+  display: block !important;
+  height: 100% !important;
+  min-width: 8px !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, #5b9bff 0%, #448aff 100%) !important;
+}
+
+.chart-box--types .legend {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px 20px !important;
+  margin-top: 14px !important;
+  width: 100% !important;
+}
+.chart-box--types .legend span {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 12px !important;
+  color: #334155 !important;
+  text-align: left !important;
+}
+.chart-box--types .legend i {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  flex: 0 0 auto !important;
+  display: inline-block !important;
+}
+
+/* Kill leftover mock grid rules that push attendance rows to the right. */
+.chart-box--attendance .rank-row {
+  display: none !important;
 }
 
 

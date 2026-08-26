@@ -3,10 +3,14 @@
 const HIDDEN_CLASS = "dc-legacy-hidden";
 const EMPTY_CLASS = "dc-events-empty";
 
-const HIDE_STYLE_ID = "dc-legacy-hide-style-v3";
+const HIDE_STYLE_ID = "dc-legacy-hide-style-v5";
 
 export function ensureLegacyHideStyles() {
   if (typeof document === "undefined") return;
+  // Upgrade older injected style tags so centering / hide fixes apply after soft nav.
+  ["dc-legacy-hide-style-v3", "dc-legacy-hide-style-v4"].forEach((id) => {
+    document.getElementById(id)?.remove();
+  });
   if (document.getElementById(HIDE_STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = HIDE_STYLE_ID;
@@ -43,6 +47,16 @@ table tbody tr[hidden] {
   border-radius: 0;
   box-shadow: none;
   color: #b7aa89;
+}
+.card-row > .${EMPTY_CLASS}.dc-card-row-empty {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
+  min-height: 240px;
+}
+.card-row > .${EMPTY_CLASS}.dc-card-row-empty.${HIDDEN_CLASS},
+.card-row > .${EMPTY_CLASS}.dc-card-row-empty[hidden] {
+  display: none !important;
 }
 .${EMPTY_CLASS}.${HIDDEN_CLASS},
 .${EMPTY_CLASS}[hidden] {
@@ -81,7 +95,7 @@ export function setLegacyHidden(el: HTMLElement | null | undefined, hidden: bool
   el.classList.toggle(HIDDEN_CLASS, hidden);
   if (hidden) {
     el.setAttribute("hidden", "");
-    el.style.display = "none";
+    el.style.setProperty("display", "none", "important");
   } else {
     el.removeAttribute("hidden");
     el.style.removeProperty("display");
@@ -298,6 +312,13 @@ export function setCardRowEmptyState(
   const text = copy?.text || "Live events from the database will appear here.";
 
   let note = row.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-card-row-empty`);
+
+  // When cards exist, drop any empty placeholder — do not leave a hidden sibling.
+  if (!empty) {
+    note?.remove();
+    return;
+  }
+
   if (!note) {
     note = document.createElement("div");
     note.className = `${EMPTY_CLASS} dc-card-row-empty`;
@@ -314,5 +335,5 @@ export function setCardRowEmptyState(
   const textEl = note.querySelector(`.${EMPTY_CLASS}__text`);
   if (titleEl) titleEl.textContent = title;
   if (textEl) textEl.textContent = text;
-  setLegacyHidden(note, !empty);
+  setLegacyHidden(note, false);
 }

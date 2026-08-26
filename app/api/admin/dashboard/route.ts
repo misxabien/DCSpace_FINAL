@@ -15,6 +15,7 @@ import {
 } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
+import { buildDashboardCharts } from "@/lib/admin/dashboard-charts";
 import {
   MONGO_QUICK_TIMEOUT_MS,
   withTimeout,
@@ -48,6 +49,17 @@ function emptyDashboard(details?: string) {
     activities: [],
     attendance: [],
     feedback: [],
+    charts: {
+      monthly: {
+        labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+        counts: Array.from({ length: 12 }, () => 0),
+        peakIndex: 0,
+        peakLabel: "Jan",
+      },
+      topAttendance: [],
+      eventTypes: [],
+      range: "monthly" as const,
+    },
     window: { weekAgo: "", monthAgo: "" },
   };
 }
@@ -272,6 +284,8 @@ export async function GET(request: Request) {
       meta: a.meta || {},
     }));
 
+    const charts = await buildDashboardCharts(db);
+
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       stats: {
@@ -316,6 +330,7 @@ export async function GET(request: Request) {
         rating: row.rating ?? "",
         comment: String(row.comment || row.message || ""),
       })),
+      charts,
       window: { weekAgo, monthAgo },
     });
   } catch (error) {

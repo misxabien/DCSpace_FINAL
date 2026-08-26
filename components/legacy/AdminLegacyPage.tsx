@@ -1682,6 +1682,23 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   border-radius: 0 !important;
 }
 
+/* Dashboard Today's Events / Attention empty calendar — center in the 3-col grid */
+[data-admin-legacy] .card-row > .dc-events-empty.dc-card-row-empty {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-height: 240px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+[data-admin-legacy] .card-row > .dc-events-empty.dc-card-row-empty.dc-legacy-hidden,
+[data-admin-legacy] .card-row > .dc-events-empty.dc-card-row-empty[hidden] {
+  display: none !important;
+}
+
 /* Event card header — Figma: large blue Event Name */
 [data-admin-legacy] #event-info-card .detail-top-main h3,
 [data-admin-legacy] .detail-top-main h3,
