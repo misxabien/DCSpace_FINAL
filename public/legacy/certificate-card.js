@@ -65,29 +65,51 @@
   }
 
   function injectEmptyStateStyles() {
-    if (document.getElementById('dc-empty-state-styles')) return;
+    if (document.getElementById('dc-cert-empty-state-styles')) return;
     var style = document.createElement('style');
-    style.id = 'dc-empty-state-styles';
+    style.id = 'dc-cert-empty-state-styles';
     style.textContent =
-      '.dc-empty-state{grid-column:1/-1;width:100%;min-height:min(360px,calc(100vh - 300px));display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:40px 24px 48px;text-align:center;color:#b7aa89;}' +
-      '.dc-empty-state--compact{min-height:240px;padding:28px 16px 36px;}' +
-      '.dc-empty-state__icon{width:140px;height:140px;margin:0 auto 16px;display:block;}' +
-      '.dc-empty-state--compact .dc-empty-state__icon{width:110px;height:110px;}' +
-      '.dc-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
-      '.dc-empty-state__description{max-width:640px;margin:0 auto;color:#b7aa89;font-size:clamp(0.95rem,1.4vw,1.05rem);font-weight:500;line-height:1.45;}';
+      '.dc-empty-state--certificates{grid-column:1/-1;width:100%;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:28px 16px 36px;text-align:center;}' +
+      '.cert-grid:has(> .dc-empty-state--certificates){grid-template-columns:1fr !important;max-width:none !important;width:100%;justify-items:center;}' +
+      '.dc-empty-state__icon--certificates{width:140px;height:auto;margin:0 auto 16px;display:block;}' +
+      '.dc-empty-state--certificates .dc-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
+      '.dc-empty-state--certificates .dc-empty-state__description{max-width:640px;margin:0 auto;color:#b7aa89;font-size:clamp(0.95rem,1.4vw,1.05rem);font-weight:500;line-height:1.45;}';
     document.head.appendChild(style);
   }
 
-  function createEmptyState(title, description) {
+  function createEmptyState() {
     injectEmptyStateStyles();
     var emptyState = document.createElement('div');
-    emptyState.className = 'dc-empty-state dc-empty-state--compact';
+    emptyState.className = 'dc-empty-state dc-empty-state--certificates';
     emptyState.setAttribute('role', 'status');
     emptyState.innerHTML =
-      '<img class="dc-empty-state__icon" src="/no-event.svg" width="160" height="160" alt="" aria-hidden="true" />' +
-      '<h3 class="dc-empty-state__title">' + escapeHtml(title) + '</h3>' +
-      '<p class="dc-empty-state__description">' + escapeHtml(description) + '</p>';
+      '<img class="dc-empty-state__icon dc-empty-state__icon--certificates" src="/no-certificates.svg" width="140" height="128" alt="" aria-hidden="true" />' +
+      '<h3 class="dc-empty-state__title">No certificates yet.</h3>' +
+      '<p class="dc-empty-state__description">Certificates you earn from completed events will appear here.</p>';
     return emptyState;
+  }
+
+  function syncSectionSeeMore(root, visible) {
+    if (!root) return;
+    var previous = root.previousElementSibling;
+    var head =
+      previous && previous.classList.contains('section-head')
+        ? previous
+        : root.parentElement
+          ? root.parentElement.querySelector('.section-head')
+          : null;
+    if (!head) return;
+    var more = head.querySelector('.section-head__more');
+    if (!more) return;
+    if (visible) {
+      more.hidden = false;
+      more.removeAttribute('hidden');
+      more.style.display = '';
+    } else {
+      more.hidden = true;
+      more.setAttribute('hidden', '');
+      more.style.display = 'none';
+    }
   }
 
   function fillCertificateContainer(container, filter, limit) {
@@ -96,22 +118,22 @@
 
     var category = typeof filter === 'string' ? filter : (filter && filter.category) || '';
     var max = typeof filter === 'string' ? limit : (filter && filter.limit);
-    var certs = DCCertificates.getCertificatesByCategory(category, max);
+    var allCerts = DCCertificates.getCertificatesByCategory(category);
+    var totalCount = allCerts.length;
+    var certs =
+      typeof max === 'number' ? allCerts.slice(0, max) : allCerts.slice();
 
     root.innerHTML = '';
     wireCertificateCards(root);
     if (!certs.length) {
-      root.appendChild(
-        createEmptyState(
-          'No certificates yet.',
-          'Certificates you earn from completed events will appear here.'
-        )
-      );
+      root.appendChild(createEmptyState());
+      syncSectionSeeMore(root, false);
       return;
     }
     certs.forEach(function (cert) {
       root.appendChild(createCertificateCard(cert));
     });
+    syncSectionSeeMore(root, totalCount > (typeof max === 'number' ? max : 2));
   }
 
   global.DCCertificates = DCCertificates || {};

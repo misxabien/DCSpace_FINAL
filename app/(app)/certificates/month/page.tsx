@@ -5,5 +5,5 @@ import legacyData from "@/content/legacy/28-certificates-month.json";
 const legacy = legacyData as LegacyPageData;
 
 export default function Page() {
-  return <AppLegacyPage data={legacy} />;
+  return <AppLegacyPage data={legacy} mainClassName="main--certificates" />;
 }

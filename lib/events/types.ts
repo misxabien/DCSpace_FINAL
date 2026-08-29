@@ -81,6 +81,14 @@ export function asStringList(value: unknown): string[] {
   return value.map((item) => String(item).trim()).filter(Boolean);
 }
 
+/** Exclude attachment blobs for list/card views — keeps Mongo reads fast. */
+export const EVENT_LIST_PROJECTION = {
+  posterImageBase64: 0,
+  conceptPaperBase64: 0,
+  programFileBase64: 0,
+  certificateTemplateBase64: 0,
+} as const;
+
 export { eventsCollection } from "@/lib/db/admin-collections";
 
 function normalizeClock(value: string) {

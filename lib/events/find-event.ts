@@ -71,12 +71,17 @@ export async function findEventById(id: string): Promise<{
 export async function findOrganizerEvents(
   filter: Record<string, unknown>,
   limit = 200,
+  options?: { projection?: Record<string, 0 | 1> },
 ): Promise<EventDoc[]> {
   const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
-  const [adminDocs, userDocs] = await Promise.all([
-    eventsCollection(adminDb).find(filter).sort({ updatedAt: -1 }).limit(limit).toArray(),
-    eventsCollection(userDb).find(filter).sort({ updatedAt: -1 }).limit(limit).toArray(),
-  ]);
+  const list = (db: Db) => {
+    let cursor = eventsCollection(db).find(filter).sort({ updatedAt: -1 }).limit(limit);
+    if (options?.projection) {
+      cursor = cursor.project(options.projection);
+    }
+    return cursor.toArray();
+  };
+  const [adminDocs, userDocs] = await Promise.all([list(adminDb), list(userDb)]);
 
   const byId = new Map<string, EventDoc>();
   for (const doc of userDocs) {

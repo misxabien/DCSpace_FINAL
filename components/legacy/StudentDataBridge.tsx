@@ -40,10 +40,12 @@ declare global {
       bindDetailBack?: (fallbackHref?: string) => void;
       wireDetailActions?: (eventId: string) => void;
       wireEventGridSearch?: () => void;
+      syncBookmarkButtons?: (root?: ParentNode) => void;
     };
     DCFeedback?: {
       FEEDBACK_ITEMS: unknown[];
       getFeedbackById?: (id: string | number) => unknown;
+      getFeedbackDetailUrl?: (id: string | number) => string;
       renderFeedbackDetails?: () => void;
     };
     DCCertificates?: {
@@ -60,17 +62,17 @@ const EVENT_GRID_CONFIG: Array<{
   limit?: number;
   detailContext: string;
 }> = [
-  { id: "row-today", category: "today", limit: 12, detailContext: "explore" },
-  { id: "row-academic", category: "academic", limit: 12, detailContext: "explore" },
-  { id: "row-tech", category: "tech", limit: 12, detailContext: "explore" },
-  { id: "row-org", category: "organization", limit: 12, detailContext: "explore" },
-  { id: "attendance-today-grid", category: "attendance-today", limit: 12, detailContext: "attendance" },
-  { id: "attendance-completed-grid", category: "attendance-completed", limit: 12, detailContext: "attendance" },
-  { id: "attendance-incomplete-grid", category: "attendance-incomplete", limit: 12, detailContext: "attendance" },
-  { id: "home-invited-grid", category: "invited", limit: 12, detailContext: "explore" },
-  { id: "home-today-grid", category: "joined-today", limit: 12, detailContext: "joined" },
-  { id: "home-upcoming-grid", category: "joined-upcoming", limit: 12, detailContext: "joined" },
-  { id: "home-past-grid", category: "joined-past", limit: 12, detailContext: "joined" },
+  { id: "row-today", category: "today", limit: 4, detailContext: "explore" },
+  { id: "row-academic", category: "academic", limit: 4, detailContext: "explore" },
+  { id: "row-tech", category: "tech", limit: 4, detailContext: "explore" },
+  { id: "row-org", category: "organization", limit: 4, detailContext: "explore" },
+  { id: "attendance-today-grid", category: "attendance-today", limit: 1, detailContext: "attendance" },
+  { id: "attendance-completed-grid", category: "attendance-completed", limit: 2, detailContext: "attendance" },
+  { id: "attendance-incomplete-grid", category: "attendance-incomplete", limit: 2, detailContext: "attendance" },
+  { id: "home-invited-grid", category: "invited", limit: 2, detailContext: "explore" },
+  { id: "home-today-grid", category: "joined-today", limit: 2, detailContext: "joined" },
+  { id: "home-upcoming-grid", category: "joined-upcoming", limit: 2, detailContext: "joined" },
+  { id: "home-past-grid", category: "joined-past", limit: 2, detailContext: "joined" },
 ];
 
 function categoryForPath(pathname: string): { category: string; detailContext: string } | null {
@@ -287,6 +289,14 @@ function refreshLegacyEventViews(pathname: string) {
     window.DCEvents.bindDetailBack?.("/attendance");
     window.DCEvents.wireEventGridSearch?.();
   }
+  if (
+    pathname.startsWith("/events/today") ||
+    pathname.startsWith("/events/upcoming") ||
+    pathname.startsWith("/events/past") ||
+    pathname.startsWith("/events/invited")
+  ) {
+    window.DCEvents.wireEventGridSearch?.();
+  }
   if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
     window.DCEvents.renderSubmitPage();
     window.DCEvents.bindDetailBack?.("/events");
@@ -314,11 +324,15 @@ function refreshLegacyEventViews(pathname: string) {
       savedTargets.push({ id: "saved-grid", timing });
     }
     savedTargets.forEach(({ id, timing }) => {
+      const isPreviewSection =
+        id === "saved-today-grid" ||
+        id === "saved-upcoming-grid" ||
+        id === "saved-past-grid";
       try {
         window.DCEvents?.fillSavedContainer?.(id, {
           timing,
           detailContext: "explore",
-          limit: 50,
+          limit: isPreviewSection ? 2 : 50,
         });
       } catch {
         /* ignore */
@@ -839,17 +853,26 @@ export function StudentDataBridge() {
       }
     };
 
+    let savedSyncPending = false;
+
     const syncSaved = async () => {
+      if (savedSyncPending) return;
       try {
         const res = await authFetch("/api/user/saved-events", { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { eventIds?: string[] };
         if (Array.isArray(data.eventIds)) {
-          setSavedEventIds(data.eventIds);
+          const incoming = data.eventIds.map(String);
+          const current = getSavedEventIds();
+          const unchanged =
+            current.length === incoming.length &&
+            current.every((id) => incoming.includes(id));
+          if (!unchanged) {
+            setSavedEventIds(incoming);
+            window.DCEvents?.syncBookmarkButtons?.();
+          }
           if (pathname.startsWith("/saved")) {
             refreshLegacyEventViews(pathname);
-          } else {
-            window.DCEvents?.fillSavedContainer?.("saved-grid", { detailContext: "explore" });
           }
         }
       } catch {
@@ -857,26 +880,7 @@ export function StudentDataBridge() {
       }
     };
 
-    const hydrateStudentHomeAi = async () => {
-      if (pathname !== "/home") return;
-      const greeting =
-        document.querySelector(".main__greeting") || document.querySelector(".joined-head");
-      if (!greeting || greeting.parentElement?.querySelector("[data-dc-ai-home]")) return;
-
-      try {
-        const res = await fetch("/api/ai/student-home", { cache: "no-store" });
-        const payload = await res.json().catch(() => ({}));
-        const insight = String(payload.insight || "").trim();
-        if (!res.ok || !insight) return;
-        const note = document.createElement("p");
-        note.dataset.dcAiHome = "1";
-        note.textContent = insight;
-        note.style.cssText = "margin:8px 0 0;max-width:42rem;color:#4a5a78;font-size:0.95rem;line-height:1.45;";
-        greeting.insertAdjacentElement("afterend", note);
-      } catch {
-        /* home still works without AI */
-      }
-    };
+    document.querySelectorAll("[data-dc-ai-home]").forEach((el) => el.remove());
 
     const persistSaved = async () => {
       const ids = getSavedEventIds();
@@ -1156,25 +1160,61 @@ export function StudentDataBridge() {
 
         const list = document.getElementById("feedback-list");
         if (list) {
-          const lis = Array.from(list.querySelectorAll<HTMLLIElement>("li"));
-          items.forEach((f, index) => {
-            let li = lis[index];
-            if (!li && lis[0]) {
-              li = lis[0].cloneNode(true) as HTMLLIElement;
-              list.appendChild(li);
-            }
-            if (!li) return;
-            li.style.display = "";
-            const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
-            if (btn) btn.setAttribute("data-feedback-id", f.id);
-            const title = li.querySelector(".feedback-item__title");
-            const type = li.querySelector(".feedback-item__type");
-            if (title) title.textContent = f.title;
-            if (type) type.textContent = f.type;
-          });
-          list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
-            if (index >= items.length) li.style.display = "none";
-          });
+          if (list.dataset.dcFeedbackWired !== "1") {
+            list.dataset.dcFeedbackWired = "1";
+            list.addEventListener("click", (event) => {
+              const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(".feedback-item");
+              if (!btn || !list.contains(btn)) return;
+              const id = btn.getAttribute("data-feedback-id");
+              if (!id || !window.DCFeedback?.getFeedbackDetailUrl) return;
+              window.location.assign(window.DCFeedback.getFeedbackDetailUrl(id));
+            });
+          }
+
+          const section = list.closest(".feedback-section");
+          let emptyState = section?.querySelector<HTMLElement>(".dc-empty-state--feedback") ?? null;
+          if (!emptyState && section) {
+            emptyState = document.createElement("div");
+            emptyState.className = "dc-empty-state dc-empty-state--feedback";
+            emptyState.setAttribute("role", "status");
+            emptyState.innerHTML =
+              '<img class="dc-empty-state__icon" src="/no-event.svg" width="140" height="140" alt="" aria-hidden="true" />' +
+              "<h3 class=\"dc-empty-state__title\">No feedback submitted yet.</h3>" +
+              '<p class="dc-empty-state__description">Tap Start Feedback above to tell us about your event experience.</p>';
+            list.insertAdjacentElement("afterend", emptyState);
+          }
+
+          if (!items.length) {
+            list.hidden = true;
+            if (emptyState) emptyState.hidden = false;
+          } else {
+            list.hidden = false;
+            if (emptyState) emptyState.hidden = true;
+
+            const lis = Array.from(list.querySelectorAll<HTMLLIElement>("li"));
+            items.forEach((f, index) => {
+              let li = lis[index];
+              if (!li && lis[0]) {
+                li = lis[0].cloneNode(true) as HTMLLIElement;
+                list.appendChild(li);
+              }
+              if (!li) return;
+              li.hidden = false;
+              li.style.display = "";
+              const btn = li.querySelector<HTMLButtonElement>(".feedback-item");
+              if (btn) btn.setAttribute("data-feedback-id", f.id);
+              const title = li.querySelector(".feedback-item__title");
+              const type = li.querySelector(".feedback-item__type");
+              if (title) title.textContent = f.title;
+              if (type) type.textContent = f.type;
+            });
+            list.querySelectorAll<HTMLLIElement>("li").forEach((li, index) => {
+              if (index >= items.length) {
+                li.hidden = true;
+                li.style.display = "none";
+              }
+            });
+          }
         }
 
         if (pathname.startsWith("/feedback/details")) {
@@ -1399,7 +1439,11 @@ export function StudentDataBridge() {
     };
 
     const onSavedChanged = () => {
-      void persistSaved();
+      savedSyncPending = true;
+      window.DCEvents?.syncBookmarkButtons?.();
+      void persistSaved().finally(() => {
+        savedSyncPending = false;
+      });
     };
 
     const onEventsReady = () => {
@@ -1413,7 +1457,6 @@ export function StudentDataBridge() {
 
     const run = () => {
       void injectEvents();
-      void syncSaved();
       wireFeedbackForm();
       clearManualAttendanceTaps();
       void injectAttendanceRfid();
@@ -1424,9 +1467,14 @@ export function StudentDataBridge() {
       }
     };
 
-    const t1 = window.setTimeout(run, 80);
-    const t2 = window.setTimeout(run, 400);
-    const t3 = window.setTimeout(run, 900);
+    const runWithSavedSync = () => {
+      run();
+      void syncSaved();
+    };
+
+    const t1 = window.setTimeout(runWithSavedSync, 80);
+    const t2 = window.setTimeout(runWithSavedSync, 400);
+    const t3 = window.setTimeout(runWithSavedSync, 900);
     // Attendance details: poll Mongo tap logs near real-time.
     const pollMs = pathname.startsWith("/attendance/details")
       ? 1500
@@ -1438,8 +1486,6 @@ export function StudentDataBridge() {
             ? 5000
             : 8000;
     const poll = window.setInterval(run, pollMs);
-    // Badge polling is owned by UserNotifBadgeBridge — avoid duplicate fetches.
-    const aiTimer = window.setTimeout(() => void hydrateStudentHomeAi(), 700);
 
     const onFocusRefresh = () => {
       void injectEvents();
@@ -1451,7 +1497,7 @@ export function StudentDataBridge() {
       if (pathname === "/notifications") void injectNotifications();
     };
     const onPortalInvalidated = () => {
-      void fetchPortalData(true).then(() => run());
+      void fetchPortalData(true).then(() => runWithSavedSync());
     };
     window.addEventListener("focus", onFocusRefresh);
     document.addEventListener("visibilitychange", onFocusRefresh);
@@ -1462,7 +1508,6 @@ export function StudentDataBridge() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
-      window.clearTimeout(aiTimer);
       window.clearInterval(poll);
       window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);

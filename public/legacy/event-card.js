@@ -66,14 +66,32 @@
     btn.setAttribute('aria-label', saved ? 'Remove from saved events' : 'Save event');
   }
 
+  function syncBookmarkButtons(root) {
+    var scope = root || document;
+    scope.querySelectorAll('.event-card__bookmark').forEach(function (btn) {
+      var id = btn.getAttribute('data-event-id');
+      if (!id) {
+        var card = btn.closest('.event-card');
+        id = card && card.getAttribute('data-event-id');
+      }
+      if (id) syncBookmarkButton(btn, id);
+    });
+  }
+
   function initBookmarkButton(btn, id) {
+    if (!btn) return;
     syncBookmarkButton(btn, id);
+    if (btn.dataset.dcBookmarkWired === '1') return;
+    btn.dataset.dcBookmarkWired = '1';
     btn.addEventListener('click', function (event) {
       event.preventDefault();
       event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') {
+        event.stopImmediatePropagation();
+      }
       toggleSaved(id);
       syncBookmarkButton(btn, id);
-    });
+    }, true);
   }
 
   function toISODate(date) {
@@ -209,6 +227,45 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function findSectionSeeMore(root) {
+    if (!root) return null;
+    var previous = root.previousElementSibling;
+    if (previous && previous.classList.contains('section-head')) {
+      return previous.querySelector('.section-head__more');
+    }
+    var parent = root.parentElement;
+    if (parent) {
+      var head = parent.querySelector('.section-head');
+      if (head) return head.querySelector('.section-head__more');
+    }
+    return null;
+  }
+
+  function syncSectionSeeMore(root, visible) {
+    var more = findSectionSeeMore(root);
+    if (!more) return;
+    if (visible) {
+      more.hidden = false;
+      more.removeAttribute('hidden');
+      more.style.display = '';
+    } else {
+      more.hidden = true;
+      more.setAttribute('hidden', '');
+      more.style.display = 'none';
+    }
+  }
+
+  function shouldShowSectionSeeMore(filter, totalCount) {
+    if (!totalCount) return false;
+    var previewLimit =
+      filter && typeof filter.seeMoreMinCount === 'number'
+        ? filter.seeMoreMinCount
+        : filter && typeof filter.limit === 'number'
+          ? filter.limit
+          : 2;
+    return totalCount > previewLimit;
   }
 
   var EMPTY_BY_CONTAINER = {
@@ -386,40 +443,54 @@
 
     var detailContext = filter.detailContext || 'joined';
     var events = [];
+    var totalCount = 0;
     if (filter.category) {
-      events = DCEvents.getEventsByCategory(filter.category, filter.limit);
+      var allEvents = DCEvents.getEventsByCategory(filter.category);
+      totalCount = allEvents.length;
+      events =
+        typeof filter.limit === 'number' ? allEvents.slice(0, filter.limit) : allEvents.slice();
     } else if (filter.ids) {
       filter.ids.forEach(function (id) {
         var event = DCEvents.getEventById(id);
         if (event) events.push(event);
       });
+      totalCount = events.length;
     }
 
     root.innerHTML = '';
     if (!events.length) {
       showEmptyState(root, filter);
+      syncSectionSeeMore(root, false);
       return;
     }
     events.forEach(function (event) {
       root.appendChild(createEventCard(event, { detailContext: detailContext }));
     });
+    syncBookmarkButtons(root);
+    syncSectionSeeMore(root, shouldShowSectionSeeMore(filter, totalCount));
   }
 
   function fillSavedContainer(container, filter) {
     var root = typeof container === 'string' ? document.getElementById(container) : container;
     if (!root) return;
 
-    var events = getSavedEventsByTiming(filter.timing, filter.limit);
+    var allSaved = getSavedEventsByTiming(filter.timing);
+    var totalCount = allSaved.length;
+    var events =
+      typeof filter.limit === 'number' ? allSaved.slice(0, filter.limit) : allSaved.slice();
     var detailContext = filter.detailContext || 'explore';
 
     root.innerHTML = '';
     if (!events.length) {
       showEmptyState(root, Object.assign({ compactEmpty: true }, filter || {}));
+      syncSectionSeeMore(root, false);
       return;
     }
     events.forEach(function (event) {
       root.appendChild(createEventCard(event, { detailContext: detailContext }));
     });
+    syncBookmarkButtons(root);
+    syncSectionSeeMore(root, shouldShowSectionSeeMore(filter, totalCount));
   }
 
   function initCardLinks(root) {
@@ -501,6 +572,7 @@
 
   injectBookmarkStyles();
 
+  DCEvents.syncSectionSeeMore = syncSectionSeeMore;
   DCEvents.createEventCard = createEventCard;
   DCEvents.fillContainer = fillContainer;
   DCEvents.fillSavedContainer = fillSavedContainer;
@@ -510,6 +582,7 @@
   DCEvents.getSavedIds = getSavedIds;
   DCEvents.isEventSaved = isEventSaved;
   DCEvents.toggleSaved = toggleSaved;
+  DCEvents.syncBookmarkButtons = syncBookmarkButtons;
   DCEvents.wireDetailActions = wireDetailActions;
   DCEvents.wireEventGridSearch = wireEventGridSearch;
 })(window);

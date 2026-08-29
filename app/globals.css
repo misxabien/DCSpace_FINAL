@@ -58,12 +58,641 @@ a {
   align-items: flex-start;
 }
 
+/* Main column shell — keeps page transitions from covering the sidebar */
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+}
+
+.app-main-transition {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 .main {
   flex: 1;
   min-width: 0;
   min-height: 100vh;
-  padding: 32px 40px 48px;
+  padding: 10px 40px 48px;
   background: var(--main-bg);
+  position: relative;
+  z-index: 1;
+  overflow-x: clip;
+}
+
+/* Top navbar — base layout (all pages) */
+.main__top,
+.detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+/* Hub pages only — frosted sticky bar (Home, Events, Events Organized) */
+.main.main--home .main__top,
+.main.main--events .main__top,
+.main.main--organized > .main__top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -10px -40px 0;
+  padding: 10px 40px 8px;
+  background: rgba(255, 252, 248, 0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  isolation: isolate;
+  width: auto;
+  max-width: none;
+}
+
+.main.main--home .main__top::after,
+.main.main--events .main__top::after,
+.main.main--organized > .main__top::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(68, 138, 255, 0) 0%,
+    rgba(68, 138, 255, 0.2) 15%,
+    rgba(255, 255, 255, 0.92) 50%,
+    rgba(68, 138, 255, 0.2) 85%,
+    rgba(68, 138, 255, 0) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 0.5px 0 rgba(68, 138, 255, 0.12);
+  pointer-events: none;
+}
+
+/* Event detail/explore top bars keep the frosted treatment */
+.detail-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: -10px -40px 0;
+  padding: 10px 40px 8px;
+  background: rgba(255, 252, 248, 0.78);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  isolation: isolate;
+  width: auto;
+  max-width: none;
+}
+
+.detail-topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(68, 138, 255, 0) 0%,
+    rgba(68, 138, 255, 0.2) 15%,
+    rgba(255, 255, 255, 0.92) 50%,
+    rgba(68, 138, 255, 0.2) 85%,
+    rgba(68, 138, 255, 0) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 0.5px 0 rgba(68, 138, 255, 0.12);
+  pointer-events: none;
+}
+
+.detail-topbar h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 700;
+  color: var(--blue);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  margin-left: -4px;
+}
+
+.detail-back {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.detail-back svg {
+  width: 44px;
+  height: 44px;
+  display: block;
+}
+
+/* Shared event detail body — used by /events/details and /organized/events/[id] */
+.main .detail-page {
+  width: 100%;
+}
+
+.main .detail-hero {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  overflow: hidden;
+  margin-bottom: 28px;
+  background: #d4e2f7;
+}
+
+.main .detail-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.main .detail-hero__edit {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(255, 251, 246, 0.96);
+  color: var(--blue);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1.5px solid var(--blue);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.main .detail-hero__edit:hover,
+.main .detail-hero__edit:focus-visible {
+  background: var(--blue);
+  color: #fff;
+}
+
+.main .detail-head {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 24px;
+  align-items: start;
+  padding-bottom: 24px;
+}
+
+.main .detail-date {
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.main .detail-date__month,
+.main .detail-date__year {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.main .detail-date__day {
+  display: block;
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--blue);
+  margin: 4px 0;
+  line-height: 1;
+}
+
+.main .detail-info h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0 0 12px;
+  line-height: 1.2;
+}
+
+.main .detail-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.main .detail-meta__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.main .detail-meta__row svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.main .detail-meta__row--venue {
+  color: var(--blue);
+}
+
+.main .detail-meta__row--venue svg {
+  stroke: var(--blue);
+}
+
+.main .detail-meta__row--time {
+  color: var(--blue);
+  font-weight: 500;
+}
+
+.main .detail-meta__row--time svg {
+  stroke: var(--blue);
+}
+
+.main .detail-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.main .detail-icon-btn {
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid var(--blue);
+  border-radius: 50%;
+  background: var(--main-bg);
+  color: var(--blue);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.main .detail-icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.main .detail-icon-btn.is-saved {
+  background: #ffe082;
+  border-color: #ffe082;
+  color: var(--blue);
+}
+
+.main .detail-icon-btn.is-saved svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.main .detail-divider {
+  border: none;
+  border-top: 1px solid rgba(68, 138, 255, 0.25);
+  margin: 0 0 28px;
+}
+
+.main .detail-section {
+  margin-bottom: 28px;
+}
+
+.main .detail-section h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.main .detail-section p {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.main .detail-section p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .main .detail-head {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .main .detail-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* Event/detail back arrow — white circle only on hover */
+.detail-back svg circle {
+  fill: transparent;
+  transition: fill 0.15s ease;
+}
+
+.detail-back:hover svg circle,
+.detail-back:focus-visible svg circle {
+  fill: #fffbf6;
+}
+
+.detail-topbar {
+  padding-left: 32px;
+}
+
+.detail-title-row {
+  margin-left: -4px;
+}
+
+.main__greeting {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 700;
+  color: var(--blue);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.main__tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.main__user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+/* Home — search spacing only (header uses global events-style spacing) */
+.main.main--home .search-bar {
+  margin-top: 32px;
+  margin-bottom: 28px;
+}
+
+/* Events (Explore) — page-specific header art + search */
+.main.main--events .main__header {
+  margin-bottom: 24px;
+}
+
+.main.main--events .main__header-bg {
+  inset: -10px -40px 0 -24px;
+}
+
+.main.main--events .search-bar {
+  margin-top: 14px;
+}
+
+/* Explore Events — horizontal row cards (original 14-event design) */
+.main.main--events .event-row {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 12px 8px 42px;
+  margin: 0 -8px -16px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.main.main--events .event-row::-webkit-scrollbar {
+  display: none;
+}
+
+.main.main--events .event-card {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 272px;
+  width: 272px;
+  max-width: 272px;
+  min-height: 328px;
+  height: auto;
+  background: #fff;
+  border: none;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: none;
+  scroll-snap-align: start;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.main.main--events .event-card:hover {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1.5px var(--blue);
+  transform: none;
+}
+
+.main.main--events .event-card__media {
+  position: relative;
+  height: 196px;
+  flex-shrink: 0;
+  background:
+    radial-gradient(120% 90% at 12% 0%, rgba(255, 255, 255, 0.72) 0%, transparent 52%),
+    linear-gradient(160deg, #dce8fb 0%, #c5d8f6 48%, #b7cef3 100%);
+  border-bottom: none;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  overflow: hidden;
+}
+
+.main.main--events .event-card__bookmark {
+  background: transparent;
+  box-shadow: none;
+}
+
+.main.main--events .event-card:hover .event-card__bookmark,
+.main.main--events .event-card__bookmark:hover,
+.main.main--events .event-card__bookmark:focus-visible {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 40, 90, 0.08);
+}
+
+.main.main--events .event-card__bookmark.is-saved,
+.main.main--events .event-card__bookmark.is-saved:hover,
+.main.main--events .event-card__bookmark.is-saved:focus-visible {
+  background: #ffe082;
+  border: none;
+  color: var(--blue);
+  box-shadow: none;
+}
+
+.main.main--events .event-card__body {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  padding: 28px 20px 20px;
+  align-items: flex-start;
+}
+
+.main.main--events .event-card__name {
+  margin: 0 0 6px;
+}
+
+/* Category see-more — Academic, Tech, Organization (All Organized Events grid style) */
+.main.main--events-category .event-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+.main.main--events-category .event-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  height: auto;
+  background: #fff;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 40, 90, 0.1);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.main.main--events-category .event-card:hover {
+  border-color: var(--blue);
+  box-shadow: 0 12px 30px rgba(68, 138, 255, 0.18);
+  transform: translateY(-2px);
+}
+
+.main.main--events-category .event-card__media {
+  position: relative;
+  height: 140px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #d7e4fb 0%, #c5d6f5 100%);
+  border-bottom: none;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  overflow: hidden;
+}
+
+.main.main--events-category .event-card__bookmark {
+  background: transparent;
+  box-shadow: none;
+}
+
+.main.main--events-category .event-card:hover .event-card__bookmark,
+.main.main--events-category .event-card__bookmark:hover,
+.main.main--events-category .event-card__bookmark:focus-visible {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 40, 90, 0.08);
+}
+
+.main.main--events-category .event-card__bookmark.is-saved,
+.main.main--events-category .event-card__bookmark.is-saved:hover,
+.main.main--events-category .event-card__bookmark.is-saved:focus-visible {
+  background: #ffe082;
+  border: none;
+  color: var(--blue);
+  box-shadow: none;
+}
+
+.main.main--events-category .event-card__body {
+  display: flex;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 14px 16px 16px;
+  align-items: flex-start;
+  background: #fff;
+}
+
+.main.main--events-category .event-card__name {
+  margin: 0 0 6px;
+}
+
+.main.main--saved .search-bar,
+.main.main--events-category .search-bar {
+  margin-top: 14px;
+}
+
+.main.main--saved .back-btn,
+.main.main--events-category .back-btn,
+.main.main--events-happening .back-btn,
+.main .back-btn,
+.main.main--organized .back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  font-family: var(--font, "Montserrat", sans-serif);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.main.main--saved .back-btn:hover,
+.main.main--saved .back-btn:focus-visible,
+.main.main--events-category .back-btn:hover,
+.main.main--events-category .back-btn:focus-visible,
+.main.main--events-happening .back-btn:hover,
+.main.main--events-happening .back-btn:focus-visible,
+.main .back-btn:hover,
+.main .back-btn:focus-visible,
+.main.main--organized .back-btn:hover,
+.main.main--organized .back-btn:focus-visible {
+  color: var(--blue-dark);
+  outline: none;
+}
+
+.main.main--saved .back-btn svg,
+.main.main--events-category .back-btn svg,
+.main.main--events-happening .back-btn svg,
+.main .back-btn svg,
+.main.main--organized .back-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+}
+
+.main.main--certificates .search-bar {
+  margin-top: 14px;
+}
+
+/* Organized — detail subpages use detail-topbar; hub pages keep main__top */
+.main.main--organized > .main__top {
+  margin: -10px -40px 8px;
+}
+
+.main.main--organized .detail-topbar {
+  margin-bottom: 24px;
 }
 
 /* ── Sidebar (same as Home) ── */
@@ -77,11 +706,14 @@ a {
   padding: 28px 20px 32px;
   position: sticky !important;
   top: 0 !important;
+  align-self: flex-start !important;
   height: 100vh !important;
   max-height: 100vh !important;
   overflow: hidden !important;
   transition: width 0.22s ease, padding 0.22s ease;
-  z-index: 40;
+  z-index: 100 !important;
+  pointer-events: auto !important;
+  isolation: isolate;
 }
 
 .sidebar {
@@ -93,11 +725,13 @@ a {
   padding: 28px 20px 32px;
   position: sticky;
   top: 0;
+  align-self: flex-start;
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
   transition: width 0.22s ease, padding 0.22s ease;
-  z-index: 40;
+  z-index: 100;
+  isolation: isolate;
 }
 
 .sidebar__collapse {
@@ -253,6 +887,58 @@ a {
   padding-top: 16px;
 }
 
+/* Expanded sidebar only — reference layout; collapsed rules below are unchanged */
+.app:not(.is-sidebar-collapsed) > .sidebar,
+.app:not(.is-sidebar-collapsed) .sidebar {
+  padding: 48px 18px 20px;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  box-sizing: border-box;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar__brand {
+  margin-bottom: 18px;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar__logo {
+  width: 96px;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar__title {
+  font-size: 13px;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar .nav {
+  gap: 2px;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar .nav a {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+  border-radius: 10px;
+  line-height: 1.2;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar .nav a svg {
+  width: 16px;
+  height: 16px;
+}
+
+.app:not(.is-sidebar-collapsed) .sidebar__spacer {
+  flex: 1 1 0;
+  min-height: 12px;
+}
+
+.app:not(.is-sidebar-collapsed) .nav--bottom {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: 20px;
+}
+
 .app.is-sidebar-collapsed .sidebar {
   width: 102px;
   padding: 28px 12px 24px;
@@ -339,7 +1025,47 @@ a {
   }
 
   .main {
-    padding: 24px 20px 40px;
+    padding: 8px 20px 40px;
+  }
+
+  .main.main--home .main__top,
+  .main.main--events .main__top,
+  .main.main--organized > .main__top,
+  .detail-topbar {
+    margin: -8px -20px 0;
+    padding: 8px 20px 6px;
+  }
+
+  .detail-topbar {
+    padding-left: 12px;
+  }
+
+  .detail-title-row {
+    margin-left: -2px;
+  }
+
+  .main.main--home .search-bar {
+    margin-top: 24px;
+  }
+
+  .main.main--events .main__header-bg {
+    inset: -8px -20px 0 -12px;
+  }
+
+  .main.main--events .search-bar {
+    margin-top: 12px;
+  }
+
+  .main.main--saved .search-bar {
+    margin-top: 12px;
+  }
+
+  .main.main--certificates .search-bar {
+    margin-top: 12px;
+  }
+
+  .main.main--organized > .main__top {
+    margin: -8px -20px 6px;
   }
 
   .app.is-sidebar-collapsed .sidebar {
@@ -367,6 +1093,10 @@ a {
   .event-grid--single-row {
     grid-template-columns: 1fr;
   }
+
+  .main.main--events-category .event-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Event cards (same as Home / Events) ── */
@@ -383,6 +1113,10 @@ a {
   font-size: 17px;
   font-weight: 700;
   color: var(--text);
+}
+
+.section-head__more[hidden] {
+  display: none !important;
 }
 
 .section-head__more {
@@ -474,12 +1208,19 @@ a {
   height: 28px;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
+  background: transparent;
   color: var(--blue);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.event-card__bookmark:hover,
+.event-card__bookmark:focus-visible {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 40, 90, 0.08);
 }
 
 .event-card__bookmark svg {
@@ -489,9 +1230,10 @@ a {
 
 .event-card__body {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   flex: 1;
   padding: 14px 16px 16px;
+  align-items: flex-start;
 }
 
 .event-card__date {
@@ -557,10 +1299,13 @@ a {
   margin: 0;
 }
 
-.event-card__bookmark.is-saved {
+.event-card__bookmark.is-saved,
+.event-card__bookmark.is-saved:hover,
+.event-card__bookmark.is-saved:focus-visible {
   background: #ffe082;
   border: none;
   color: var(--blue);
+  box-shadow: none;
 }
 
 .event-card__bookmark.is-saved svg {
@@ -629,6 +1374,84 @@ a {
 .main .event-grid--today:has(> .home-empty-state) {
   min-height: min(420px, calc(100vh - 340px));
   align-items: center;
+}
+
+.main .cert-grid:has(> .dc-empty-state--certificates) {
+  grid-template-columns: 1fr !important;
+  max-width: none !important;
+  width: 100%;
+  justify-items: center;
+}
+
+.main .dc-empty-state--certificates {
+  min-height: 240px;
+  justify-content: center;
+  align-items: center;
+  padding: 28px 16px 36px;
+}
+
+.main .dc-empty-state__icon--certificates {
+  width: 140px;
+  height: auto;
+  margin: 0 auto 16px;
+}
+
+.main .dc-empty-state--certificates .dc-empty-state__title {
+  margin: 0 auto 8px;
+  max-width: 680px;
+  color: #b1a483;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.main .dc-empty-state--certificates .dc-empty-state__description {
+  max-width: 640px;
+  margin: 0 auto;
+  color: #b7aa89;
+  font-size: clamp(0.95rem, 1.4vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.main .dc-empty-state--feedback {
+  margin-top: 16px;
+  min-height: 240px;
+  padding: 28px 16px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(68, 138, 255, 0.15);
+}
+
+.main .dc-empty-state--feedback .dc-empty-state__icon {
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 16px;
+  display: block;
+}
+
+.main .dc-empty-state--feedback .dc-empty-state__title {
+  margin: 0 auto 8px;
+  max-width: 680px;
+  color: #b1a483;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.main .dc-empty-state--feedback .dc-empty-state__description {
+  max-width: 640px;
+  margin: 0 auto;
+  color: #b7aa89;
+  font-size: clamp(0.95rem, 1.4vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .main .dc-empty-state--section {

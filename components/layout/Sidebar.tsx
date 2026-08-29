@@ -61,10 +61,21 @@ export function Sidebar() {
   const navItems = hydrated ? getNavItemsForRole(isOrganizer) : STUDENT_NAV_ITEMS;
   useSidebarCollapse();
 
+  const handleNavClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) => {
+    window.DCWebsiteTour?.close?.();
+    if (href === pathname) {
+      event.preventDefault();
+    }
+  };
+
   const handleBottomClick = async (
     event: React.MouseEvent<HTMLAnchorElement>,
     href: string
   ) => {
+    window.DCWebsiteTour?.close?.();
     if (href !== "/login") return;
     event.preventDefault();
     await logout();
@@ -100,8 +111,8 @@ export function Sidebar() {
           src="/finallogo.png"
           alt="DC Space"
           className="sidebar__logo"
-          width={120}
-          height={60}
+          width={96}
+          height={48}
         />
         <span className="sidebar__title">DC SPACE</span>
       </div>
@@ -116,6 +127,7 @@ export function Sidebar() {
                   href={item.href}
                   className={active ? "is-active" : undefined}
                   aria-current={active ? "page" : undefined}
+                  onClick={(event) => handleNavClick(event, item.href)}
                 >
                   <NavIcon icon={item.icon} />
                   {item.label}

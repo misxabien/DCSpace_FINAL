@@ -13,8 +13,10 @@ import { authFetch } from "@/lib/user-api";
 
 type LiveEvent = SanitizedEvent & { submissions?: number };
 
-export async function fetchOrganizedEventsLive(): Promise<OrganizedEvent[]> {
-  const res = await authFetch("/api/organized/events", { cache: "no-store" });
+export async function fetchOrganizedEventsLive(
+  signal?: AbortSignal,
+): Promise<OrganizedEvent[]> {
+  const res = await authFetch("/api/organized/events", { cache: "no-store", signal });
   if (!res.ok) throw new Error("Failed to load organized events.");
   const data = (await res.json()) as { events?: LiveEvent[] };
   return (data.events || []).map((event) =>

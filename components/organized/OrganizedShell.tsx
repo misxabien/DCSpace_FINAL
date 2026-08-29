@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isEventSaved, toggleSavedEvent } from "@/lib/savedEvents";
 import { SavedEventsBridge } from "@/components/legacy/SavedEventsBridge";
@@ -18,7 +17,7 @@ export type OrganizedEvent = {
   date: string;
   venue: string;
   time: string;
-  status: "draft" | "open" | "closed";
+  status: "postponed" | "cancelled" | "closed" | "open";
   submissions: number;
   /** Footer note under the card details */
   reviewNote?: string;
@@ -74,13 +73,12 @@ export function OrganizedShell({
   }, [user?.name]);
 
   return (
-    <AppShell>
-      <Sidebar />
-      <main className={`main ${styles.page}${backHref ? " main--sticky-header" : ""}`}>
-        <div className={styles.top}>
-          <div className={styles.titleRow}>
-            {backHref ? (
-              <Link href={backHref} className={styles.backBtn} aria-label="Go back">
+    <>
+      <main className={`main main--organized ${styles.page}`}>
+        {backHref ? (
+          <header className="detail-topbar">
+            <div className="detail-title-row">
+              <Link href={backHref} className="detail-back" aria-label="Go back">
                 <svg width="80" height="80" viewBox="0 0 80 80" fill="none" aria-hidden="true">
                   <circle cx="40" cy="40" r="40" fill="#FFFBF6" />
                   <path
@@ -91,49 +89,83 @@ export function OrganizedShell({
                   />
                 </svg>
               </Link>
-            ) : null}
-            <h1 className={styles.greeting}>{title}</h1>
-          </div>
-          <div className={styles.tools}>
-            <span className={`main__user-name ${styles.userName}`}>
-              {displayName}
-            </span>
-            <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
-              </svg>
-            </Link>
-            <Link
-              className={`${styles.toolBtn} tool-btn--notif`}
-              href="/notifications"
-              aria-label="Notifications"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
+              <h1>{title}</h1>
+            </div>
+            <div className="main__tools">
+              <span className="main__user-name">{displayName}</span>
+              <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
+                </svg>
+              </Link>
+              <Link
+                className={`${styles.toolBtn} tool-btn--notif`}
+                href="/notifications"
+                aria-label="Notifications"
               >
-                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
-              </svg>
-            </Link>
-            <button
-              type="button"
-              className={`${styles.toolBtn} ${styles.toolBtnHelp}`}
-              aria-label="Help"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z" />
-              </svg>
-            </button>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+                </svg>
+              </Link>
+              <button
+                type="button"
+                className={`${styles.toolBtn} ${styles.toolBtnHelp}`}
+                aria-label="Help"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z" />
+                </svg>
+              </button>
+            </div>
+          </header>
+        ) : (
+          <div className={`main__top ${styles.top}`}>
+            <h1 className={styles.greeting}>{title}</h1>
+            <div className={styles.tools}>
+              <span className={`main__user-name ${styles.userName}`}>{displayName}</span>
+              <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
+                </svg>
+              </Link>
+              <Link
+                className={`${styles.toolBtn} tool-btn--notif`}
+                href="/notifications"
+                aria-label="Notifications"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+                </svg>
+              </Link>
+              <button
+                type="button"
+                className={`${styles.toolBtn} ${styles.toolBtnHelp}`}
+                aria-label="Help"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z" />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
         {children}
       </main>
       <SavedEventsBridge />
       <UserDisplayNameBridge />
-    </AppShell>
+    </>
   );
 }
 
@@ -143,30 +175,39 @@ export function useOrganizedEvents() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight: AbortController | null = null;
 
     const sync = async () => {
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+
       try {
         const { fetchOrganizedEventsLive } = await import("@/lib/organized/live");
-        const live = await fetchOrganizedEventsLive();
-        if (cancelled) return;
+        const live = await fetchOrganizedEventsLive(controller.signal);
+        if (cancelled || controller.signal.aborted) return;
         setEvents(live);
         setError(null);
       } catch (err) {
-        if (!cancelled) {
-          setEvents([]);
-          setError(
-            err instanceof Error ? err.message : "Failed to load organized events.",
-          );
+        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
         }
+        setEvents([]);
+        setError(
+          err instanceof Error ? err.message : "Failed to load organized events.",
+        );
+      } finally {
+        if (inFlight === controller) inFlight = null;
       }
     };
 
     void sync();
-    const timer = window.setInterval(() => void sync(), 10000);
+    const timer = window.setInterval(() => void sync(), 30_000);
     window.addEventListener("dc-organized-changed", sync);
     window.addEventListener("storage", sync);
     return () => {
       cancelled = true;
+      inFlight?.abort();
       window.clearInterval(timer);
       window.removeEventListener("dc-organized-changed", sync);
       window.removeEventListener("storage", sync);

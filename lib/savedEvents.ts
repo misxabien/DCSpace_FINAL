@@ -17,8 +17,14 @@ export function isEventSaved(id: string | number): boolean {
 }
 
 export function setSavedEventIds(ids: string[]) {
-  localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(ids));
-  window.dispatchEvent(new CustomEvent("dc-saved-changed"));
+  const next = ids.map(String);
+  const current = getSavedEventIds();
+  const unchanged =
+    current.length === next.length && current.every((id) => next.includes(id));
+  localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(next));
+  if (!unchanged) {
+    window.dispatchEvent(new CustomEvent("dc-saved-changed"));
+  }
 }
 
 export function toggleSavedEvent(id: string | number): boolean {

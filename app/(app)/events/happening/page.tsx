@@ -5,5 +5,5 @@ import legacyData from "@/content/legacy/15-happen.json";
 const legacy = legacyData as LegacyPageData;
 
 export default function Page() {
-  return <AppLegacyPage data={legacy} />;
+  return <AppLegacyPage data={legacy} mainClassName="main--events-happening" />;
 }

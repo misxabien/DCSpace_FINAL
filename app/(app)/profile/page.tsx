@@ -1,7 +1,6 @@
 "use client";
 
 import type { LegacyPageData } from "@/lib/navigation";
-import { AppShell, Sidebar } from "@/components/layout/Sidebar";
 import { LegacyContent } from "@/components/legacy/useLegacyPage";
 import { useProfileHydration } from "@/components/legacy/useProfileHydration";
 import { ProfileDataBridge } from "@/components/legacy/ProfileDataBridge";
@@ -16,15 +15,12 @@ export default function ProfilePage() {
   useProfileHydration();
 
   return (
-    <AppShell>
-      <Sidebar />
-      <main className="main">
-        <ProfileOrganizerBadge />
-        <LegacyContent data={profile} />
-        <ProfileDataBridge />
-        <UserDisplayNameBridge />
-        <ChangePasswordModal />
-      </main>
-    </AppShell>
+    <main className="main">
+      <ProfileOrganizerBadge />
+      <LegacyContent data={profile} />
+      <ProfileDataBridge />
+      <UserDisplayNameBridge />
+      <ChangePasswordModal />
+    </main>
   );
 }

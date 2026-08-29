@@ -6,7 +6,7 @@ import {
   OrganizedShell,
   useOrganizedEvents,
 } from "@/components/organized/OrganizedShell";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState, ORGANIZED_EMPTY_STATE_ICON } from "@/components/ui/EmptyState";
 import styles from "@/components/organized/Organized.module.css";
 
 function SectionHead({
@@ -14,20 +14,24 @@ function SectionHead({
   title,
   href,
   label,
+  showMore = true,
 }: {
   id: string;
   title: string;
   href: string;
   label: string;
+  showMore?: boolean;
 }) {
   return (
     <div className="section-head">
       <h2 id={id}>{title}</h2>
-      <Link href={href} className="section-head__more" aria-label={label}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-      </Link>
+      {showMore ? (
+        <Link href={href} className="section-head__more" aria-label={label}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -60,16 +64,19 @@ export default function OrganizedPage() {
           title="All Organized Events"
           href="/organized/events"
           label="See all organized events"
+          showMore={!error && events.length > 2}
         />
         {error ? (
           <EmptyState
             compact
+            iconSrc={ORGANIZED_EMPTY_STATE_ICON}
             title="Couldn’t load organized events."
             description={`${error} Try signing out and back in, then refresh this page.`}
           />
         ) : preview.length === 0 ? (
           <EmptyState
             compact
+            iconSrc={ORGANIZED_EMPTY_STATE_ICON}
             title="No organized events yet."
             description="Create your first event and it will appear here once it’s saved to your account."
           />
@@ -92,10 +99,12 @@ export default function OrganizedPage() {
           title="Event Submissions"
           href="/organized/submissions"
           label="See event submissions"
+          showMore={events.length > 2}
         />
         {submissionPreview.length === 0 ? (
           <EmptyState
             compact
+            iconSrc={ORGANIZED_EMPTY_STATE_ICON}
             title="No submissions yet."
             description="Events you’ve submitted for approval will show up here with their review status."
           />

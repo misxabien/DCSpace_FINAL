@@ -69,3 +69,26 @@ export function applyRegisterRole(role: RegisterRole) {
   syncRoleCapsules(role);
   applyIdNumberField(role);
 }
+
+/** Wire Student/Faculty capsule buttons and sync the ID field label on create account. */
+export function bindRegisterRoleControls(root: ParentNode): () => void {
+  applyRegisterRole(readRegisterRole());
+
+  const onClick = (event: Event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const btn = target.closest(".role-btn[data-role]") as HTMLButtonElement | null;
+    if (!btn || !(root as Node).contains(btn)) return;
+
+    const role = btn.dataset.role;
+    if (!isRegisterRole(role)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    applyRegisterRole(role);
+  };
+
+  root.addEventListener("click", onClick, true);
+  return () => root.removeEventListener("click", onClick, true);
+}

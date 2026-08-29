@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 declare global {
   interface Window {
@@ -10,6 +11,12 @@ declare global {
 
 /** Loads the existing page tour script so Help buttons work on student and organizer pages. */
 export function SiteTourLoader() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    window.DCWebsiteTour?.close?.();
+  }, [pathname]);
+
   useEffect(() => {
     if (!document.querySelector('script[data-site-tour="1"]')) {
       const script = document.createElement("script");

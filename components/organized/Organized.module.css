@@ -7,7 +7,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
 }
 
 .greeting {
@@ -69,6 +68,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  margin-top: 24px;
   margin-bottom: 36px;
   padding: 28px 32px;
   border-radius: 18px;
@@ -164,16 +164,29 @@
   top: 10px;
   right: 10px;
   z-index: 2;
-  background: #fff;
-  border: 1.5px solid rgba(68, 138, 255, 0.35);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.listCard:hover .listBookmark,
+.listBookmark:hover,
+.listBookmark:focus-visible {
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 2px 8px rgba(0, 40, 90, 0.08);
 }
 
 .listBookmark:global(.is-saved),
-:global(.event-card__bookmark.is-saved) {
+.listBookmark:global(.is-saved):hover,
+.listBookmark:global(.is-saved):focus-visible,
+:global(.event-card__bookmark.is-saved),
+:global(.event-card__bookmark.is-saved):hover,
+:global(.event-card__bookmark.is-saved):focus-visible {
   background: #ffe082;
   border: none;
   color: var(--blue);
+  box-shadow: none;
 }
 
 .listBookmark:global(.is-saved) svg,
@@ -205,9 +218,14 @@
 
 .submissionsTitle {
   margin: 0;
-  font-size: 17px;
+  font-size: clamp(1.0625rem, 1.75vw, 1.3125rem);
   font-weight: 700;
   color: var(--text);
+  line-height: 1.2;
+}
+
+.submissionsBlock :global(.section-head h2) {
+  color: #49454F;
 }
 
 .submissionsTools {
@@ -382,6 +400,7 @@
   .banner {
     flex-direction: column;
     align-items: flex-start;
+    margin-top: 20px;
     padding: 24px;
   }
 

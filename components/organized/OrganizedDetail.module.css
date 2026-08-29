@@ -162,6 +162,36 @@
   margin-top: 4px;
 }
 
+.types .listItem svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--blue);
+}
+
+.detailListIcon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--blue);
+}
+
+.programFlowList {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style-type: circle;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.programFlowList li {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.5;
+}
+
 .list {
   display: flex;
   flex-direction: column;

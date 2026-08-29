@@ -12,6 +12,7 @@ import {
   writeRegistrationDraft,
 } from "@/lib/user-api";
 import { canOrganizeEvents } from "@/lib/organize-access";
+import { readRegisterRole } from "@/lib/auth/registerRole";
 
 function ensureErrorBanner() {
   let banner = document.getElementById("dcspace-auth-error");
@@ -79,8 +80,14 @@ function getActiveRole(): "student" | "faculty" {
     ".role-btn.active, .role-btn[aria-pressed='true']",
   );
   const role =
-    active?.getAttribute("data-role") || window.localStorage.getItem("dcspaceAccountType");
+    active?.getAttribute("data-role") ||
+    window.localStorage.getItem("dcspaceAccountType") ||
+    readRegisterRole();
   return role === "faculty" ? "faculty" : "student";
+}
+
+function idNumberFieldLabel(role: "student" | "faculty") {
+  return role === "faculty" ? "Employee number" : "Student number";
 }
 
 function lockNativeFormNavigation(form: HTMLFormElement) {
@@ -223,7 +230,10 @@ export function useAuthFormBridge() {
           const missing = requireFields(data, [
             { name: "firstName", label: "First name" },
             { name: "lastName", label: "Last name" },
-            { name: "studentNumber", label: "Student number" },
+            {
+              name: "studentNumber",
+              label: idNumberFieldLabel(getActiveRole()),
+            },
           ]);
           if (missing) {
             showError(missing);

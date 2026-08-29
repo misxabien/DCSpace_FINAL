@@ -22,7 +22,7 @@ function isDropdownTrigger(el: Element | null) {
 
 /**
  * Makes link/button presses feel immediate, then soft-navigates same-origin
- * links so RoutePresence exit/enter animations are visible.
+ * links so AppMainTransition exit/enter animations are visible.
  */
 export function SoftNavEnhancer() {
   const router = useRouter();
@@ -49,6 +49,7 @@ export function SoftNavEnhancer() {
       if (event.button !== 0) return;
       const target = (event.target as HTMLElement | null)?.closest(PRESS_SELECTOR);
       if (!target) return;
+      if (target.closest(".sidebar")) return;
       if (isDropdownTrigger(target)) return;
       if (target instanceof HTMLButtonElement && target.disabled) return;
       if (target instanceof HTMLInputElement && target.disabled) return;
@@ -75,6 +76,10 @@ export function SoftNavEnhancer() {
       }
 
       const rawTarget = event.target as HTMLElement | null;
+      // Sidebar uses Next.js Link — native client nav is more reliable here.
+      if (rawTarget?.closest(".sidebar")) {
+        return;
+      }
       // Never hijack filter / dropdown controls
       if (
         rawTarget?.closest(

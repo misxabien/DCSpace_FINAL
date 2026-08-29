@@ -3,77 +3,22 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { EventGallerySection } from "@/components/organized/EventGallerySection";
+import {
+  IconAttendanceTime,
+  IconEventType,
+  IconGracePeriod,
+  IconHostedBook,
+  IconHostedBuilding,
+  IconHostedPeople,
+  IconRequiredFile,
+  IconVenueType,
+} from "@/components/organized/EventDetailIcons";
 import { InvitationListSection } from "@/components/organized/InvitationListSection";
 import { OrganizedEventHeader } from "@/components/organized/OrganizedEventHeader";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventGalleryPhoto } from "@/lib/organizedEventGallery";
 import type { InvitationListEntry } from "@/lib/organizedInvitations";
 import styles from "@/components/organized/OrganizedDetail.module.css";
-
-function IconVenueType() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-      <path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />
-    </svg>
-  );
-}
-function IconEventType() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <path d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
-  );
-}
-function IconHostedPeople() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-    </svg>
-  );
-}
-function IconHostedBook() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
-    </svg>
-  );
-}
-function IconHostedBuilding() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <path d="M3 21h18M6 21V7h12v14" />
-      <path d="M9 21v-4h6v4" />
-    </svg>
-  );
-}
-function IconAttendanceTime() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
-    </svg>
-  );
-}
-function IconGracePeriod() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <path d="M5 3v4M19 3v4M5 7h14v14H5z" />
-      <path d="M9 11h6" />
-    </svg>
-  );
-}
-function IconRequiredFile() {
-  return (
-    <svg viewBox="0 0 24 24" strokeWidth="2">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-      <path d="M14 2v6h6" />
-    </svg>
-  );
-}
 
 export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetail }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -165,26 +110,22 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
     eventChange.target.value = "";
   };
 
-  const canEdit =
-    event.reviewStatus === "pending" ||
-    event.reviewStatus === "rejected" ||
-    event.reviewStatus === "draft" ||
-    event.status === "draft";
+  const editHref = `/organized/create?id=${encodeURIComponent(event.id)}`;
 
   return (
-    <article className={styles.page}>
-      <OrganizedEventHeader event={event} />
+    <article className={`detail-page ${styles.page}`}>
+      <OrganizedEventHeader event={event} editHref={editHref} />
 
-      <hr className={styles.divider} />
+      <hr className="detail-divider" />
 
-      <section className={styles.section}>
+      <section className="detail-section">
         <h3>Event Announcements</h3>
         {event.announcements.map((paragraph) => (
           <p key={paragraph.slice(0, 24)}>{paragraph}</p>
         ))}
       </section>
 
-      <section className={styles.section}>
+      <section className={`detail-section ${styles.section}`}>
         <h3>Event Description</h3>
         {event.description.map((paragraph) => (
           <p key={paragraph.slice(0, 24)}>{paragraph}</p>
@@ -201,31 +142,31 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
         </div>
       </section>
 
-      <section className={styles.section}>
+      <section className={`detail-section ${styles.section}`}>
         <h3>Hosted By</h3>
         <div className={styles.list}>
           <div className={styles.listItem}>
-            <IconHostedPeople />
+            <IconHostedPeople className={styles.detailListIcon} />
             <span>{event.organization}</span>
           </div>
           <div className={styles.listItem}>
-            <IconHostedBook />
+            <IconHostedBook className={styles.detailListIcon} />
             <span>{event.course}</span>
           </div>
           <div className={styles.listItem}>
-            <IconHostedBuilding />
+            <IconHostedBuilding className={styles.detailListIcon} />
             <span>{event.department}</span>
           </div>
         </div>
       </section>
 
       {event.speakers?.length ? (
-        <section className={styles.section}>
+        <section className={`detail-section ${styles.section}`}>
           <h3>Speakers</h3>
           <div className={styles.list}>
             {event.speakers.map((speaker) => (
               <div className={styles.listItem} key={speaker}>
-                <IconHostedPeople />
+                <IconHostedPeople className={styles.detailListIcon} />
                 <span>{speaker}</span>
               </div>
             ))}
@@ -234,26 +175,23 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
       ) : null}
 
       {event.programActivities?.length ? (
-        <section className={styles.section}>
+        <section className={`detail-section ${styles.section}`}>
           <h3>Program Flow</h3>
-          <div className={styles.list}>
+          <ul className={styles.programFlowList}>
             {event.programActivities.map((item) => (
-              <div className={styles.listItem} key={item}>
-                <IconEventType />
-                <span>{item}</span>
-              </div>
+              <li key={item}>{item}</li>
             ))}
-          </div>
+          </ul>
         </section>
       ) : null}
 
       {event.audienceSchools?.length ? (
-        <section className={styles.section}>
+        <section className={`detail-section ${styles.section}`}>
           <h3>Audience / Schools</h3>
           <div className={styles.list}>
             {event.audienceSchools.map((school) => (
               <div className={styles.listItem} key={school}>
-                <IconHostedBook />
+                <IconHostedBook className={styles.detailListIcon} />
                 <span>{school}</span>
               </div>
             ))}
@@ -262,12 +200,12 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
       ) : null}
 
       {event.collaboratingDepartments?.length ? (
-        <section className={styles.section}>
+        <section className={`detail-section ${styles.section}`}>
           <h3>Collaborating Departments</h3>
           <div className={styles.list}>
             {event.collaboratingDepartments.map((dept) => (
               <div className={styles.listItem} key={dept}>
-                <IconHostedBuilding />
+                <IconHostedBuilding className={styles.detailListIcon} />
                 <span>{dept}</span>
               </div>
             ))}
@@ -275,7 +213,7 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
         </section>
       ) : null}
 
-      <section className={styles.section}>
+      <section className={`detail-section ${styles.section}`}>
         <h3>Event Requirements</h3>
         <div className={styles.list}>
           {event.venueType === "On Campus" ? (
@@ -300,15 +238,15 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
             </div>
           ) : null}
           <div className={styles.listItem}>
-            <IconAttendanceTime />
+            <IconAttendanceTime className={styles.detailListIcon} />
             <span>Attendance Time Required: {event.attendanceRequired}</span>
           </div>
           <div className={styles.listItem}>
-            <IconGracePeriod />
+            <IconGracePeriod className={styles.detailListIcon} />
             <span>Grace Period: {event.gracePeriod}</span>
           </div>
           <div className={styles.listItem}>
-            <IconRequiredFile />
+            <IconRequiredFile className={styles.detailListIcon} />
             <span>Required File(s): {event.requiredFiles}</span>
           </div>
           {(event.attachments || []).map((file) => (
@@ -353,15 +291,6 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
           See who attended
         </Link>
         <div className={styles.organizerTools}>
-          {canEdit ? (
-            <Link
-              href={`/organized/create?id=${encodeURIComponent(event.id)}`}
-              className={styles.toolBtn}
-              aria-label="Edit event"
-            >
-              Edit
-            </Link>
-          ) : null}
           <button
             type="button"
             className={styles.toolBtn}

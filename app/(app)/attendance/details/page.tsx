@@ -5,5 +5,5 @@ import legacyData from "@/content/legacy/25-attendance-details.json";
 const legacy = legacyData as LegacyPageData;
 
 export default function Page() {
-  return <AppLegacyPage data={legacy} />;
+  return <AppLegacyPage data={legacy} mainClassName="main--attendance" />;
 }

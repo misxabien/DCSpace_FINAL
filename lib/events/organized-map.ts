@@ -10,7 +10,7 @@ export type OrganizedListEvent = {
   date: string;
   venue: string;
   time: string;
-  status: "draft" | "open" | "closed";
+  status: "postponed" | "cancelled" | "closed" | "open";
   submissions: number;
   reviewNote?: string;
   reviewStatus?: string;
@@ -44,10 +44,10 @@ function splitParagraphs(value?: string) {
 }
 
 function mapOrganizedStatus(status?: string): OrganizedListEvent["status"] {
-  if (status === "draft" || status === "pending") return "draft";
-  if (status === "rejected" || status === "cancelled" || status === "completed") {
-    return "closed";
-  }
+  if (status === "postponed") return "postponed";
+  if (status === "cancelled") return "cancelled";
+  if (status === "closed" || status === "rejected" || status === "completed") return "closed";
+  if (status === "draft" || status === "pending") return "open";
   return "open";
 }
 

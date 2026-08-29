@@ -10,7 +10,7 @@
 }
 
 .stepper {
-  margin: 0 auto 36px;
+  margin: 20px auto 36px;
   width: 100%;
   max-width: 920px;
   overflow: visible;
@@ -231,6 +231,33 @@
   outline: none;
 }
 
+.styledSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 11px 22px 11px 12px;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%231a1a1a' d='M0 0h10L5 6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 6px 4px;
+  cursor: pointer;
+}
+
+.eventStatusSelect,
+.attendSelect,
+.collabSelect {
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+}
+
+.venueTypeSelect {
+  width: 155px;
+  min-width: 155px;
+  max-width: 155px;
+}
+
 .programHead {
   display: flex;
   align-items: flex-start;
@@ -253,14 +280,37 @@
 }
 
 .visibilityToggle {
-  display: inline-flex;
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border: 1px solid var(--blue);
   border-radius: 999px;
   overflow: hidden;
   background: #fff;
+  padding: 2px;
+  isolation: isolate;
+}
+
+.visibilityToggle::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  height: calc(100% - 4px);
+  border-radius: 999px;
+  background: var(--blue);
+  transition: left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+}
+
+.visibilityToggle:has(.visibilityBtn:nth-child(2).visibilityBtnActive)::before {
+  left: 50%;
 }
 
 .visibilityBtn {
+  position: relative;
+  z-index: 1;
   border: none;
   background: transparent;
   color: var(--blue);
@@ -269,10 +319,12 @@
   font-weight: 700;
   padding: 7px 12px;
   cursor: pointer;
+  transition: color 0.28s ease;
+  white-space: nowrap;
 }
 
 .visibilityBtnActive {
-  background: var(--blue);
+  background: transparent;
   color: #fff;
 }
 
@@ -403,6 +455,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 12px;
   background: #ffe0b8;
   border-radius: 12px;
   padding: 12px 14px;
@@ -831,12 +884,11 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  transition: background 0.18s ease;
+  transition: background 0.28s ease;
 }
 
 .toggleOn {
   background: var(--blue);
-  justify-content: flex-end;
 }
 
 .toggleKnob {
@@ -845,6 +897,12 @@
   border-radius: 50%;
   background: #fff;
   display: block;
+  transform: translateX(0);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggleOn .toggleKnob {
+  transform: translateX(20px);
 }
 
 .iroomBtn {
@@ -926,6 +984,7 @@
 .programList {
   margin: 0;
   padding-left: 18px;
+  list-style-type: circle;
   font-size: 14px;
   line-height: 1.7;
   color: var(--muted);

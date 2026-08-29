@@ -8,7 +8,7 @@ import {
   useOrganizedEvents,
   type OrganizedEvent,
 } from "@/components/organized/OrganizedShell";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { EmptyState, ORGANIZED_EMPTY_STATE_ICON } from "@/components/ui/EmptyState";
 import styles from "@/components/organized/Organized.module.css";
 
 function matchesQuery(event: OrganizedEvent, query: string) {
@@ -32,19 +32,22 @@ function Section({
   events: OrganizedEvent[];
 }) {
   return (
-    <section className={styles.block} aria-labelledby={id}>
+    <section className={`${styles.block} ${styles.submissionsBlock}`} aria-labelledby={id}>
       <div className="section-head">
         <h2 id={id}>{title}</h2>
-        <Link href={href} className="section-head__more" aria-label={`See more ${title}`}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </Link>
+        {events.length > 2 ? (
+          <Link href={href} className="section-head__more" aria-label={`See more ${title}`}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </Link>
+        ) : null}
       </div>
 
       {events.length === 0 ? (
         <EmptyState
           compact
+          iconSrc={ORGANIZED_EMPTY_STATE_ICON}
           title="No events in this section."
           description="When matching submissions are available, they will appear here."
         />
@@ -74,10 +77,12 @@ export default function SubmissionsPage() {
   );
 
   const pending = filtered.filter((event) => event.reviewStatus === "pending");
-  const drafts = filtered.filter((event) => event.reviewStatus === "draft" || (!event.reviewStatus && event.status === "draft"));
+  const drafts = filtered.filter((event) => event.reviewStatus === "draft");
   const inactive = filtered.filter(
     (event) =>
       event.status === "closed" ||
+      event.status === "cancelled" ||
+      event.status === "postponed" ||
       event.reviewStatus === "rejected" ||
       event.reviewStatus === "completed" ||
       event.reviewStatus === "cancelled",
@@ -85,6 +90,21 @@ export default function SubmissionsPage() {
 
   return (
     <OrganizedShell title="Events Organized">
+      <Link href="/organized" className="back-btn">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+        Back to Create Event
+      </Link>
+
       <div className={styles.submissionsHead}>
         <h2 className={styles.submissionsTitle}>Event Submissions</h2>
         <div className={styles.submissionsTools}>
@@ -109,6 +129,7 @@ export default function SubmissionsPage() {
       {error ? (
         <EmptyState
           compact
+          iconSrc={ORGANIZED_EMPTY_STATE_ICON}
           title="Couldn’t load submissions."
           description={`${error} Try signing out and back in, then refresh this page.`}
         />

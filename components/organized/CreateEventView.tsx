@@ -10,6 +10,7 @@ import {
 import { authFetch } from "@/lib/user-api";
 import styles from "@/components/organized/CreateEvent.module.css";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
+import { IconAttendanceTime, IconEventType, IconGracePeriod, IconHostedBook, IconHostedBuilding, IconHostedPeople, IconRequiredFile, IconVenueType } from "@/components/organized/EventDetailIcons";
 
 const DEFAULT_REVIEW_IMAGE =
   "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=480&fit=crop&q=80";
@@ -22,6 +23,22 @@ const STEPS = [
 ] as const;
 
 const TOAST_DURATION_MS = 4500;
+
+function mapFormStatusToApi(
+  formStatus: OrganizedEvent["status"] | "",
+): "pending" | "postponed" | "cancelled" | "completed" {
+  switch (formStatus) {
+    case "postponed":
+      return "postponed";
+    case "cancelled":
+      return "cancelled";
+    case "closed":
+      return "completed";
+    case "open":
+    default:
+      return "pending";
+  }
+}
 
 type MissingField = {
   label: string;
@@ -620,7 +637,7 @@ export function CreateEventView() {
 
       setAiNote(
         payload.pdf?.base64
-          ? `${payload.notes || "Timed program flow generated."} A PDF with suggested times was attached.`
+          ? `${payload.notes || "Timed program flow generated."} Suggested times are shown on each activity and in the PDF below.`
           : String(payload.notes || "Suggestions added to the program flow."),
       );
       document.getElementById("event-program-flow")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -658,7 +675,7 @@ export function CreateEventView() {
         startTime && endTime
           ? `${formatTimeDisplay(startTime)} - ${formatTimeDisplay(endTime)}`
           : "Event Time",
-      status: status || "draft",
+      status: status || "open",
       submissions: 0,
       reviewNote: "Pending for approval",
     };
@@ -687,7 +704,7 @@ export function CreateEventView() {
           : "",
       posterImageMimeType: bannerMime,
       programFileVisibility: visibility,
-      status: "pending" as const,
+      status: mapFormStatusToApi(status),
     };
 
     if (conceptPaperBase64) {
@@ -845,7 +862,6 @@ export function CreateEventView() {
 
   return (
     <div className={styles.page}>
-      <h2 className={styles.subtitle}>Create an Event with DC Space</h2>
 
       {toast ? (
         <div
@@ -973,14 +989,15 @@ export function CreateEventView() {
                     <div className={styles.rowEnd}>
                       <select
                         id="event-status"
-                        className={styles.selectCompact}
+                        className={`${styles.selectCompact} ${styles.styledSelect} ${styles.eventStatusSelect}`}
                         value={status}
                         onChange={(e) => setStatus(e.target.value as OrganizedEvent["status"] | "")}
                       >
                         <option value="">Select</option>
-                        <option value="draft">Draft</option>
-                        <option value="open">Open</option>
+                        <option value="postponed">Postponed</option>
+                        <option value="cancelled">Cancelled</option>
                         <option value="closed">Closed</option>
+                        <option value="open">Open</option>
                       </select>
                     </div>
                   </div>
@@ -1112,7 +1129,7 @@ export function CreateEventView() {
                     <div className={styles.rowEnd}>
                       <select
                         id="venue-type"
-                        className={styles.selectCompact}
+                        className={`${styles.selectCompact} ${styles.styledSelect} ${styles.venueTypeSelect}`}
                         value={venueType}
                         onChange={(e) => setVenueType(e.target.value)}
                       >
@@ -1257,8 +1274,8 @@ export function CreateEventView() {
 
                     {activities.length > 0 ? (
                       <ul className={styles.activityList}>
-                        {activities.map((activity) => (
-                          <li key={activity} className={styles.activityItem}>
+                        {activities.map((activity, index) => (
+                          <li key={`${activity}-${index}`} className={styles.activityItem}>
                             <span>{activity}</span>
                             <button
                               type="button"
@@ -1336,7 +1353,7 @@ export function CreateEventView() {
                     </label>
                     <select
                       id="attend-select"
-                      className={styles.selectCompact}
+                      className={`${styles.selectCompact} ${styles.styledSelect} ${styles.attendSelect}`}
                       value={attendSelect}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -1410,45 +1427,45 @@ export function CreateEventView() {
                       <span>No</span>
                     </label>
                   </div>
-                  <div className={styles.collabRow}>
-                    <select
-                      id="collab-select"
-                      className={styles.selectCompact}
-                      value={collabSelect}
-                      disabled={collaboration === "no"}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value && !collabTags.includes(value)) {
-                          setCollabTags((current) => [...current, value]);
-                        }
-                        setCollabSelect("");
-                      }}
-                      aria-label="Select collaboration course"
-                    >
-                      <option value="">Select</option>
-                      {COURSE_OPTIONS.filter((option) => !collabTags.includes(option)).map(
-                        (option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        )
-                      )}
-                    </select>
-                    <div className={styles.tagRow}>
-                      {collabTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          className={styles.tag}
-                          aria-label={`Remove ${tag} from collaboration`}
-                          disabled={collaboration === "no"}
-                          onClick={() => removeTag(tag, collabTags, setCollabTags)}
-                        >
-                          {tag}
-                        </button>
-                      ))}
+                  {collaboration === "yes" ? (
+                    <div className={styles.collabRow}>
+                      <select
+                        id="collab-select"
+                        className={`${styles.selectCompact} ${styles.styledSelect} ${styles.collabSelect}`}
+                        value={collabSelect}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value && !collabTags.includes(value)) {
+                            setCollabTags((current) => [...current, value]);
+                          }
+                          setCollabSelect("");
+                        }}
+                        aria-label="Select collaboration course"
+                      >
+                        <option value="">Select</option>
+                        {COURSE_OPTIONS.filter((option) => !collabTags.includes(option)).map(
+                          (option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          )
+                        )}
+                      </select>
+                      <div className={styles.tagRow}>
+                        {collabTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={styles.tag}
+                            aria-label={`Remove ${tag} from collaboration`}
+                            onClick={() => removeTag(tag, collabTags, setCollabTags)}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 <div className={styles.field}>
@@ -1474,57 +1491,59 @@ export function CreateEventView() {
                     </label>
                   </div>
 
-                  <div className={styles.speakerField}>
-                    <input
-                      id="speaker-name"
-                      className={`${styles.input} ${styles.inputPill} ${styles.speakerInput}`}
-                      value={speakerDraft}
-                      onChange={(e) => setSpeakerDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          if (hasSpeakers === "yes") addSpeaker();
-                        }
-                      }}
-                      placeholder="Type the name of speaker"
-                      disabled={hasSpeakers === "no"}
-                      aria-label="Speaker name"
-                    />
-                    <div className={styles.speakerActions}>
-                      <button
-                        type="button"
-                        className={styles.speakerConfirm}
-                        aria-label="Confirm speaker"
-                        disabled={hasSpeakers === "no"}
-                        onClick={addSpeaker}
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M8 12l3 3 5-5" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  <p className={styles.speakerCount}>Total Speakers Attending: {speakers.length}</p>
-
-                  {speakers.length > 0 ? (
-                    <ul className={styles.activityList}>
-                      {speakers.map((speaker) => (
-                        <li key={speaker} className={styles.activityItem}>
-                          <span>{speaker}</span>
+                  {hasSpeakers === "yes" ? (
+                    <>
+                      <div className={styles.speakerField}>
+                        <input
+                          id="speaker-name"
+                          className={`${styles.input} ${styles.inputPill} ${styles.speakerInput}`}
+                          value={speakerDraft}
+                          onChange={(e) => setSpeakerDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addSpeaker();
+                            }
+                          }}
+                          placeholder="Type the name of speaker"
+                          aria-label="Speaker name"
+                        />
+                        <div className={styles.speakerActions}>
                           <button
                             type="button"
-                            className={styles.activityRemove}
-                            aria-label={`Remove ${speaker}`}
-                            onClick={() =>
-                              setSpeakers((current) => current.filter((item) => item !== speaker))
-                            }
+                            className={styles.speakerConfirm}
+                            aria-label="Confirm speaker"
+                            onClick={addSpeaker}
                           >
-                            ×
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M8 12l3 3 5-5" />
+                            </svg>
                           </button>
-                        </li>
-                      ))}
-                    </ul>
+                        </div>
+                      </div>
+                      <p className={styles.speakerCount}>Total Speakers Attending: {speakers.length}</p>
+
+                      {speakers.length > 0 ? (
+                        <ul className={styles.activityList}>
+                          {speakers.map((speaker, index) => (
+                            <li key={`${speaker}-${index}`} className={styles.activityItem}>
+                              <span>{speaker}</span>
+                              <button
+                                type="button"
+                                className={styles.activityRemove}
+                                aria-label={`Remove ${speaker}`}
+                                onClick={() =>
+                                  setSpeakers((current) => current.filter((item) => item !== speaker))
+                                }
+                              >
+                                ×
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
               </div>
@@ -1863,16 +1882,11 @@ export function CreateEventView() {
                   ))}
                   <div className={detailStyles.types}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                        <path d="M4 20V10M10 20V4M16 20v-8M22 20H2" />
-                      </svg>
+                      <IconVenueType />
                       <span>Venue Type ({venueType || "On/Off Campus"})</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" />
-                        <path d="M16 2v4M8 2v4M3 10h18" />
-                      </svg>
+                      <IconEventType />
                       <span>Event Type ({eventType || "Seminar/Outreach/Party"})</span>
                     </div>
                   </div>
@@ -1882,25 +1896,15 @@ export function CreateEventView() {
                   <h3>Hosted By</h3>
                   <div className={detailStyles.list}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-                      </svg>
+                      <IconHostedPeople className={detailStyles.detailListIcon} />
                       <span>{hostedOrganization}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
-                      </svg>
+                      <IconHostedBook className={detailStyles.detailListIcon} />
                       <span>{hostedCourse}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M3 21h18M6 21V7h12v14" />
-                        <path d="M9 21v-4h6v4" />
-                      </svg>
+                      <IconHostedBuilding className={detailStyles.detailListIcon} />
                       <span>School/Department</span>
                     </div>
                   </div>
@@ -1910,24 +1914,15 @@ export function CreateEventView() {
                   <h3>Event Requirements</h3>
                   <div className={detailStyles.list}>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 6v6l4 2" />
-                      </svg>
+                      <IconAttendanceTime className={detailStyles.detailListIcon} />
                       <span>Attendance Time Required: {minAttendance || "—"}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M5 3v4M19 3v4M5 7h14v14H5z" />
-                        <path d="M9 11h6" />
-                      </svg>
+                      <IconGracePeriod className={detailStyles.detailListIcon} />
                       <span>Grace Period: {gracePeriod || "—"}</span>
                     </div>
                     <div className={detailStyles.listItem}>
-                      <svg viewBox="0 0 24 24" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                        <path d="M14 2v6h6" />
-                      </svg>
+                      <IconRequiredFile className={detailStyles.detailListIcon} />
                       <span>Required File(s): {requiredFilesLabel}</span>
                     </div>
                   </div>
@@ -1941,8 +1936,8 @@ export function CreateEventView() {
                   <div className={styles.programPanel}>
                     {activities.length > 0 ? (
                       <ul className={styles.programList}>
-                        {activities.map((activity) => (
-                          <li key={activity}>{activity}</li>
+                        {activities.map((activity, index) => (
+                          <li key={`${activity}-${index}`}>{activity}</li>
                         ))}
                       </ul>
                     ) : programFileName ? (

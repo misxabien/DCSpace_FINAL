@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { generateGeminiJson, geminiErrorResponse } from "@/lib/ai/gemini";
+import {
+  buildProgramFlowPdf,
+  formatTimedActivityLabel,
+  normalizeTimedActivities,
+} from "@/lib/ai/program-flow-pdf";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 export async function POST(request: Request) {
@@ -63,7 +68,7 @@ ${JSON.stringify(
 
   try {
     const result = await generateGeminiJson<{ activities?: unknown; notes?: unknown }>(prompt, {
-      cacheKey: `program-flow:${title}:${body.eventType || ""}:${body.startDate || ""}:${body.venue || ""}`,
+      cacheKey: `program-flow:${title}:${body.eventType || ""}:${body.startDate || ""}:${body.startTime || ""}:${body.endTime || ""}:${body.venue || ""}`,
     });
     const activities = Array.isArray(result.activities)
       ? result.activities.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
@@ -71,9 +76,30 @@ ${JSON.stringify(
     if (!activities.length) {
       return NextResponse.json({ error: "Gemini did not return activities." }, { status: 502 });
     }
-    return NextResponse.json({
+
+    const notes = String(result.notes || "").trim();
+    const timedActivities = normalizeTimedActivities(
       activities,
-      notes: String(result.notes || "").trim(),
+      body.startTime || "08:00",
+      body.endTime || "12:00",
+    );
+    const pdf = await buildProgramFlowPdf({
+      title,
+      eventType: body.eventType,
+      venue: body.venue,
+      venueType: body.venueType,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      startTime: body.startTime,
+      endTime: body.endTime,
+      notes,
+      activities: timedActivities,
+    });
+
+    return NextResponse.json({
+      activities: timedActivities.map(formatTimedActivityLabel),
+      notes,
+      pdf,
     });
   } catch (error) {
     const mapped = geminiErrorResponse(error);
