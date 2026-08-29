@@ -102,19 +102,74 @@ export function setLegacyHidden(el: HTMLElement | null | undefined, hidden: bool
   }
 }
 
+export const STAT_CARD_SELECTORS =
+  ".stat-card, .user-stat, .fb-stat, .cert-stat, .rp-stat";
+
+const STAT_VALUE_SELECTORS =
+  ".stat-value, .value, .name, .fb-stat-body .value";
+
+export function clearStatCardLoading(card: Element) {
+  if (!(card instanceof HTMLElement)) return;
+  card.classList.remove("dc-stat-loading");
+  card.removeAttribute("aria-busy");
+}
+
+export function setStatCardsLoading(
+  root: ParentNode,
+  loading: boolean,
+  selectors = STAT_CARD_SELECTORS,
+) {
+  root.querySelectorAll<HTMLElement>(selectors).forEach((card) => {
+    if (loading) {
+      card.classList.add("dc-stat-loading");
+      card.setAttribute("aria-busy", "true");
+    } else {
+      clearStatCardLoading(card);
+    }
+  });
+
+  root.querySelectorAll<HTMLElement>(".stats, .users-stats, .cert-stats, .rp-stats, .fb-stats").forEach(
+    (section) => {
+      if (loading) section.setAttribute("aria-busy", "true");
+      else section.removeAttribute("aria-busy");
+    },
+  );
+}
+
+export function clearRemainingStatCardLoading(
+  root: ParentNode,
+  selectors = STAT_CARD_SELECTORS,
+) {
+  root.querySelectorAll<HTMLElement>(selectors).forEach((card) => {
+    if (card.classList.contains("dc-stat-loading")) {
+      clearStatCardLoading(card);
+    }
+  });
+  root.querySelectorAll<HTMLElement>(".stats, .users-stats, .cert-stats, .rp-stats, .fb-stats").forEach(
+    (section) => {
+      if (!section.querySelector(".dc-stat-loading")) {
+        section.removeAttribute("aria-busy");
+      }
+    },
+  );
+}
+
 export function setStatByLabel(
   root: ParentNode,
   label: string,
   value: string | number,
-  selectors = ".stat-card, .user-stat, .fb-stat, .cert-stat, .rp-stat",
+  selectors = STAT_CARD_SELECTORS,
 ) {
   root.querySelectorAll(selectors).forEach((card) => {
     const labelEl = card.querySelector(".stat-label, .label, .fb-stat-head span");
     if (!labelEl) return;
     const text = (labelEl.textContent || "").trim().toLowerCase();
     if (!text.includes(label.toLowerCase())) return;
-    const valueEl = card.querySelector(".stat-value, .value, .name, .fb-stat-body .value");
-    if (valueEl) valueEl.textContent = String(value);
+    const valueEl = card.querySelector(STAT_VALUE_SELECTORS);
+    if (valueEl) {
+      valueEl.textContent = String(value);
+      clearStatCardLoading(card);
+    }
   });
 }
 

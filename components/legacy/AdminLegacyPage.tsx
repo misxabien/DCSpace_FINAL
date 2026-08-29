@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { LegacyPageData } from "@/lib/navigation";
 import { useLegacyScripts } from "@/components/legacy/useLegacyPage";
 import { bindPasswordToggles } from "@/components/legacy/bindPasswordToggles";
@@ -8,8 +9,19 @@ import {
   FILTER_DROPDOWN_PAGES,
   bindAdminFilterDropdowns,
 } from "@/components/legacy/bindAdminFilterDropdowns";
+import { setStatCardsLoading } from "@/lib/legacy-dom-patch";
 
 const SIDEBAR_STORAGE_KEY = "dc_admin_sidebar_collapsed";
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+const FEEDBACK_CARD_PAGES = new Set(["feedback47", "fcollection48"]);
+const STAT_LOADING_PAGES = new Set([
+  "home12",
+  "user27",
+  "cert45",
+  "report51",
+  "reportgen53",
+]);
 
 /** Keep SSR/client markup identical (Windows JSON often has CRLF). */
 function normalizeLegacyMarkup(value: string) {
@@ -21,42 +33,62 @@ function normalizeLegacyMarkup(value: string) {
  * so Figma/HTML designs stay visually identical.
  */
 export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
-  useLegacyScripts(data.scripts, data.id);
+  const router = useRouter();
   const pageStyles = normalizeLegacyMarkup(data.styles);
   const pageHtml = normalizeLegacyMarkup(data.html);
+  const [htmlReady, setHtmlReady] = useState(false);
+
+  useLegacyScripts(data.scripts, htmlReady);
+
+  // Defer legacy HTML until after mount so SSR and hydration never compare large blobs.
+  useIsomorphicLayoutEffect(() => {
+    setHtmlReady(true);
+  }, [pageHtml]);
 
   useEffect(() => {
     document.title = data.title || "DC Space Admin";
     document.documentElement.setAttribute("data-admin-legacy", "true");
     document.body.setAttribute("data-admin-legacy", "true");
-    document.dispatchEvent(
-      new CustomEvent("dc-legacy-content-ready", { detail: { pageId: data.id } }),
-    );
     return () => {
       document.documentElement.removeAttribute("data-admin-legacy");
       document.body.removeAttribute("data-admin-legacy");
     };
   }, [data.title, data.id, data.route]);
 
+  useEffect(() => {
+    if (!htmlReady) return;
+    document.dispatchEvent(
+      new CustomEvent("dc-legacy-content-ready", { detail: { pageId: data.id } }),
+    );
+  }, [htmlReady, data.id]);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!htmlReady || !STAT_LOADING_PAGES.has(data.id)) return;
+    const root = document.querySelector(".admin-legacy-root");
+    if (root) setStatCardsLoading(root, true);
+  }, [htmlReady, data.id]);
+
   // Password show/hide (eye icon) — event delegation survives HTML remounts
   useEffect(() => {
+    if (!htmlReady) return;
     const root = document.querySelector(".admin-legacy-root");
     if (!root) return;
     return bindPasswordToggles(root);
-  }, [data.id, data.route]);
+  }, [htmlReady, data.id, data.route]);
 
   // Select Date / Org / Course — React-bound with cleanup (avoids stacked legacy listeners)
   useEffect(() => {
+    if (!htmlReady) return;
     const prefix = FILTER_DROPDOWN_PAGES[data.id];
     if (!prefix) return;
     const root = document.querySelector(".admin-legacy-root");
     if (!root) return;
     return bindAdminFilterDropdowns(root, prefix);
-  }, [data.id, data.route, data.html]);
+  }, [htmlReady, data.id, data.route, data.html]);
 
   // Profile banner — Super Admin: role label + hide Approved By
   useEffect(() => {
-    if (data.id !== "profile") return;
+    if (!htmlReady || data.id !== "profile") return;
     let role = "admin";
     try {
       role = localStorage.getItem("dc_admin_role") || "admin";
@@ -73,10 +105,11 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       el.hidden = isSuper;
       el.style.display = isSuper ? "none" : "";
     });
-  }, [data.id, data.route, data.html]);
+  }, [htmlReady, data.id, data.route, data.html]);
 
   // Super Admin — show Administration nav (open + collapsed). Don't rely only on legacy scripts.
   useEffect(() => {
+    if (!htmlReady) return;
     const syncSuperAdminNav = () => {
       let role = "";
       try {
@@ -107,10 +140,11 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
-  }, [data.id, data.route, data.title]);
+  }, [htmlReady, data.id, data.route, data.title]);
 
   // Reliable sidebar collapse for all admin shell pages (persists across routes).
   useEffect(() => {
+    if (!htmlReady) return;
     const root = document.querySelector(".admin-legacy-root");
     if (!root) return;
 
@@ -184,10 +218,11 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       window.clearTimeout(restoreTimer);
       root.removeEventListener("click", onClick, true);
     };
-  }, [data.id, data.route, data.title]);
+  }, [htmlReady, data.id, data.route, data.title]);
 
   // Admin Notes Resolve / Resolved pills — work on every event details page
   useEffect(() => {
+    if (!htmlReady) return;
     const root = document.querySelector(".admin-legacy-root");
     if (!root) return;
 
@@ -262,7 +297,34 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       window.clearTimeout(t2);
       root.removeEventListener("click", onClick, true);
     };
-  }, [data.id, data.route, data.title]);
+  }, [htmlReady, data.id, data.route, data.title]);
+
+  // feedback47 / fcollection48 — card clicks must navigate (capture phase beats legacy scripts).
+  useEffect(() => {
+    if (!htmlReady || !FEEDBACK_CARD_PAGES.has(data.id)) return;
+    const root = document.querySelector(".admin-legacy-root");
+    if (!root) return;
+
+    const onClick = (event: Event) => {
+      const card = (event.target as Element | null)?.closest<HTMLAnchorElement>(
+        ".fb-status-grid a.fb-card:not([data-fb-card-template])",
+      );
+      if (!card || card.hasAttribute("data-no-nav")) return;
+
+      const href = card.getAttribute("href");
+      if (!href || href === "#") return;
+      if (!(event instanceof MouseEvent)) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      router.push(href);
+    };
+
+    root.addEventListener("click", onClick, true);
+    return () => root.removeEventListener("click", onClick, true);
+  }, [htmlReady, data.id, router]);
 
   return (
     <div data-admin-legacy="" data-admin-page={data.id} className="admin-legacy-root">
@@ -526,6 +588,46 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy][data-admin-page="feedback47"] .fb-title.under a {
   color: #000000 !important;
   text-shadow: none !important;
+}
+/* feedback47: Feedback Collection Status cards match System Feedback hover */
+[data-admin-legacy][data-admin-page="feedback47"] a.fb-card:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-status-grid .fb-card:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-card:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-sys-card:hover,
+[data-admin-legacy][data-admin-page="feedback47"] a.fb-sys-card:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-card.gold:hover {
+  background: #eaf2ff !important;
+  background-color: #eaf2ff !important;
+  border-color: #448aff !important;
+  box-shadow: 0 6px 18px rgba(68, 138, 255, 0.14) !important;
+  transform: none !important;
+}
+/* fcollection48 + feedback47: clickable feedback status cards */
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-status-grid.fc-grid,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-status-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-status-grid a.fb-card,
+[data-admin-legacy][data-admin-page="feedback47"] .fb-status-grid a.fb-card {
+  display: grid !important;
+  text-decoration: none !important;
+  color: inherit !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+[data-admin-legacy][data-admin-page="fcollection48"] a.fb-card:hover,
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-status-grid .fb-card:hover,
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-card:hover,
+[data-admin-legacy][data-admin-page="fcollection48"] .fb-card.gold:hover {
+  background: #eaf2ff !important;
+  background-color: #eaf2ff !important;
+  border-color: #448aff !important;
+  box-shadow: 0 6px 18px rgba(68, 138, 255, 0.14) !important;
+  transform: none !important;
 }
 
 /* certdeets46: hide filter chips; section search = dashboard search-bar */
@@ -999,6 +1101,47 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   align-items: center !important;
   gap: 4px !important;
   margin-left: 0 !important;
+}
+
+/* Participant Responses (feeddeets49) — separate Asc/Desc outline buttons */
+[data-admin-legacy] .fd-sort {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy] .fd-sort button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  background: #ffffff !important;
+  border: 1px solid #448aff !important;
+  border-radius: 6px !important;
+  color: #448aff !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy] .fd-sort button svg,
+[data-admin-legacy] .fd-sort button svg path {
+  stroke: #448aff !important;
+}
+[data-admin-legacy] .fd-sort button:hover,
+[data-admin-legacy] .fd-sort button.active {
+  background: #ffffff !important;
+  border-color: #448aff !important;
+  color: #448aff !important;
 }
 
 /* feedback47: no hover on overview stat boxes */
@@ -2402,6 +2545,47 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy] .user-stat .delta.up { color: #11cc19 !important; }
 [data-admin-legacy] .user-stat .delta.down { color: #d91616 !important; }
 
+/* Stat card loading — spinner only while dashboard data loads */
+@keyframes dc-stat-spin {
+  to { transform: rotate(360deg); }
+}
+[data-admin-legacy] .dc-stat-loading {
+  position: relative !important;
+  pointer-events: none !important;
+}
+[data-admin-legacy] .dc-stat-loading:hover {
+  transform: none !important;
+  box-shadow: inherit !important;
+}
+[data-admin-legacy] .dc-stat-loading .delta {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+[data-admin-legacy] .dc-stat-loading::after {
+  content: "" !important;
+  position: absolute !important;
+  top: 12px !important;
+  right: 12px !important;
+  width: 14px !important;
+  height: 14px !important;
+  border: 2px solid rgba(68, 138, 255, 0.18) !important;
+  border-top-color: #448aff !important;
+  border-radius: 50% !important;
+  animation: dc-stat-spin 0.75s linear infinite !important;
+  opacity: 0.85 !important;
+  z-index: 2 !important;
+}
+[data-admin-legacy] .stat-card.dc-stat-loading::after {
+  top: 14px !important;
+  right: 14px !important;
+}
+[data-admin-legacy] .rp-stat.dc-stat-loading::after {
+  top: 10px !important;
+  right: 10px !important;
+  width: 12px !important;
+  height: 12px !important;
+}
+
 /* Users toolbar — compact one row, selects top-right */
 [data-admin-legacy] .users-toolbar {
   display: flex !important;
@@ -2905,13 +3089,23 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   font-weight: 400 !important;
   color: #3476E3 !important;
 }
+[data-admin-legacy][data-admin-page="feedback47"] .events-filter-menu button:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .events-filter-menu button.active,
+[data-admin-legacy][data-admin-page="feedback47"] .filter-wrap .events-filter-menu button:hover,
+[data-admin-legacy][data-admin-page="feedback47"] .filter-wrap .events-filter-menu button.active {
+  background: #eaf2ff !important;
+  background-color: #eaf2ff !important;
+  color: #1e293b !important;
+}
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option:hover {
-  background: rgba(68, 138, 255, 0.12) !important;
+  background: #eaf2ff !important;
 }
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-dd-option.is-active {
-  background: rgba(68, 138, 255, 0.2) !important;
+  background: #eaf2ff !important;
+  color: #448aff !important;
   font-weight: 600 !important;
 }
+
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-org-section {
   margin: 6px 4px 4px !important;
   padding: 6px 6px 4px !important;
@@ -2981,14 +3175,15 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   cursor: pointer !important;
 }
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button:hover {
-  background: rgba(68, 138, 255, 0.12) !important;
+  background: #eaf2ff !important;
+}
+[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-selected {
+  background: #eaf2ff !important;
+  color: #448aff !important;
+  font-weight: 700 !important;
 }
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-today {
   border: 1px solid rgba(68, 138, 255, 0.45) !important;
-}
-[data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-selected {
-  background: rgba(68, 138, 255, 0.22) !important;
-  font-weight: 700 !important;
 }
 [data-admin-legacy][data-admin-page="feedback47"] .fb47-cal-grid button.is-muted {
   color: #9bb8ef !important;
@@ -3185,6 +3380,38 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy][data-admin-page="cert45"] .cert-table thead th:nth-child(5) {
   width: 14% !important;
   text-align: center !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table a.cert-view {
+  display: none !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table .cert-generate-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 64px !important;
+  height: 30px !important;
+  padding: 0 12px !important;
+  margin: 0 !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  background: rgba(68, 138, 255, 0.12) !important;
+  color: #448aff !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  appearance: none !important;
+  transition: background 0.15s ease, transform 0.15s ease !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table .cert-generate-btn:hover:not([aria-busy="true"]) {
+  background: rgba(68, 138, 255, 0.2) !important;
+  transform: translateY(-1px) !important;
+}
+[data-admin-legacy][data-admin-page="cert45"] .cert-table .cert-generate-btn[aria-busy="true"] {
+  opacity: 0.7 !important;
+  cursor: wait !important;
 }
 [data-admin-legacy] .cert-footer {
   display: flex !important;
@@ -3591,9 +3818,11 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   }
 }
 
-/* manages28 — square/portrait school cards + hide Filter */
+/* manages28 / managef29 — hide school-picker Filter (filter lives on school30) */
 [data-admin-page="manages28"] .filter-btn,
-[data-admin-page="manages28"] button.filter-btn {
+[data-admin-page="manages28"] button.filter-btn,
+[data-admin-page="managef29"] .filter-btn,
+[data-admin-page="managef29"] button.filter-btn {
   display: none !important;
 }
 [data-admin-page="manages28"] .school-grid {
@@ -3630,6 +3859,159 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   [data-admin-page="manages28"] .school-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
+}
+
+/* school30 — department user filter dropdown (from manages28 cards) */
+[data-admin-page="school30"] .stu-hero {
+  position: relative !important;
+}
+[data-admin-page="school30"] .stu-filter-wrap {
+  position: relative !important;
+  z-index: 30 !important;
+}
+[data-admin-page="school30"] .stu-filter-wrap .stu-filter-menu {
+  position: absolute !important;
+  top: calc(100% + 8px) !important;
+  right: 0 !important;
+  min-width: 200px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 6px 0 !important;
+}
+[data-admin-page="school30"] .stu-filter-wrap:not(.open) .stu-filter-menu[hidden] {
+  display: none !important;
+}
+[data-admin-page="school30"] .stu-filter-wrap.open .stu-filter-menu {
+  display: flex !important;
+}
+
+/* listp44 — participant attendance filter dropdown */
+[data-admin-page="listp44"] .listp-actions {
+  position: relative !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap {
+  position: relative !important;
+  z-index: 30 !important;
+  display: inline-flex !important;
+}
+[data-admin-page="listp44"] .listp-filter,
+[data-admin-page="listp44"] .listp-filter.filter-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  height: 36px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  font-family: "Montserrat", sans-serif !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(68, 138, 255, 0.28) !important;
+  background: rgba(68, 138, 255, 0.08) !important;
+  box-shadow: none !important;
+  color: #448aff !important;
+  cursor: pointer !important;
+  transition: none !important;
+  transform: none !important;
+}
+[data-admin-page="listp44"] .listp-filter:hover,
+[data-admin-page="listp44"] .listp-filter:focus,
+[data-admin-page="listp44"] .listp-filter:active,
+[data-admin-page="listp44"] .listp-filter.filter-btn:hover,
+[data-admin-page="listp44"] .listp-filter.filter-btn:focus,
+[data-admin-page="listp44"] .listp-filter.filter-btn:active {
+  background: rgba(68, 138, 255, 0.08) !important;
+  border-color: rgba(68, 138, 255, 0.28) !important;
+  color: #448aff !important;
+  box-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+}
+[data-admin-page="listp44"] .listp-filter svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap .listp-filter-menu,
+[data-admin-page="listp44"] .listp-filter-wrap .stu-filter-menu,
+[data-admin-page="listp44"] .listp-filter-wrap .events-filter-menu {
+  position: absolute !important;
+  top: calc(100% + 8px) !important;
+  right: 0 !important;
+  left: auto !important;
+  min-width: 220px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  padding: 6px 0 !important;
+  margin: 0 !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border: 1px solid #c5d8f5 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14) !important;
+  overflow: hidden !important;
+  z-index: 100 !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap .listp-filter-menu::before,
+[data-admin-page="listp44"] .listp-filter-wrap .events-filter-menu::before {
+  content: none !important;
+  display: none !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap:not(.open) .listp-filter-menu[hidden],
+[data-admin-page="listp44"] .listp-filter-wrap:not(.open) .stu-filter-menu[hidden] {
+  display: none !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap.open .listp-filter-menu,
+[data-admin-page="listp44"] .listp-filter-wrap.open .stu-filter-menu,
+[data-admin-page="listp44"] .listp-filter-wrap.open .events-filter-menu {
+  display: flex !important;
+}
+[data-admin-page="listp44"] .listp-filter-wrap .listp-filter-menu button,
+[data-admin-page="listp44"] .listp-filter-wrap .stu-filter-menu button,
+[data-admin-page="listp44"] .listp-filter-wrap .events-filter-menu button {
+  display: block !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 10px 14px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #334155 !important;
+  font-family: "Montserrat", sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.01em !important;
+  text-align: left !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
+}
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .listp-filter-menu button:hover,
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .stu-filter-menu button:hover,
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .events-filter-menu button:hover {
+  background: #eaf2ff !important;
+  background-color: #eaf2ff !important;
+  color: #1e293b !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .listp-filter-menu button.active,
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .stu-filter-menu button.active,
+[data-admin-legacy][data-admin-page="listp44"] .listp-filter-wrap .events-filter-menu button.active {
+  background: #eaf2ff !important;
+  background-color: #eaf2ff !important;
+  color: #448aff !important;
+  font-weight: 600 !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 /* Users Recent Activity — match dashboard Newly Submitted panel */
@@ -4065,6 +4447,66 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   height: 26px !important;
   min-width: 26px !important;
   font-size: 14px !important;
+}
+
+/* fb39 — Feedback Submitted table column alignment */
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th,
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td {
+  text-align: left !important;
+  vertical-align: middle !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:first-child,
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:first-child {
+  width: 40px !important;
+  text-align: center !important;
+  padding-left: 12px !important;
+  padding-right: 8px !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:nth-child(2),
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:nth-child(2) {
+  width: 28% !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:nth-child(3),
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:nth-child(3) {
+  width: 14% !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:nth-child(4),
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:nth-child(4) {
+  width: 120px !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:nth-child(5),
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:nth-child(5) {
+  width: 18% !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table thead th:last-child,
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td:last-child {
+  width: 72px !important;
+  text-align: center !important;
+  padding-right: 12px !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td .fb-stars {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  vertical-align: middle !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-table tbody td .fb-stars svg {
+  width: 14px !important;
+  height: 14px !important;
+  flex-shrink: 0 !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-banner {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  text-align: left !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .ereg-banner .profile-meta {
+  text-align: left !important;
+}
+[data-admin-legacy][data-admin-page="fb39"] .info-top-left,
+[data-admin-legacy][data-admin-page="fb39"] .info-heading {
+  text-align: left !important;
 }
 
 /* Events list title dropdown (Registered / Attended / ...) */
@@ -4941,21 +5383,6 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   margin: 10px 0 16px !important;
 }
 
-/* selection01 — Admin role card */
-[data-admin-page="selection01"] .roles {
-  display: flex;
-  justify-content: center;
-  gap: 28px;
-  flex-wrap: wrap;
-}
-[data-admin-page="selection01"] .role-card {
-  cursor: pointer;
-}
-[data-admin-page="selection01"] .role-card.is-selected {
-  outline: 2px solid #448aff;
-  outline-offset: 4px;
-}
-
 /* Recent Account Activity (profile) — left-align title/table text */
 [data-admin-page="profile"] .profile-panel--activity,
 [data-admin-page="profile"] .profile-panel--activity h2,
@@ -4974,7 +5401,11 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 `,
         }}
       />
-      <div dangerouslySetInnerHTML={{ __html: pageHtml }} />
+      {htmlReady ? (
+        <div dangerouslySetInnerHTML={{ __html: pageHtml }} />
+      ) : (
+        <div className="admin-legacy-root__shell" aria-busy="true" />
+      )}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { hideLegacyDemoContent, patchChildren, patchTableRows, ensureEventsFoote
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
-  if (pathname === "/admin") return "selection01";
+  if (pathname === "/admin") return "login02";
   return pathname.replace(/^\/admin\/?/, "").split("/")[0] || "";
 }
 
@@ -47,12 +47,97 @@ type AdminUser = {
   studentNumber?: string;
   rfidNumber?: string;
   photoUrl?: string;
+  createdAt?: string;
 };
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   const res = await fetch(url, { cache: "no-store", credentials: "include" });
   if (!res.ok) return null;
   return (await res.json()) as T;
+}
+
+function ensureMakeAdminOverlay(): HTMLElement | null {
+  let overlay = document.getElementById("make-admin-overlay");
+  if (overlay) return overlay;
+
+  const template = document.getElementById("delete-account-overlay");
+  if (!template) return null;
+
+  overlay = template.cloneNode(true) as HTMLElement;
+  overlay.id = "make-admin-overlay";
+  overlay.setAttribute("aria-labelledby", "make-admin-title");
+  overlay.hidden = true;
+  overlay.setAttribute("hidden", "");
+  overlay.innerHTML = overlay.innerHTML.replace(/delete_account/g, "make_admin");
+
+  const idMap: Record<string, string> = {
+    "delete-account-title": "make-admin-title",
+    "delete-account-back": "make-admin-back",
+    "delete-account-yes": "make-admin-yes",
+  };
+  Object.entries(idMap).forEach(([from, to]) => {
+    overlay!.querySelector(`#${from}`)?.setAttribute("id", to);
+  });
+  const messageEl = overlay.querySelector(".delete-message");
+  if (messageEl) messageEl.id = "make-admin-message";
+
+  template.insertAdjacentElement("afterend", overlay);
+  return overlay;
+}
+
+function openMakeAdminConfirmModal(options: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    ensureMakeAdminOverlay();
+    const overlay = document.getElementById("make-admin-overlay");
+    const titleEl = document.getElementById("make-admin-title");
+    const messageEl = document.getElementById("make-admin-message");
+    const yesBtn = document.getElementById("make-admin-yes");
+    const backBtn = document.getElementById("make-admin-back");
+    if (!overlay || !titleEl || !messageEl || !yesBtn || !backBtn) {
+      resolve(window.confirm(`${options.title}\n\n${options.message}`));
+      return;
+    }
+
+    titleEl.textContent = options.title;
+    messageEl.textContent = options.message;
+    yesBtn.textContent = options.confirmLabel;
+
+    const cleanup = () => {
+      overlay.hidden = true;
+      overlay.setAttribute("hidden", "");
+      document.body.classList.remove("delete-modal-open");
+      yesBtn.removeEventListener("click", onYes);
+      backBtn.removeEventListener("click", onBack);
+      overlay.removeEventListener("click", onBackdrop);
+    };
+
+    const onYes = (event: Event) => {
+      event.preventDefault();
+      cleanup();
+      resolve(true);
+    };
+    const onBack = (event: Event) => {
+      event.preventDefault();
+      cleanup();
+      resolve(false);
+    };
+    const onBackdrop = (event: Event) => {
+      if (event.target === overlay) onBack(event);
+    };
+
+    yesBtn.addEventListener("click", onYes);
+    backBtn.addEventListener("click", onBack);
+    overlay.addEventListener("click", onBackdrop);
+
+    overlay.hidden = false;
+    overlay.removeAttribute("hidden");
+    document.body.classList.add("delete-modal-open");
+    yesBtn.focus();
+  });
 }
 
 function wireAddUser() {
@@ -176,6 +261,8 @@ async function hydrateSchoolDirectory(root: Element) {
   const params = new URLSearchParams(window.location.search);
   const school = params.get("school") || "";
   const role = params.get("role") || "";
+  const fromManages28 = params.get("from") === "manages28";
+  const fromManagef29 = params.get("from") === "managef29";
   const query = new URLSearchParams();
   if (school) query.set("school", school);
   if (role) query.set("role", role);
@@ -196,30 +283,132 @@ async function hydrateSchoolDirectory(root: Element) {
   if (schoolName && school) {
     schoolName.textContent = schoolLabels[school.toLowerCase()] || school.toUpperCase();
   }
-  const count = document.getElementById("school-count") || document.querySelector(".stu-count-num");
-  if (count) count.textContent = String(data.total ?? data.users.length);
 
   const countLabel = document.querySelector<HTMLElement>(".stu-count-label");
   if (countLabel && (role === "admin" || role === "admins")) {
     const icon = countLabel.querySelector("svg");
     countLabel.textContent = "Admins";
     if (icon) countLabel.appendChild(icon);
+  } else if (countLabel && role === "faculty") {
+    const icon = countLabel.querySelector("svg");
+    countLabel.textContent = "Faculty";
+    if (icon) countLabel.appendChild(icon);
   }
 
-  const table = root.querySelector("table");
-  patchTableRows(table, data.users, (tr, user) => {
-    const cells = tr.querySelectorAll("td");
-    if (cells[1]) cells[1].textContent = user.fullName;
-    if (cells[2]) cells[2].textContent = user.studentNumber || "—";
-    if (cells[3]) cells[3].textContent = user.course || "—";
-    if (cells[4]) cells[4].textContent = user.organizationPart || "—";
-    const pill = cells[5]?.querySelector(".role-pill");
-    if (pill) {
-      pill.textContent = (user.role || "student").replace(/-/g, " ").toUpperCase();
-      pill.className = `role-pill ${rolePillClass(user.role)}`;
+  const allUsers = data.users;
+  const cacheKey = `${school}:${role}:${fromManages28 ? "m28" : fromManagef29 ? "f29" : "default"}`;
+  (root as HTMLElement).dataset.dcSchoolUsersKey = cacheKey;
+
+  const renderUsers = (users: AdminUser[]) => {
+    const count = document.getElementById("school-count") || document.querySelector(".stu-count-num");
+    if (count) count.textContent = String(users.length);
+
+    const table = root.querySelector("table");
+    patchTableRows(table, users, (tr, user) => {
+      const cells = tr.querySelectorAll("td");
+      if (cells[1]) cells[1].textContent = user.fullName;
+      if (cells[2]) cells[2].textContent = user.studentNumber || "—";
+      if (cells[3]) cells[3].textContent = user.course || "—";
+      if (cells[4]) cells[4].textContent = user.organizationPart || "—";
+      const pill = cells[5]?.querySelector(".role-pill");
+      if (pill) {
+        pill.textContent = (user.role || "student").replace(/-/g, " ").toUpperCase();
+        pill.className = `role-pill ${rolePillClass(user.role)}`;
+      }
+      const link = tr.querySelector<HTMLAnchorElement>("a.view-btn");
+      if (link) link.href = `/admin/info30?id=${encodeURIComponent(user.id)}`;
+    });
+  };
+
+  renderUsers(allUsers);
+
+  if (fromManages28 || fromManagef29 || role === "student" || role === "faculty") {
+    wireSchool30UserFilter(root, () => allUsers, renderUsers, role);
+  }
+}
+
+const NEW_USER_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+function matchesSchoolUserFilter(user: AdminUser, filter: string, directoryRole = "") {
+  const userRole = (user.role || "").toLowerCase();
+  const orgRole = (user.organizationRole || "").toLowerCase();
+  if (filter === "admins") {
+    return userRole === "admin" || userRole === "super-admin";
+  }
+  if (filter === "officers") {
+    if (directoryRole === "faculty") {
+      return orgRole.includes("officer") || userRole === "organizer";
     }
-    const link = tr.querySelector<HTMLAnchorElement>("a.view-btn");
-    if (link) link.href = `/admin/info30?id=${encodeURIComponent(user.id)}`;
+    return (
+      userRole === "faculty" ||
+      userRole === "organizer" ||
+      orgRole.includes("officer")
+    );
+  }
+  if (filter === "newly") {
+    if (!user.createdAt) return false;
+    const created = new Date(user.createdAt);
+    if (Number.isNaN(created.getTime())) return false;
+    return Date.now() - created.getTime() <= NEW_USER_WINDOW_MS;
+  }
+  return true;
+}
+
+function wireSchool30UserFilter(
+  root: Element,
+  getUsers: () => AdminUser[],
+  renderUsers: (users: AdminUser[]) => void,
+  directoryRole = "",
+) {
+  const wrap = root.querySelector(".stu-filter-wrap");
+  if (!wrap || !(wrap instanceof HTMLElement) || wrap.dataset.dcWired === "1") return;
+  wrap.dataset.dcWired = "1";
+
+  const btn = wrap.querySelector(".filter-btn");
+  const menu = wrap.querySelector(".stu-filter-menu");
+  if (!(btn instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
+
+  let activeFilter = "";
+
+  const closeMenu = () => {
+    wrap.classList.remove("open");
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  };
+
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains("open");
+    document.querySelectorAll(".stu-filter-wrap.open").forEach((other) => {
+      if (other !== wrap) other.classList.remove("open");
+    });
+    wrap.classList.toggle("open", willOpen);
+    menu.hidden = !willOpen;
+    btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
+
+  menu.querySelectorAll<HTMLButtonElement>("[data-user-filter]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = item.getAttribute("data-user-filter") || "";
+      activeFilter = activeFilter === next ? "" : next;
+      menu.querySelectorAll("[data-user-filter]").forEach((node) => {
+        node.classList.toggle("active", node === item && activeFilter === next);
+      });
+      const filtered = activeFilter
+        ? getUsers().filter((user) =>
+            matchesSchoolUserFilter(user, activeFilter, directoryRole),
+          )
+        : getUsers();
+      renderUsers(filtered);
+      closeMenu();
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!wrap.contains(event.target as Node)) closeMenu();
   });
 }
 
@@ -342,11 +531,20 @@ async function hydrateUserInfo() {
           return;
         }
         const nextRole = user.role === "admin" ? "faculty" : "admin";
-        const confirmMsg =
+        const confirmed = await openMakeAdminConfirmModal(
           nextRole === "admin"
-            ? `Grant Admin access to ${user.fullName}?`
-            : `Remove Admin access from ${user.fullName}?`;
-        if (!window.confirm(confirmMsg)) return;
+            ? {
+                title: "Make Admin?",
+                message: `Are you sure you want to grant Admin access to ${user.fullName}? They will be able to manage events, users, and campus operations.`,
+                confirmLabel: "Yes, make admin",
+              }
+            : {
+                title: "Remove Admin?",
+                message: `Are you sure you want to remove Admin access from ${user.fullName}? They will lose administrator privileges.`,
+                confirmLabel: "Yes, remove admin",
+              },
+        );
+        if (!confirmed) return;
         const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -2423,6 +2621,21 @@ function formatEventDate(value?: string) {
   return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function renderFeedbackTableStars(cell: Element, rating: number) {
+  const filled = Math.max(0, Math.min(5, Math.round(rating)));
+  const wrap = cell.querySelector(".fb-stars") || cell;
+  wrap.querySelectorAll("svg").forEach((svg, index) => {
+    if (index < filled) {
+      svg.setAttribute("fill", "#FFC107");
+      svg.setAttribute("stroke", "#FFC107");
+    } else {
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "#CBD5E1");
+    }
+  });
+  wrap.setAttribute("aria-label", `${filled} out of 5 stars`);
+}
+
 function patchEregTable(
   rows: Array<{
     title: string;
@@ -2557,15 +2770,35 @@ async function hydrateUserEventTables(pageId: string) {
 
   if (pageId === "fb39") {
     const fb = await fetchJson<{
-      feedback: Array<{ id: string; title: string; type: string; eventName: string; createdAt: string }>;
+      feedback: Array<{
+        id: string;
+        title: string;
+        type: string;
+        rating: number;
+        createdAt: string;
+      }>;
     }>(`/api/user/feedback?mine=0&email=${encodeURIComponent(email)}`);
-    const mine = (fb?.feedback || []);
-    patchTableRows(document.querySelector("table"), mine, (tr, row) => {
+    const mine = fb?.feedback || [];
+    patchTableRows(document.querySelector(".ereg-table"), mine, (tr, row) => {
       const cells = tr.querySelectorAll("td");
-      if (cells[1]) cells[1].textContent = row.title || row.type;
-      if (cells[2]) cells[2].textContent = row.eventName || "—";
-      if (cells[3]) cells[3].textContent = formatEventDate(row.createdAt);
-      const link = tr.querySelector<HTMLAnchorElement>("a");
+      const title = row.title?.trim() || row.type?.trim() || "—";
+      if (cells[0]) {
+        let checkbox = cells[0].querySelector<HTMLInputElement>('input[type="checkbox"]');
+        if (!checkbox) {
+          cells[0].textContent = "";
+          checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          cells[0].appendChild(checkbox);
+        }
+        checkbox.setAttribute("aria-label", title === "—" ? "Select feedback" : `Select ${title}`);
+      }
+      if (cells[1]) {
+        cells[1].textContent = title;
+      }
+      if (cells[2]) cells[2].textContent = (row.type || "General").toUpperCase();
+      if (cells[3]) renderFeedbackTableStars(cells[3], Number(row.rating || 0));
+      if (cells[4]) cells[4].textContent = formatEventDate(row.createdAt);
+      const link = tr.querySelector<HTMLAnchorElement>("a.ereg-view, a");
       if (link) {
         link.href = `/admin/fbdeets01?id=${encodeURIComponent(row.id)}&userId=${encodeURIComponent(userId)}`;
       }
@@ -2573,38 +2806,359 @@ async function hydrateUserEventTables(pageId: string) {
   }
 }
 
-async function hydrateListp44() {
-  const eventId = new URLSearchParams(window.location.search).get("id") || "";
-  if (!eventId) return;
-  const data = await fetchJson<{
-    registrations: Array<{
-      userName: string;
-      studentNumber: string;
-      course: string;
-      status: string;
-      email: string;
-    }>;
-  }>(`/api/user/registrations?eventId=${encodeURIComponent(eventId)}`);
-  const rows = data?.registrations || [];
-  patchTableRows(document.querySelector(".listp-table"), rows, (tr, row) => {
+type ListpParticipant = {
+  email: string;
+  name: string;
+  studentNumber: string;
+  course: string;
+  school: string;
+  organization: string;
+  organizationRole: string;
+  organizationPosition: string;
+  statusLabel: string;
+  tapInLabel: string;
+  tapOutLabel: string;
+  durationLabel: string;
+  attendanceStatusLabel: string;
+  certificateStatus: string;
+  filters: {
+    errors: boolean;
+    manualOverride: boolean;
+    onTime: boolean;
+    completed: boolean;
+    incomplete: boolean;
+  };
+};
+
+function inferListpFiltersFromStatus(status: string): ListpParticipant["filters"] {
+  const normalized = status.trim().toUpperCase();
+  return {
+    errors: false,
+    manualOverride: false,
+    onTime:
+      normalized === "COMPLETE" ||
+      normalized === "ATTENDANCE REQUIREMENT MET" ||
+      normalized === "ON TIME",
+    completed:
+      normalized === "COMPLETE" ||
+      normalized === "ATTENDANCE REQUIREMENT MET" ||
+      normalized === "LATE",
+    incomplete:
+      normalized === "UNDERTIME" ||
+      normalized === "ABSENT" ||
+      normalized === "ATTENDANCE REQUIREMENT INCOMPLETE" ||
+      normalized === "INCOMPLETE",
+  };
+}
+
+function buildListpParticipantsFromTable(root: Element): ListpParticipant[] {
+  const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>("#listp-body tr"));
+  return rows
+    .map((tr) => {
+      const name = tr.querySelector(".name-cell span:last-child")?.textContent?.trim() || "";
+      if (!name) return null;
+      const cells = tr.querySelectorAll("td");
+      const statusLabel = (cells[3]?.textContent || "").trim().toUpperCase() || "—";
+      return {
+        email: String(tr.dataset.email || name).toLowerCase(),
+        name,
+        studentNumber: (cells[1]?.textContent || "—").trim(),
+        course: (cells[2]?.textContent || "—").trim(),
+        school: "—",
+        organization: "—",
+        organizationRole: "—",
+        organizationPosition: "—",
+        statusLabel,
+        tapInLabel: "—",
+        tapOutLabel: "—",
+        durationLabel: "—",
+        attendanceStatusLabel: statusLabel,
+        certificateStatus: "—",
+        filters: inferListpFiltersFromStatus(statusLabel),
+      } satisfies ListpParticipant;
+    })
+    .filter((row): row is ListpParticipant => Boolean(row));
+}
+
+async function resolveListp44EventId(): Promise<string> {
+  const params = new URLSearchParams(window.location.search);
+  const direct = params.get("id") || params.get("eventId") || "";
+  if (direct) return direct;
+
+  const eventName = (params.get("event") || "").trim();
+  if (!eventName || eventName.toLowerCase() === "event name") return "";
+
+  const data = await fetchJson<{ events: Array<{ id: string; title: string }> }>(
+    "/api/events?limit=500",
+  );
+  const target = eventName.toLowerCase();
+  const match = (data?.events || []).find(
+    (event) => event.title.trim().toLowerCase() === target,
+  );
+  return match?.id || "";
+}
+
+function wireDeets43ListpJump() {
+  const jump = document.getElementById("listp-jump");
+  if (!(jump instanceof HTMLAnchorElement)) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id") || "";
+  if (!id) return;
+
+  const q = new URLSearchParams(params);
+  q.set("id", id);
+  if (!q.get("event")) {
+    const eventName = document.getElementById("event-name")?.textContent?.trim();
+    if (eventName) q.set("event", eventName);
+  }
+  jump.href = `/admin/listp44?${q.toString()}`;
+}
+
+function ensureListp44FilterWrap(root: Element) {
+  if (root.querySelector(".listp-filter-wrap")) return;
+  const btn = root.querySelector(".listp-filter");
+  if (!(btn instanceof HTMLButtonElement)) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "listp-filter-wrap stu-filter-wrap";
+  btn.parentNode?.insertBefore(wrap, btn);
+  wrap.appendChild(btn);
+  btn.classList.add("filter-btn");
+  btn.setAttribute("aria-haspopup", "menu");
+  btn.setAttribute("aria-expanded", "false");
+
+  const menu = document.createElement("div");
+  menu.className = "events-filter-menu stu-filter-menu listp-filter-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+
+  const options: Array<{ id: string; label: string }> = [
+    { id: "errors", label: "Errors Detected" },
+    { id: "manual", label: "Manual Override" },
+    { id: "on-time", label: "On Time" },
+    { id: "completed", label: "Completed Attendance" },
+    { id: "incomplete", label: "Incomplete Attendance" },
+  ];
+
+  for (const opt of options) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "menuitem");
+    item.setAttribute("data-listp-filter", opt.id);
+    item.textContent = opt.label;
+    menu.appendChild(item);
+  }
+
+  wrap.appendChild(menu);
+}
+
+function matchesListpFilter(participant: ListpParticipant, filter: string) {
+  switch (filter) {
+    case "errors":
+      return participant.filters.errors;
+    case "manual":
+      return participant.filters.manualOverride;
+    case "on-time":
+      return participant.filters.onTime;
+    case "completed":
+      return participant.filters.completed;
+    case "incomplete":
+      return participant.filters.incomplete;
+    default:
+      return true;
+  }
+}
+
+function selectListpParticipant(participant: ListpParticipant, index: number) {
+  document.querySelectorAll("#listp-body tr").forEach((row) => {
+    row.classList.toggle("is-selected", Number(row.getAttribute("data-index")) === index);
+  });
+  setText("d-name", participant.name);
+  setText("d-number", participant.studentNumber || "—");
+  setText("d-email", participant.email);
+  setText("d-course", participant.course || "—");
+  setText("d-school", participant.school || "—");
+  setText("d-org", participant.organization || "—");
+  setText("d-org-role", participant.organizationRole || "—");
+  setText("d-org-pos", participant.organizationPosition || "—");
+  setText("d-tap-in", participant.tapInLabel || "—");
+  setText("d-tap-out", participant.tapOutLabel || "—");
+  setText("d-duration", participant.durationLabel || "—");
+  setText("d-att-status", participant.attendanceStatusLabel || "—");
+  setText("d-cert", participant.certificateStatus || "—");
+}
+
+function clearListpParticipantDetail() {
+  [
+    "d-name",
+    "d-number",
+    "d-email",
+    "d-course",
+    "d-school",
+    "d-org",
+    "d-org-role",
+    "d-org-pos",
+    "d-tap-in",
+    "d-tap-out",
+    "d-duration",
+    "d-att-status",
+    "d-cert",
+  ].forEach((id) => setText(id, "—"));
+}
+
+function renderListp44Table(participants: ListpParticipant[]) {
+  patchTableRows(document.querySelector(".listp-table"), participants, (tr, row, index) => {
+    tr.dataset.index = String(index);
+    tr.dataset.email = row.email;
+    tr.tabIndex = 0;
+    tr.classList.toggle("is-selected", index === 0);
+
+    const nameSpan = tr.querySelector(".name-cell span:last-child");
+    if (nameSpan) nameSpan.textContent = row.name;
     const cells = tr.querySelectorAll("td");
-    if (cells[0]) cells[0].textContent = row.userName || row.email;
     if (cells[1]) cells[1].textContent = row.studentNumber || "—";
     if (cells[2]) cells[2].textContent = row.course || "—";
-    if (cells[3]) cells[3].textContent = (row.status || "—").toUpperCase();
+    if (cells[3]) cells[3].textContent = row.statusLabel || "—";
   });
-  const first = rows[0];
-  if (first) {
-    setText("d-name", first.userName || first.email);
-    setText("d-number", first.studentNumber || "—");
-    setText("d-email", first.email);
-    setText("d-course", first.course || "—");
-  } else {
-    setText("d-name", "—");
-    setText("d-number", "—");
-    setText("d-email", "—");
-    setText("d-course", "—");
+}
+
+function wireListp44RowSelection(
+  root: Element,
+  getParticipants: () => ListpParticipant[],
+) {
+  const tbody = root.querySelector("#listp-body");
+  if (!(tbody instanceof HTMLElement) || tbody.dataset.dcWired === "1") return;
+  tbody.dataset.dcWired = "1";
+
+  const pickRow = (row: HTMLTableRowElement) => {
+    const index = Number(row.dataset.index);
+    const email = String(row.dataset.email || "").toLowerCase();
+    const participant =
+      getParticipants().find((item) => item.email === email) || getParticipants()[index];
+    if (participant) selectListpParticipant(participant, index);
+  };
+
+  tbody.addEventListener("click", (event) => {
+    const row = (event.target as Element | null)?.closest("#listp-body tr");
+    if (row instanceof HTMLTableRowElement) pickRow(row);
+  });
+
+  tbody.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLTableRowElement)) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      pickRow(target);
+    }
+  });
+}
+
+function wireListp44AttendanceFilter(
+  root: Element,
+  getParticipants: () => ListpParticipant[],
+  renderParticipants: (participants: ListpParticipant[]) => void,
+) {
+  ensureListp44FilterWrap(root);
+  const wrap = root.querySelector(".listp-filter-wrap");
+  if (!(wrap instanceof HTMLElement) || wrap.dataset.dcWired === "1") return;
+  wrap.dataset.dcWired = "1";
+
+  const btn = wrap.querySelector(".listp-filter, .filter-btn");
+  const menu = wrap.querySelector(".listp-filter-menu, .stu-filter-menu");
+  if (!(btn instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
+
+  let activeFilter = "";
+
+  const closeMenu = () => {
+    wrap.classList.remove("open");
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+  };
+
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains("open");
+    document.querySelectorAll(".listp-filter-wrap.open, .stu-filter-wrap.open").forEach((other) => {
+      if (other !== wrap) other.classList.remove("open");
+    });
+    wrap.classList.toggle("open", willOpen);
+    menu.hidden = !willOpen;
+    btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  });
+
+  menu.querySelectorAll<HTMLButtonElement>("[data-listp-filter]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = item.getAttribute("data-listp-filter") || "";
+      activeFilter = activeFilter === next ? "" : next;
+      menu.querySelectorAll("[data-listp-filter]").forEach((node) => {
+        node.classList.toggle("active", node === item && activeFilter === next);
+      });
+      const filtered = activeFilter
+        ? getParticipants().filter((participant) =>
+            matchesListpFilter(participant, activeFilter),
+          )
+        : getParticipants();
+      renderParticipants(filtered);
+      closeMenu();
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!wrap.contains(event.target as Node)) closeMenu();
+  });
+}
+
+async function hydrateListp44() {
+  const root =
+    document.querySelector(".admin-legacy-root") ||
+    document.querySelector("[data-admin-page]") ||
+    document.body;
+  if (!root.querySelector(".listp-filter")) return;
+
+  const eventId = await resolveListp44EventId();
+  let allParticipants: ListpParticipant[] = [];
+
+  if (eventId) {
+    const data = await fetchJson<{ participants: ListpParticipant[] }>(
+      `/api/admin/attendance/participants?eventId=${encodeURIComponent(eventId)}`,
+    );
+    allParticipants = data?.participants || [];
   }
+
+  if (!allParticipants.length) {
+    allParticipants = buildListpParticipantsFromTable(root);
+  }
+
+  if (!allParticipants.length) {
+    ensureListp44FilterWrap(root);
+    return;
+  }
+
+  (root as HTMLElement).dataset.dcListpCount = String(allParticipants.length);
+  let displayedParticipants = allParticipants;
+
+  const renderParticipants = (participants: ListpParticipant[]) => {
+    displayedParticipants = participants;
+    renderListp44Table(participants);
+    if (participants[0]) selectListpParticipant(participants[0], 0);
+    else clearListpParticipantDetail();
+  };
+
+  const activeFilterEl = root.querySelector<HTMLElement>(
+    ".listp-filter-wrap [data-listp-filter].active",
+  );
+  const activeFilter = activeFilterEl?.getAttribute("data-listp-filter") || "";
+  const initialRows = activeFilter
+    ? allParticipants.filter((participant) => matchesListpFilter(participant, activeFilter))
+    : allParticipants;
+
+  renderParticipants(initialRows);
+  wireListp44RowSelection(root, () => displayedParticipants);
+  wireListp44AttendanceFilter(root, () => allParticipants, renderParticipants);
 }
 
 async function hydrateManageCounts(pageId: string) {
@@ -2646,12 +3200,12 @@ export function AdminOpsBridge() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryId = searchParams.get("id") || "";
+  const queryEvent = searchParams.get("event") || "";
 
   useEffect(() => {
     const pageId = pageIdFromPath(pathname);
     if (
       !pageId ||
-      pageId === "selection01" ||
       pageId === "login02" ||
       pageId === "register03" ||
       pageId === "verify06" ||
@@ -2676,7 +3230,9 @@ export function AdminOpsBridge() {
       if (cancelled) return;
       try {
         if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
-          hideLegacyDemoContent(root);
+          if (pageId !== "listp44") {
+            hideLegacyDemoContent(root);
+          }
           root.setAttribute("data-dc-blanked", pageId);
         }
         if (pageId === "add40") wireAddUser();
@@ -2701,6 +3257,7 @@ export function AdminOpsBridge() {
           await hydrateUserEventTables(pageId);
         }
         if (pageId === "listp44") await hydrateListp44();
+        if (pageId === "deets43") wireDeets43ListpJump();
         if (pageId === "fbdeets01") await hydrateFbDeets01();
         if (pageId === "vorg36") await hydrateVorg36();
         if (pageId === "vsaved1" || pageId === "vattend34" || pageId === "regview33") {
@@ -2730,6 +3287,12 @@ export function AdminOpsBridge() {
     };
 
     const t1 = window.requestAnimationFrame(() => void run());
+    const onLegacyReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId?: string }>).detail;
+      if (detail?.pageId && detail.pageId !== pageIdFromPath(pathname)) return;
+      void run();
+    };
+    document.addEventListener("dc-legacy-content-ready", onLegacyReady);
     const pollMs =
       pageIdFromPath(pathname) === "rfid17"
         ? 5000
@@ -2743,11 +3306,12 @@ export function AdminOpsBridge() {
     }, 4000);
     return () => {
       cancelled = true;
+      document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
       window.cancelAnimationFrame(t1);
       window.clearInterval(poll);
       window.clearInterval(badgePoll);
     };
-  }, [pathname, queryId]);
+  }, [pathname, queryId, queryEvent]);
 
   return null;
 }

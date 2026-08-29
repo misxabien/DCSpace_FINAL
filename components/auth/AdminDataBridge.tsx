@@ -10,7 +10,18 @@ import {
   ensureEventsFooterAtBottom,
   patchTableRows,
   setStatByLabel,
+  setStatCardsLoading,
+  clearRemainingStatCardLoading,
+  clearStatCardLoading,
 } from "@/lib/legacy-dom-patch";
+
+const STAT_LOADING_PAGES = new Set([
+  "home12",
+  "user27",
+  "cert45",
+  "report51",
+  "reportgen53",
+]);
 
 type DashboardPayload = {
   stats: {
@@ -129,7 +140,7 @@ type DashboardPayload = {
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
-  if (pathname === "/admin") return "selection01";
+  if (pathname === "/admin") return "login02";
   const part = pathname.replace(/^\/admin\/?/, "").split("/")[0] || "";
   return part;
 }
@@ -792,17 +803,103 @@ function renderFeedbackProgress(root: ParentNode, progress: number) {
   });
 }
 
-function applyFeedbackEventCard(card: Element, event: {
-  eventId: string;
-  title: string;
-  responses: number;
-  target: number;
-  avgRating: number;
-  progress: number;
-  collectionStatus: "collecting" | "analysis_done" | "pending";
-}) {
-  const link = card as HTMLAnchorElement;
-  link.href = `/admin/fcollection48?eventId=${encodeURIComponent(event.eventId)}`;
+function feedbackEventCardHref(
+  pageId: string,
+  eventId: string,
+  templateHref?: string | null,
+) {
+  const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+  if (pageId === "fcollection48") return `/admin/feeddeets49${q}`;
+  if (pageId === "feedback47") return `/admin/fcollection48${q}`;
+  const base =
+    templateHref && templateHref.startsWith("/admin/")
+      ? templateHref.split("?")[0]
+      : "/admin/fcollection48";
+  return `${base}${q}`;
+}
+
+const FEEDBACK_CARD_NAV_PAGES = new Set(["feedback47", "fcollection48"]);
+const feedbackEventsHydrationCache = new Map<string, string>();
+
+function feedbackEventsFingerprint(
+  pageId: string,
+  events: Array<{ eventId: string; responses: number; progress: number; collectionStatus: string }>,
+) {
+  return `${pageId}:${events.map((e) => `${e.eventId}|${e.responses}|${e.progress}|${e.collectionStatus}`).join(";")}`;
+}
+
+function ensureFeedbackCardTemplate(grid: Element): HTMLAnchorElement | null {
+  let template = grid.querySelector<HTMLAnchorElement>("a.fb-card[data-fb-card-template]");
+  if (template) return template;
+
+  const seed = grid.querySelector<HTMLAnchorElement>("a.fb-card");
+  if (!seed) return null;
+
+  template = seed.cloneNode(true) as HTMLAnchorElement;
+  template.setAttribute("data-fb-card-template", "1");
+  template.hidden = true;
+  template.style.display = "none";
+  template.setAttribute("aria-hidden", "true");
+  template.tabIndex = -1;
+  grid.appendChild(template);
+  return template;
+}
+
+function wireFeedbackEventCardNavigation() {
+  const key = "__dcFeedbackCardNav";
+  if ((window as unknown as Record<string, boolean>)[key]) return;
+  (window as unknown as Record<string, boolean>)[key] = true;
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const pageId = document
+        .querySelector(".admin-legacy-root")
+        ?.getAttribute("data-admin-page");
+      if (!pageId || !FEEDBACK_CARD_NAV_PAGES.has(pageId)) return;
+
+      const card = (event.target as Element | null)?.closest<HTMLAnchorElement>(
+        ".fb-status-grid a.fb-card:not([data-fb-card-template])",
+      );
+      if (!card || card.hasAttribute("data-no-nav")) return;
+
+      const href = card.getAttribute("href");
+      if (!href || href === "#") return;
+      if (!(event instanceof MouseEvent)) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.location.assign(href);
+    },
+    true,
+  );
+}
+
+function applyFeedbackEventCard(
+  card: Element,
+  event: {
+    eventId: string;
+    title: string;
+    responses: number;
+    target: number;
+    avgRating: number;
+    progress: number;
+    collectionStatus: "collecting" | "analysis_done" | "pending";
+  },
+  pageId: string,
+  templateHref?: string | null,
+) {
+  const href = feedbackEventCardHref(pageId, event.eventId, templateHref);
+  if (card instanceof HTMLAnchorElement) {
+    card.setAttribute("href", href);
+    if (event.eventId) card.dataset.eventId = event.eventId;
+  } else {
+    (card as HTMLElement).dataset.eventId = event.eventId;
+    (card as HTMLElement).dataset.href = href;
+    (card as HTMLElement).style.cursor = "pointer";
+  }
 
   const badge = card.querySelector(".fb-badge");
   if (badge) {
@@ -861,15 +958,47 @@ function hydrateFeedbackEventCards(
     progress: number;
     collectionStatus: "collecting" | "analysis_done" | "pending";
   }>,
+  pageId: string,
 ) {
+  const pageKey = `${pageId}:${root.getAttribute("data-admin-page") || "root"}`;
+  const fingerprint = feedbackEventsFingerprint(pageId, events);
+  if (feedbackEventsHydrationCache.get(pageKey) === fingerprint) return;
+  feedbackEventsHydrationCache.set(pageKey, fingerprint);
+
   root.querySelectorAll(".fb-status-grid").forEach((grid) => {
-    const template = grid.querySelector(".fb-card");
+    const template = ensureFeedbackCardTemplate(grid);
     if (!template) return;
-    grid.querySelectorAll(".fb-card").forEach((card) => card.remove());
+
+    const templateHref =
+      template.getAttribute("href") ||
+      (pageId === "fcollection48" ? "/admin/feeddeets49" : "/admin/fcollection48");
 
     if (!events.length) {
+      const liveCards = grid.querySelectorAll<HTMLAnchorElement>(
+        "a.fb-card:not([data-fb-card-template])[href]",
+      );
+      if (liveCards.length > 0) {
+        liveCards.forEach((card) => {
+          if (pageId === "fcollection48") {
+            card.setAttribute("href", "/admin/feeddeets49");
+          } else if (pageId === "feedback47") {
+            card.setAttribute("href", "/admin/fcollection48");
+          }
+        });
+        return;
+      }
+
+      grid
+        .querySelectorAll("a.fb-card:not([data-fb-card-template])")
+        .forEach((card) => card.remove());
+
       const empty = template.cloneNode(true) as HTMLElement;
+      empty.removeAttribute("data-fb-card-template");
+      empty.removeAttribute("hidden");
+      empty.removeAttribute("aria-hidden");
+      empty.style.display = "";
       empty.removeAttribute("href");
+      empty.setAttribute("data-no-nav", "1");
       const title = empty.querySelector("h3");
       if (title) title.textContent = "No feedback collected yet";
       const responses = empty.querySelector(".v");
@@ -882,12 +1011,22 @@ function hydrateFeedbackEventCards(
       return;
     }
 
+    grid
+      .querySelectorAll("a.fb-card:not([data-fb-card-template])")
+      .forEach((card) => card.remove());
+
     for (const event of events.slice(0, 6)) {
       const card = template.cloneNode(true) as HTMLElement;
-      applyFeedbackEventCard(card, event);
+      card.removeAttribute("data-fb-card-template");
+      card.removeAttribute("hidden");
+      card.removeAttribute("aria-hidden");
+      (card as HTMLElement).style.display = "";
+      applyFeedbackEventCard(card, event, pageId, templateHref);
       grid.appendChild(card);
     }
   });
+
+  wireFeedbackEventCardNavigation();
 }
 
 type FeedbackAnalyticsPayload = {
@@ -917,7 +1056,11 @@ type FeedbackAnalyticsPayload = {
   }>;
 };
 
-function hydrateFeedbackAdmin(root: Element, analytics: FeedbackAnalyticsPayload) {
+function hydrateFeedbackAdmin(
+  root: Element,
+  analytics: FeedbackAnalyticsPayload,
+  pageId: string,
+) {
   setFbStat(root, "Total Feedback", analytics.totalResponses);
   setFbStat(root, "Feedback Responses", analytics.totalResponses);
   setFbStat(
@@ -928,9 +1071,9 @@ function hydrateFeedbackAdmin(root: Element, analytics: FeedbackAnalyticsPayload
   setFbStat(root, "Response Rate", `${analytics.responseRate}%`);
 
   hydrateFeedbackCategoryRatings(root, analytics.categories);
-  hydrateFeedbackEventCards(root, analytics.events);
+  hydrateFeedbackEventCards(root, analytics.events, pageId);
 
-  const table = root.querySelector(".fd-table, .fb-table, table");
+  const table = root.querySelector(".fd-table, .fb-table, #feedback-table");
   patchTableRows(table, analytics.recent, (tr, row) => {
     const cells = tr.querySelectorAll("td");
     if (cells[0]) cells[0].textContent = row.submittedBy;
@@ -1269,22 +1412,14 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
     if (cells[3]) cells[3].textContent = workflow.distributionLabel;
     const actionCell = cells[4] || tr.querySelector("td:last-child");
     if (actionCell) {
+      actionCell.querySelectorAll("a.cert-view").forEach((el) => el.remove());
       actionCell.innerHTML = "";
-      const view = document.createElement("a");
-      view.className = "cert-view";
-      view.href = `/admin/fulld46?id=${encodeURIComponent(event.id)}`;
-      view.textContent = "View";
-      actionCell.appendChild(view);
-
-      if (event.certCount === 0 || workflow.generationLabel !== "DONE") {
-        const gen = document.createElement("button");
-        gen.type = "button";
-        gen.className = "cert-generate-btn";
-        gen.setAttribute("data-event-id", event.id);
-        gen.textContent = "Generate";
-        gen.style.marginLeft = "8px";
-        actionCell.appendChild(gen);
-      }
+      const gen = document.createElement("button");
+      gen.type = "button";
+      gen.className = "cert-generate-btn";
+      gen.setAttribute("data-event-id", event.id);
+      gen.textContent = "Generate";
+      actionCell.appendChild(gen);
     }
   });
 
@@ -1348,13 +1483,6 @@ function ensureUsersReportCategory(root: Element) {
   cats.appendChild(card);
 }
 
-function blankReportHubPlaceholders(root: Element) {
-  root.querySelectorAll(".rp-stat").forEach((card) => {
-    const valueEl = card.querySelector<HTMLElement>(".value, .name");
-    if (valueEl) valueEl.textContent = "—";
-  });
-}
-
 function hydrateReportsAdmin(
   root: Element,
   reportsPayload: {
@@ -1396,6 +1524,7 @@ function hydrateReportsAdmin(
     } else if (label.includes("most downloaded")) {
       valueEl.textContent = stats?.mostDownloaded || "—";
     }
+    clearStatCardLoading(card);
   });
 
   ensureUsersReportCategory(root);
@@ -1573,15 +1702,13 @@ export function AdminDataBridge() {
     ]);
     if (!watch.has(pageId)) return;
 
+    wireFeedbackEventCardNavigation();
+
     let cancelled = false;
+    let initialStatsLoadDone = false;
 
     const onCertAction = (event: MouseEvent) => {
       const target = event.target as Element | null;
-      const viewBtn = target?.closest<HTMLAnchorElement>(".cert-view");
-      if (viewBtn) {
-        // Let View navigate to certificate details — do not intercept.
-        return;
-      }
       const btn = target?.closest<HTMLElement>(".cert-generate-btn");
       if (!btn) return;
       const eventId = btn.getAttribute("data-event-id");
@@ -1619,15 +1746,33 @@ export function AdminDataBridge() {
           document.querySelector(".admin-legacy-root") ||
           document.querySelector("[data-admin-page]") ||
           document.body;
-        if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
+        if (!(root instanceof Element)) return;
+
+        if (!initialStatsLoadDone && STAT_LOADING_PAGES.has(pageId)) {
+          setStatCardsLoading(root, true);
+        }
+
+        if (root.getAttribute("data-dc-blanked") !== pageId) {
           hideLegacyDemoContent(root);
           root.setAttribute("data-dc-blanked", pageId);
         }
 
         const res = await fetch("/api/admin/dashboard", { cache: "no-store" });
-        if (!res.ok || cancelled) return;
+        if (!res.ok || cancelled) {
+          if (STAT_LOADING_PAGES.has(pageId)) {
+            initialStatsLoadDone = true;
+            clearRemainingStatCardLoading(root);
+          }
+          return;
+        }
         const data = (await res.json()) as DashboardPayload;
-        if (cancelled) return;
+        if (cancelled) {
+          if (STAT_LOADING_PAGES.has(pageId)) {
+            initialStatsLoadDone = true;
+            clearRemainingStatCardLoading(root);
+          }
+          return;
+        }
 
         if (pageId === "home12") hydrateHome(root, data);
         if (pageId === "user27") hydrateUsers(root, data);
@@ -1667,14 +1812,13 @@ export function AdminDataBridge() {
         if (
           pageId === "feedback47" ||
           pageId === "feeddeets49" ||
-          pageId === "fb39" ||
           pageId === "responses50" ||
           pageId === "scollection48" ||
           pageId === "fcollection48"
         ) {
           const reloadFeedback = async () => {
             const feedbackAnalytics = await fetchFeedbackAnalytics(feedbackFilterState);
-            if (feedbackAnalytics) hydrateFeedbackAdmin(root, feedbackAnalytics);
+            if (feedbackAnalytics) hydrateFeedbackAdmin(root, feedbackAnalytics, pageId);
           };
           if (pageId === "feedback47") wireFeedbackFilters(root, () => void reloadFeedback());
           await reloadFeedback();
@@ -1683,7 +1827,6 @@ export function AdminDataBridge() {
           await hydrateCertificatesAdmin(root, data);
         }
         if (pageId === "report51" || pageId === "reportgen53") {
-          blankReportHubPlaceholders(root);
           const reportsRes = await fetch("/api/admin/reports", { cache: "no-store", credentials: "include" });
           if (reportsRes.ok) {
             const reportsData = await reportsRes.json();
@@ -1702,13 +1845,31 @@ export function AdminDataBridge() {
             hydrateReportCategoryList(root, reportsData);
           }
         }
+        if (STAT_LOADING_PAGES.has(pageId)) {
+          initialStatsLoadDone = true;
+          clearRemainingStatCardLoading(root);
+        }
       } catch {
         /* keep original static markup */
+        const root =
+          document.querySelector(".admin-legacy-root") ||
+          document.querySelector("[data-admin-page]") ||
+          document.body;
+        if (root instanceof Element && STAT_LOADING_PAGES.has(pageId)) {
+          initialStatsLoadDone = true;
+          clearRemainingStatCardLoading(root);
+        }
       }
     };
 
     const t1 = window.setTimeout(() => void run(), 50);
     const t2 = window.setTimeout(() => void run(), 300);
+    const onLegacyReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId?: string }>).detail;
+      if (detail?.pageId && detail.pageId !== pageId) return;
+      void run();
+    };
+    document.addEventListener("dc-legacy-content-ready", onLegacyReady);
     const pollMs =
       pageId === "cert45" ||
       pageId === "reportgen53" ||
@@ -1723,9 +1884,11 @@ export function AdminDataBridge() {
 
     return () => {
       cancelled = true;
+      feedbackEventsHydrationCache.clear();
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearInterval(poll);
+      document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
       document.removeEventListener("click", onCertAction, true);
     };
   }, [pathname]);
