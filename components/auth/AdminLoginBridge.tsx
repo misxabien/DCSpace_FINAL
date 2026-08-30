@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 /**
  * Wires admin login/logout to the shared API without changing admin page markup.
  * Errors only appear after a failed submit (same pattern as student LoginBridge).
- * Portal role hint (Admin vs Super Admin) comes from selection01; the signed-in
+ * Optional ?role=super-admin on login/register URLs sets portal copy; the signed-in
  * account role from MongoDB controls Administration access.
  */
 export function AdminLoginBridge() {
@@ -211,7 +211,7 @@ export function AdminLoginBridge() {
       event.preventDefault();
       event.stopPropagation();
       void logout().then(() => {
-        window.location.href = "/admin/selection01";
+        window.location.href = "/admin/login02";
       });
     };
 

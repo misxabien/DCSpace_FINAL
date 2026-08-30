@@ -3511,6 +3511,13 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 [data-admin-legacy] .ai-reco-title {
   font-size: 15px !important;
   font-weight: 650 !important;
+  color: #448aff !important;
+  text-shadow: none !important;
+  line-height: 1.35 !important;
+  margin: 0 !important;
+}
+[data-admin-legacy][data-admin-page="live16"] .dc-addon-card .metric-card-head {
+  margin-bottom: 12px !important;
 }
 
 /* deets43 Event Name — same size as Event Information (font-xl / 18px) */

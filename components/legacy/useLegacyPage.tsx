@@ -23,12 +23,26 @@ function loadScript(src: string): Promise<void> {
 
 export function useLegacyScripts(
   scripts: LegacyPageData["scripts"],
-  _pageId?: string,
+  ready = true,
 ) {
   useEffect(() => {
+    if (!ready) return;
+
     let cancelled = false;
 
     async function run() {
+      // Legacy inline scripts bind to #app, sidebar, etc. — wait until injected HTML exists.
+      for (let i = 0; i < 30; i++) {
+        if (cancelled) return;
+        if (
+          document.getElementById("app") ||
+          document.querySelector("[data-legacy-content]")
+        ) {
+          break;
+        }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+
       for (const script of scripts) {
         if (cancelled) return;
         if (script.type === "src") {
@@ -38,17 +52,17 @@ export function useLegacyScripts(
             // eslint-disable-next-line no-new-func
             new Function(script.value)();
           } catch (err) {
-            console.error("Legacy inline script error:", err);
+            console.warn("Legacy inline script error:", err);
           }
         }
       }
     }
 
-    run();
+    void run();
     return () => {
       cancelled = true;
     };
-  }, [scripts]);
+  }, [scripts, ready]);
 }
 
 export function LegacyContent({

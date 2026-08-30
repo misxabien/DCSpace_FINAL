@@ -312,6 +312,44 @@ export function ensureEventsFooterAtBottom(host: ParentNode | null) {
   });
 }
 
+/** Show / hide an empty-state note inside the admin notifications panel. */
+export function setNotifEmptyState(
+  list: Element | null,
+  empty: boolean,
+  copy?: { title?: string; text?: string },
+) {
+  if (!list) return;
+  ensureLegacyHideStyles();
+
+  const panel = list.closest(".notif-panel") || list.parentElement;
+  if (!panel) return;
+
+  const title = copy?.title || "No notifications";
+  const text =
+    copy?.text || "You're all caught up. New alerts will appear here when something needs your attention.";
+
+  let note = panel.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-notif-empty`);
+  if (!note) {
+    note = document.createElement("div");
+    note.className = `${EMPTY_CLASS} dc-notif-empty`;
+    note.setAttribute("role", "status");
+    note.innerHTML = `
+      <img class="${EMPTY_CLASS}__icon" src="/no-event.svg" width="96" height="96" alt="" aria-hidden="true" />
+      <h3 class="${EMPTY_CLASS}__title"></h3>
+      <p class="${EMPTY_CLASS}__text"></p>
+    `;
+    const footer = panel.querySelector(".notif-footer");
+    if (footer) panel.insertBefore(note, footer);
+    else panel.appendChild(note);
+  }
+
+  const titleEl = note.querySelector(`.${EMPTY_CLASS}__title`);
+  const textEl = note.querySelector(`.${EMPTY_CLASS}__text`);
+  if (titleEl) titleEl.textContent = title;
+  if (textEl) textEl.textContent = text;
+  setLegacyHidden(note, !empty);
+}
+
 /** Show / hide an empty-state note inside each events panel under a list host. */
 export function setEventsEmptyState(
   host: Element | null,

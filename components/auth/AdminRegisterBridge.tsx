@@ -22,7 +22,7 @@ type AdminRegisterDraft = {
 
 function pageIdFromPath(pathname: string | null) {
   if (!pathname) return "";
-  if (pathname === "/admin") return "selection01";
+  if (pathname === "/admin") return "login02";
   const parts = pathname.split("/").filter(Boolean);
   return parts[1] || "";
 }

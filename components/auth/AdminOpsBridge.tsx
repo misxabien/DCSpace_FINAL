@@ -2,7 +2,13 @@
 
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { hideLegacyDemoContent, patchChildren, patchTableRows, ensureEventsFooterAtBottom } from "@/lib/legacy-dom-patch";
+import {
+  hideLegacyDemoContent,
+  patchChildren,
+  patchTableRows,
+  ensureEventsFooterAtBottom,
+  setNotifEmptyState,
+} from "@/lib/legacy-dom-patch";
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
@@ -51,9 +57,14 @@ type AdminUser = {
 };
 
 async function fetchJson<T>(url: string): Promise<T | null> {
-  const res = await fetch(url, { cache: "no-store", credentials: "include" });
-  if (!res.ok) return null;
-  return (await res.json()) as T;
+  try {
+    const res = await fetch(url, { cache: "no-store", credentials: "include" });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    /* offline, dev restart, aborted navigation — keep legacy markup */
+    return null;
+  }
 }
 
 function ensureMakeAdminOverlay(): HTMLElement | null {
@@ -819,21 +830,31 @@ function wireAdminNotificationTabs() {
 
 async function hydrateAdminNotifications() {
   wireAdminNotificationTabs();
-  const data = await fetchJson<{
-    notifications: Array<{ id: string; title: string; body: string; createdAt: string; read: boolean }>;
-  }>(`/api/user/notifications?tab=${encodeURIComponent(adminNotifTab)}`);
-  if (!data?.notifications) return;
-  const items = data.notifications.slice(0, 50);
-  const allRes = await fetchJson<{
-    notifications: Array<{ read: boolean }>;
-  }>("/api/user/notifications?tab=general");
-  const unreadGeneral = (allRes?.notifications || []).filter((n) => !n.read).length;
-  setAdminNotifBadge(unreadGeneral);
-  patchChildren(
-    document.getElementById("notif-list"),
-    "article.notif-item",
-    items,
-    (el, item) => {
+  const list = document.getElementById("notif-list");
+  if (!list) return;
+
+  list.setAttribute("aria-busy", "true");
+  try {
+    const tabQuery = `/api/user/notifications?tab=${encodeURIComponent(adminNotifTab)}`;
+    const [data, allRes] = await Promise.all([
+      fetchJson<{
+        notifications: Array<{ id: string; title: string; body: string; createdAt: string; read: boolean }>;
+      }>(tabQuery),
+      adminNotifTab === "general"
+        ? Promise.resolve(null)
+        : fetchJson<{ notifications: Array<{ read: boolean }> }>("/api/user/notifications?tab=general"),
+    ]);
+    if (!data || !Array.isArray(data.notifications)) return;
+
+    const items = data.notifications.slice(0, 50);
+    if (adminNotifTab === "general") {
+      setAdminNotifBadge(items.filter((n) => !n.read).length);
+    } else {
+      const unreadGeneral = (allRes?.notifications || []).filter((n) => !n.read).length;
+      setAdminNotifBadge(unreadGeneral);
+    }
+
+    patchChildren(list, "article.notif-item", items, (el, item) => {
       el.dataset.notifId = item.id;
       el.classList.toggle("unread", !item.read);
       el.style.cursor = "pointer";
@@ -843,9 +864,12 @@ async function hydrateAdminNotifications() {
       if (title) title.textContent = item.title;
       if (body) body.textContent = item.body;
       if (when) when.textContent = formatWhen(item.createdAt);
-    },
-  );
-  wireAdminNotificationClicks();
+    });
+    setNotifEmptyState(list, items.length === 0);
+    wireAdminNotificationClicks();
+  } finally {
+    list.removeAttribute("aria-busy");
+  }
 }
 
 const RFID_EVENT_STORAGE_KEY = "dc-rfid-event-id";
@@ -3230,7 +3254,8 @@ export function AdminOpsBridge() {
       if (cancelled) return;
       try {
         if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
-          if (pageId !== "listp44") {
+          // Keep placeholder notifications visible until live data replaces them.
+          if (pageId !== "listp44" && pageId !== "notif1") {
             hideLegacyDemoContent(root);
           }
           root.setAttribute("data-dc-blanked", pageId);

@@ -5977,13 +5977,6 @@ a.stat-tile:hover .stat-value,
   background: rgba(68, 138, 255, 0.08) !important;
   box-shadow: none !important;
   color: var(--blue-link) !important;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-
-.listp-filter:hover {
-  background: rgba(68, 138, 255, 0.14) !important;
-  border-color: var(--blue) !important;
-  transform: translateY(-1px);
 }
 
 .listp-filter svg {

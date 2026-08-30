@@ -94,6 +94,14 @@ export async function syncExistingEventPdfReports(db?: Db) {
   const eventReports = await database.collection("event_reports").find({}).toArray();
   if (!eventReports.length) return 0;
 
+  const existing = await adminReportsCollection(database)
+    .find({ source: "event_pdf" })
+    .project({ eventId: 1, generatedAt: 1 })
+    .toArray();
+  const existingKeys = new Set(
+    existing.map((row) => `${String(row.eventId || "")}:${String(row.generatedAt || "")}`),
+  );
+
   const eventIds = [...new Set(eventReports.map((row) => String(row.eventId || "")).filter(Boolean))];
   const events = await eventsCollection(database)
     .find({
@@ -108,12 +116,8 @@ export async function syncExistingEventPdfReports(db?: Db) {
 
   let synced = 0;
   for (const report of eventReports) {
-    const exists = await adminReportsCollection(database).findOne({
-      source: "event_pdf",
-      eventId: report.eventId,
-      generatedAt: report.generatedAt,
-    });
-    if (exists) continue;
+    const key = `${String(report.eventId || "")}:${String(report.generatedAt || "")}`;
+    if (existingKeys.has(key)) continue;
     await storeEventPdfReport({
       eventId: report.eventId,
       eventTitle: titleById.get(report.eventId) || "Event",
@@ -124,10 +128,14 @@ export async function syncExistingEventPdfReports(db?: Db) {
       recordCount: Number((report.stats as { registrations?: number } | undefined)?.registrations || 0),
       db: database,
     });
+    existingKeys.add(key);
     synced += 1;
   }
   return synced;
 }
+
+let lastEventPdfSyncAt = 0;
+const EVENT_PDF_SYNC_INTERVAL_MS = 60_000;
 
 export async function listAdminReports(options?: {
   category?: AdminReportCategory;
@@ -136,7 +144,12 @@ export async function listAdminReports(options?: {
   syncEventPdfs?: boolean;
 }) {
   const database = options?.db || (await getUserDb());
-  if (options?.syncEventPdfs && (!options.category || options.category === "event")) {
+  if (
+    options?.syncEventPdfs &&
+    (!options.category || options.category === "event") &&
+    Date.now() - lastEventPdfSyncAt >= EVENT_PDF_SYNC_INTERVAL_MS
+  ) {
+    lastEventPdfSyncAt = Date.now();
     await syncExistingEventPdfReports(database).catch(() => 0);
   }
   const filter = options?.category ? { category: options.category } : {};
