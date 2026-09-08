@@ -187,7 +187,9 @@ async function hydrateSchoolDirectory(root: Element) {
 
   const schoolLabels: Record<string, string> = {
     sase: "School of Accountancy, Science, and Education (SASE)",
-    scmcs: "School of Communication, Multimedia, and Computer Studies (SCMCS)",
+    scemc: "School of Computing, Engineering, Multimedia, and Communication (SCEMC)",
+    // legacy key kept so old ?school=scmcs links still resolve
+    scmcs: "School of Computing, Engineering, Multimedia, and Communication (SCEMC)",
     snahs: "School of Nursing and Allied Health Studies (SNAHS)",
     smls: "School of Medical Laboratory Sciences (SMLS)",
     sihtm: "School of International Hospitality, Tourism, and Management (SIHTM)",

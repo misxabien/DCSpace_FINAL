@@ -205,11 +205,11 @@ try {
     collaboratingDepartments: [
       "Domini Xode — BSIT Student Council",
       "Department of Student Affairs and Services",
-      "School of Communication, Multimedia, and Computer Studies",
+      "School of Computing, Engineering, Multimedia, and Communication",
     ],
     audienceSchools: [
       "College of Information Technology",
-      "School of Communication, Multimedia, and Computer Studies",
+      "School of Computing, Engineering, Multimedia, and Communication",
     ],
     programActivities,
     department: "Domini Xode — BSIT Student Council",

@@ -39,7 +39,25 @@ export async function GET(request: Request) {
     const schoolKey = school.toLowerCase();
     const schoolAliases: Record<string, string[]> = {
       sase: ["sase", "accountancy", "science and education"],
-      scmcs: ["scmcs", "communication", "multimedia", "computer"],
+      scemc: [
+        "scemc",
+        "scmcs",
+        "computing",
+        "engineering",
+        "multimedia",
+        "communication",
+        "computer",
+      ],
+      // legacy query key alias
+      scmcs: [
+        "scemc",
+        "scmcs",
+        "computing",
+        "engineering",
+        "multimedia",
+        "communication",
+        "computer",
+      ],
       snahs: ["snahs", "nursing", "allied health"],
       smls: ["smls", "medical laboratory", "laboratory science"],
       sihtm: ["sihtm", "hospitality", "tourism"],

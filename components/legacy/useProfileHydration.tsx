@@ -48,7 +48,9 @@ const COURSE_LABELS: Record<string, string> = {
 
 const SCHOOL_LABELS: Record<string, string> = {
   sase: "SASE",
-  scmcs: "SCMCS",
+  scemc: "SCEMC",
+  // legacy key kept so stored scmcs values still display as SCEMC
+  scmcs: "SCEMC",
   sihtm: "SIHTM",
   shs: "SHS",
   snahs: "SNAHS",

@@ -76,14 +76,19 @@ function setSubmitting(form: HTMLFormElement, submitting: boolean) {
 }
 
 function getActiveRole(): "student" | "faculty" {
+  const hidden = (
+    document.getElementById("registerRole") as HTMLInputElement | null
+  )?.value?.trim()
+    .toLowerCase();
+  if (hidden === "faculty" || hidden === "student") return hidden;
+
   const active = document.querySelector<HTMLElement>(
     ".role-btn.active, .role-btn[aria-pressed='true']",
   );
-  const role =
-    active?.getAttribute("data-role") ||
-    window.localStorage.getItem("dcspaceAccountType") ||
-    readRegisterRole();
-  return role === "faculty" ? "faculty" : "student";
+  const fromBtn = active?.getAttribute("data-role");
+  if (fromBtn === "faculty" || fromBtn === "student") return fromBtn;
+
+  return readRegisterRole();
 }
 
 function idNumberFieldLabel(role: "student" | "faculty") {

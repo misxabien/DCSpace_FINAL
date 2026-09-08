@@ -25,6 +25,11 @@ export function writeRegisterRole(role: RegisterRole) {
   } catch {
     /* ignore */
   }
+  try {
+    window.localStorage.setItem("dcspaceAccountType", role);
+  } catch {
+    /* ignore */
+  }
 }
 
 export function applyIdNumberField(role: RegisterRole) {
@@ -70,7 +75,7 @@ export function applyRegisterRole(role: RegisterRole) {
   applyIdNumberField(role);
 }
 
-/** Wire Student/Faculty capsule buttons and sync the ID field label on create account. */
+/** Wire Student/Faculty capsule buttons (login) and sync ID field labels (create). */
 export function bindRegisterRoleControls(root: ParentNode): () => void {
   applyRegisterRole(readRegisterRole());
 
