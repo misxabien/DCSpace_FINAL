@@ -47,7 +47,7 @@ const ORG_ITEMS: Array<{ type: "section" | "group" | "option"; label: string }> 
     type: "option",
     label: "BSA/BSAIS - Junior Philippine Institute of Accountants (JPIA)",
   },
-  { type: "group", label: "SCMCS" },
+  { type: "group", label: "SCEMC" },
   { type: "option", label: "BACOMM - Association of Dominican Communicators" },
   { type: "option", label: "BMMA - Red Concepts" },
   { type: "option", label: "BSIT - Domini Xode" },

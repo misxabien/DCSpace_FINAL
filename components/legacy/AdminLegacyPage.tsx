@@ -365,6 +365,18 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
   border-radius: 6px !important;
   box-sizing: border-box !important;
 }
+[data-admin-page="register03"] .panel .field select,
+[data-admin-page="school04"] .panel .field select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background-color: #ffffff !important;
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 12.5L10 17L15 12.5' stroke='%23448AFF' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M5 7.5L10 3L15 7.5' stroke='%23448AFF' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 16px 16px !important;
+  padding-right: 40px !important;
+  cursor: pointer !important;
+}
 [data-admin-page="register03"] .panel h2,
 [data-admin-page="school04"] .panel h2 {
   font-size: 28px !important;

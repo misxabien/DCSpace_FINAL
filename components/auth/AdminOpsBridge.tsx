@@ -164,15 +164,16 @@ function wireAddUser() {
   // Super Admin creating Admin / Super Admin accounts — inject role picker
   if (fromManageAdmin && !form.querySelector("#account-role")) {
     const field = document.createElement("div");
-    field.className = "field";
+    field.className = "add-field";
     field.innerHTML = `
       <label for="account-role">Account Role</label>
       <select id="account-role" name="role" required>
+        <option value="" selected disabled>Select account role</option>
         <option value="admin">Admin</option>
         <option value="super-admin">Super Admin</option>
       </select>
     `;
-    const emailField = form.querySelector("#email")?.closest(".field");
+    const emailField = form.querySelector("#email")?.closest(".add-field, .field");
     if (emailField?.parentElement) {
       emailField.parentElement.insertBefore(field, emailField);
     } else {
@@ -285,7 +286,9 @@ async function hydrateSchoolDirectory(root: Element) {
 
   const schoolLabels: Record<string, string> = {
     sase: "School of Accountancy, Science, and Education (SASE)",
-    scmcs: "School of Communication, Multimedia, and Computer Studies (SCMCS)",
+    scemc: "School of Computing, Engineering, Multimedia, and Communication (SCEMC)",
+    // legacy key kept so old ?school=scmcs links still resolve
+    scmcs: "School of Computing, Engineering, Multimedia, and Communication (SCEMC)",
     snahs: "School of Nursing and Allied Health Studies (SNAHS)",
     smls: "School of Medical Laboratory Sciences (SMLS)",
     sihtm: "School of International Hospitality, Tourism, and Management (SIHTM)",
