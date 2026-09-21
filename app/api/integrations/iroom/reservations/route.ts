@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { createOrRefreshIroomReservation } from "@/lib/iroom/sync";
+import { ensureRoomReservationForEvent } from "@/lib/integrations/ensure-room-reservation";
 import { getAdminDb } from "@/lib/db/get-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
-/** Create or refresh an IRoomReserve reservation for a DC Space event. */
+/** Create or refresh an eRoomReserve reservation for a DC Space event. */
 export async function POST(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
-  let body: { eventId?: string };
+  let body: { eventId?: string; force?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -47,8 +47,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await createOrRefreshIroomReservation({
+    const result = await ensureRoomReservationForEvent({
       eventId,
+      force: Boolean(body.force),
       actor: {
         userId: actor.userId,
         email: actor.email,
@@ -62,13 +63,21 @@ export async function POST(request: Request) {
       },
     });
 
+    if (!result) {
+      return NextResponse.json(
+        { error: "Could not create room reservation for this event." },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
-      reservation: result.reservation,
+      reservationId: result.reservationId,
+      status: result.reservationStatus,
       openUrl: result.openUrl,
-      firebaseConfigured: result.firebaseConfigured,
+      pushedToEroomReserve: result.pushedToEroomReserve,
+      firebaseSynced: result.firebaseSynced,
+      warning: result.warning || null,
       eventId,
-      reservationId: result.reservation.reservationId,
-      status: result.reservation.status,
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
@@ -79,7 +88,7 @@ export async function POST(request: Request) {
   }
 }
 
-/** Read the linked IRoom reservation status for an event. */
+/** Read the linked eRoomReserve / iRoom reservation status for an event. */
 export async function GET(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
@@ -110,10 +119,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       eventId,
-      reservationId: event.iroomReservationId || "",
-      status: event.iroomStatus || "none",
-      roomId: event.iroomRoomId || "",
-      roomName: event.iroomRoomName || "",
+      reservationId: event.reservationId || event.iroomReservationId || "",
+      status: event.reservationStatus || event.iroomStatus || "none",
+      roomId: event.reservationRoomId || event.iroomRoomId || "",
+      roomName: event.reservationRoomName || event.iroomRoomName || "",
       rejectionReason: event.iroomRejectionReason || "",
       syncedAt: event.iroomSyncedAt || "",
     });

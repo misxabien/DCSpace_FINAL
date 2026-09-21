@@ -12,6 +12,7 @@ import {
 import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
 import { authFetch } from "@/lib/user-api";
+import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
 
 declare global {
   interface Window {
@@ -370,49 +371,49 @@ function buildTapLogsFromAttendance(
     scannedAt?: string;
     createdAt?: string;
   }>,
-  sessions: Array<{
-    tapInAt?: string;
-    tapOutAt?: string;
-    open?: boolean;
-  }>,
 ) {
-  if (sessions.length) {
-    return sessions
-      .map((session) => ({
-        tapIn: session.tapInAt ? formatAttendanceStamp(session.tapInAt) : "—",
-        tapOut: session.tapOutAt ? formatAttendanceStamp(session.tapOutAt) : "—",
-      }))
-      .filter((row) => row.tapIn !== "—" || row.tapOut !== "—");
-  }
-
   const chronological = [...attendance].sort(
     (a, b) =>
       new Date(String(a.scannedAt || a.createdAt || "")).getTime() -
       new Date(String(b.scannedAt || b.createdAt || "")).getTime(),
   );
 
-  const logs: Array<{ tapIn: string; tapOut: string }> = [];
+  const logs: Array<{ tapIn: string; tapOut: string; sortKey: string }> = [];
   let openIn = "";
 
   for (const row of chronological) {
     const stamp = String(row.scannedAt || row.createdAt || "");
+    if (!stamp) continue;
     if (String(row.action || "in") === "in") {
       if (openIn) {
-        logs.push({ tapIn: formatAttendanceStamp(openIn), tapOut: "—" });
+        logs.push({
+          tapIn: formatAttendanceStamp(openIn),
+          tapOut: "—",
+          sortKey: openIn,
+        });
       }
       openIn = stamp;
     } else if (openIn) {
       logs.push({
         tapIn: formatAttendanceStamp(openIn),
         tapOut: formatAttendanceStamp(stamp),
+        sortKey: openIn,
       });
       openIn = "";
     } else {
-      logs.push({ tapIn: "—", tapOut: formatAttendanceStamp(stamp) });
+      logs.push({
+        tapIn: "—",
+        tapOut: formatAttendanceStamp(stamp),
+        sortKey: stamp,
+      });
     }
   }
   if (openIn) {
-    logs.push({ tapIn: formatAttendanceStamp(openIn), tapOut: "—" });
+    logs.push({
+      tapIn: formatAttendanceStamp(openIn),
+      tapOut: "—",
+      sortKey: openIn,
+    });
   }
 
   return logs;
@@ -1013,7 +1014,12 @@ export function StudentDataBridge() {
 
         const sessions = data.sessions || [];
         const attendanceRows = data.attendance || [];
-        const logs = buildTapLogsFromAttendance(attendanceRows, sessions);
+        const logs = buildTapLogsFromAttendance(attendanceRows);
+        const prevRfid = (
+          window.DCEvents.attendanceRfid?.[eventId] || {}
+        ) as { logs?: typeof logs };
+        const logsChanged =
+          JSON.stringify(prevRfid.logs || []) !== JSON.stringify(logs);
 
         let openIn = "";
         let lastMinutes = 0;
@@ -1025,6 +1031,16 @@ export function StudentDataBridge() {
         } else if (sessions.length) {
           const last = sessions[0];
           if (last.tapInAt && !last.tapOutAt) openIn = last.tapInAt;
+        } else if (attendanceRows.length) {
+          const chronological = [...attendanceRows].sort(
+            (a, b) =>
+              new Date(String(a.scannedAt || a.createdAt || "")).getTime() -
+              new Date(String(b.scannedAt || b.createdAt || "")).getTime(),
+          );
+          const lastTap = chronological[chronological.length - 1];
+          if (lastTap && String(lastTap.action || "in") === "in") {
+            openIn = String(lastTap.scannedAt || lastTap.createdAt || "");
+          }
         }
 
         for (const session of sessions) {
@@ -1113,7 +1129,12 @@ export function StudentDataBridge() {
           },
         };
 
-        window.DCEvents.renderAttendanceDetails?.();
+        if (logsChanged || !prevRfid.logs) {
+          window.DCEvents.refreshAttendanceRfid?.(eventId) ||
+            window.DCEvents.renderAttendanceDetails?.();
+        } else {
+          window.DCEvents.updateAttendanceRfidLive?.(eventId);
+        }
         window.DCEvents.wireDetailActions?.(eventId);
       } catch {
         /* keep static panel */
@@ -1178,7 +1199,7 @@ export function StudentDataBridge() {
             emptyState.className = "dc-empty-state dc-empty-state--feedback";
             emptyState.setAttribute("role", "status");
             emptyState.innerHTML =
-              '<img class="dc-empty-state__icon" src="/no-event.svg" width="140" height="140" alt="" aria-hidden="true" />' +
+              `<img class="dc-empty-state__icon" src="${EMPTY_STATE_ICON}" width="160" height="161" alt="" aria-hidden="true" />` +
               "<h3 class=\"dc-empty-state__title\">No feedback submitted yet.</h3>" +
               '<p class="dc-empty-state__description">Tap Start Feedback above to tell us about your event experience.</p>';
             list.insertAdjacentElement("afterend", emptyState);
@@ -1477,7 +1498,7 @@ export function StudentDataBridge() {
     const t3 = window.setTimeout(runWithSavedSync, 900);
     // Attendance details: poll Mongo tap logs near real-time.
     const pollMs = pathname.startsWith("/attendance/details")
-      ? 1500
+      ? 1000
       : pathname.startsWith("/attendance")
         ? 3000
         : pathname === "/notifications"

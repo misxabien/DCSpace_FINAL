@@ -5,6 +5,7 @@
   var sortAscending = true;
   var currentPage = 1;
   var cachedLogs = [];
+  var lastLogSignature = '';
 
   function getQueryParam(name) {
     var params = new URLSearchParams(window.location.search);
@@ -24,18 +25,55 @@
       .replace(/"/g, '&quot;');
   }
 
+  function logSignature(logs) {
+    return JSON.stringify(
+      (logs || []).map(function (row) {
+        return String(row.sortKey || row.tapIn || row.tapOut || '');
+      })
+    );
+  }
+
   function sortedLogs(logs) {
     var copy = logs.slice();
     copy.sort(function (a, b) {
-      var aKey = String(a.tapIn || a.tapOut || '');
-      var bKey = String(b.tapIn || b.tapOut || '');
+      var aKey = String(a.sortKey || a.tapIn || a.tapOut || '');
+      var bKey = String(b.sortKey || b.tapIn || b.tapOut || '');
       if (sortAscending) return aKey.localeCompare(bKey);
       return bKey.localeCompare(aKey);
     });
     return copy;
   }
 
-  function renderRfidLogs(rfid) {
+  function ensureLiveIndicator() {
+    var section = document.querySelector('.rfid-section');
+    if (!section) return null;
+    var live = document.getElementById('rfid-live-indicator');
+    if (!live) {
+      live = document.createElement('p');
+      live.id = 'rfid-live-indicator';
+      live.className = 'rfid-live-indicator';
+      live.setAttribute('aria-live', 'polite');
+      live.style.cssText =
+        'margin:0 0 10px;font-size:12px;color:#64748b;line-height:1.4;';
+      var table = section.querySelector('.rfid-log-table');
+      if (table && table.parentElement) {
+        table.parentElement.insertBefore(live, table);
+      } else {
+        section.insertBefore(live, section.firstChild);
+      }
+    }
+    return live;
+  }
+
+  function touchLiveIndicator() {
+    var live = ensureLiveIndicator();
+    if (!live) return;
+    live.textContent = 'Live · updated just now';
+    live.dataset.updatedAt = String(Date.now());
+  }
+
+  function renderRfidLogs(rfid, options) {
+    options = options || {};
     var tbody = document.getElementById('rfid-log-body');
     if (!tbody) return;
 
@@ -43,13 +81,47 @@
       return row && (row.tapIn !== '—' || row.tapOut !== '—');
     }) : [];
 
+    var signature = logSignature(logs);
+    var logsChanged = signature !== lastLogSignature;
+    lastLogSignature = signature;
+
+    if (logsChanged && options.jumpToLatest && logs.length) {
+      currentPage = Math.max(1, Math.ceil(logs.length / LOGS_PER_PAGE));
+    }
+
     cachedLogs = logs;
     if (!logs.length) {
-      tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:#94a3b8;padding:20px;">No tap in / tap out records yet.</td></tr>';
+      tbody.innerHTML = '';
+      var table = tbody.closest('table');
+      var host = table ? table.parentElement : tbody.parentElement;
+      if (host) {
+        host.querySelectorAll('.dc-empty-state').forEach(function (node) {
+          node.remove();
+        });
+        if (table) table.hidden = true;
+        var empty = document.createElement('div');
+        empty.className = 'dc-empty-state dc-empty-state--compact';
+        empty.setAttribute('role', 'status');
+        empty.innerHTML =
+          '<img class="dc-empty-state__icon" src="/empty-state.svg" width="160" height="161" alt="" aria-hidden="true" />' +
+          '<h3 class="dc-empty-state__title">No tap in / tap out records yet.</h3>' +
+          '<p class="dc-empty-state__description">Your RFID activity will appear here after you tap in or out at the venue.</p>';
+        host.appendChild(empty);
+      }
       setText('rfid-page', 'Page 0 of 0');
       var pagination = document.querySelector('.rfid-pagination');
       if (pagination) pagination.hidden = true;
+      touchLiveIndicator();
       return;
+    }
+
+    var tableEl = tbody.closest('table');
+    if (tableEl) tableEl.hidden = false;
+    var hostEl = tableEl ? tableEl.parentElement : null;
+    if (hostEl) {
+      hostEl.querySelectorAll('.dc-empty-state').forEach(function (node) {
+        node.remove();
+      });
     }
 
     var ordered = sortedLogs(logs);
@@ -79,6 +151,8 @@
       if (prevBtn) prevBtn.disabled = currentPage <= 1;
       if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
     }
+
+    touchLiveIndicator();
   }
 
   function wireSortButtons() {
@@ -167,6 +241,42 @@
       ') to receive your certificate.';
   }
 
+  function applyRfidMetrics(rfid, event) {
+    setText('rfid-grace', rfid.graceRemaining || event.gracePeriod || '—');
+    setText('rfid-progress', String(rfid.progress || 0) + '%');
+    updateRfidNote(rfid, event);
+
+    var progressBar = document.getElementById('rfid-progress-bar');
+    if (progressBar) {
+      var pct = Math.min(100, Math.max(0, Number(rfid.progress || 0)));
+      progressBar.style.width = pct + '%';
+      progressBar.classList.toggle('is-complete', Boolean(rfid.qualified || pct >= 100));
+      progressBar.classList.toggle('is-incomplete', !rfid.qualified && pct < 100);
+    }
+  }
+
+  function refreshAttendanceRfid(eventId) {
+    if (!DCEvents) return;
+    var id = eventId || getQueryParam('id');
+    if (!id) return;
+    var event = DCEvents.getEventById(id);
+    var rfid = DCEvents.getAttendanceRfid(id);
+    if (!event || !rfid) return;
+    applyRfidMetrics(rfid, event);
+    renderRfidLogs(rfid, { jumpToLatest: true });
+  }
+
+  function updateAttendanceRfidLive(eventId) {
+    if (!DCEvents) return;
+    var id = eventId || getQueryParam('id');
+    if (!id) return;
+    var event = DCEvents.getEventById(id);
+    var rfid = DCEvents.getAttendanceRfid(id);
+    if (!event || !rfid) return;
+    applyRfidMetrics(rfid, event);
+    touchLiveIndicator();
+  }
+
   function renderAttendanceDetails() {
     var id = getQueryParam('id');
     if (!id) {
@@ -217,17 +327,7 @@
       svg.style.flexShrink = '0';
     });
 
-    setText('rfid-grace', rfid.graceRemaining || event.gracePeriod || '—');
-    setText('rfid-progress', String(rfid.progress || 0) + '%');
-    updateRfidNote(rfid, event);
-
-    var progressBar = document.getElementById('rfid-progress-bar');
-    if (progressBar) {
-      var pct = Math.min(100, Math.max(0, Number(rfid.progress || 0)));
-      progressBar.style.width = pct + '%';
-      progressBar.classList.toggle('is-complete', Boolean(rfid.qualified || pct >= 100));
-      progressBar.classList.toggle('is-incomplete', !rfid.qualified && pct < 100);
-    }
+    applyRfidMetrics(rfid, event);
 
     wireSortButtons();
     wirePagination();
@@ -239,4 +339,6 @@
   }
 
   DCEvents.renderAttendanceDetails = renderAttendanceDetails;
+  DCEvents.refreshAttendanceRfid = refreshAttendanceRfid;
+  DCEvents.updateAttendanceRfidLive = updateAttendanceRfidLive;
 })(window);

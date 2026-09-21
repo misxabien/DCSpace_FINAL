@@ -17,6 +17,10 @@ const ALLOWED_STATUSES: ReservationStatusValue[] = [
 /**
  * Inbound sync from eRoomReserve.
  * Authorization: Bearer <RESERVATION_STATUS_SYNC_SECRET>
+ *
+ * Prefer including eventId / dcSpaceEventId so the reservation links to the
+ * correct pending DC Space event. Without it, DC Space falls back to
+ * reservationId / room-name matching.
  */
 export async function POST(request: Request) {
   const authorization = request.headers.get("authorization");

@@ -8,6 +8,8 @@ import {
   recordAttendanceTap,
 } from "@/lib/user-server/record-attendance";
 
+export const dynamic = "force-dynamic";
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -143,13 +145,20 @@ export async function GET(request: Request) {
       qualifiedForCertificate: Boolean(doc.qualifiedForCertificate),
     }));
 
-    return NextResponse.json({
-      attendance,
-      sessions: pairSessions(attendance),
-      total: attendance.length,
-      source: "mongodb",
-      collection: "attendance_records",
-    });
+    return NextResponse.json(
+      {
+        attendance,
+        sessions: pairSessions(attendance),
+        total: attendance.length,
+        source: "mongodb",
+        collection: "attendance_records",
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      },
+    );
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

@@ -142,15 +142,22 @@ export async function applyIroomWebhook(payload: IroomWebhookPayload) {
 
   const db = await getAdminDb();
   const now = new Date().toISOString();
-  const update = {
+  const update: Record<string, unknown> = {
     iroomReservationId: payload.reservationId,
     iroomStatus: payload.status,
     iroomRoomId: payload.roomId || "",
     iroomRoomName: payload.roomName || "",
     iroomRejectionReason: payload.rejectionReason || "",
     iroomSyncedAt: now,
+    reservationId: payload.reservationId,
+    reservationStatus: payload.status === "none" ? "pending" : payload.status,
+    reservationRoomId: payload.roomId || "",
+    reservationRoomName: payload.roomName || "",
     updatedAt: now,
   };
+  if (payload.roomName) {
+    update.location = payload.roomName;
+  }
 
   const result = await eventsCollection(db).findOneAndUpdate(
     { _id: new ObjectId(payload.dcSpaceEventId) },
@@ -160,6 +167,36 @@ export async function applyIroomWebhook(payload: IroomWebhookPayload) {
 
   if (!result) {
     throw new Error("Linked event not found.");
+  }
+
+  // Mirror into reservationStatuses so admin approval UI (reservation-info path) stays in sync.
+  if (payload.status !== "none" && payload.status !== "pending") {
+    try {
+      const { upsertReservationStatus } = await import(
+        "@/lib/integrations/reservation-status"
+      );
+      const { getUserDb } = await import("@/lib/user-server/get-user-db");
+      const userDb = await getUserDb();
+      const status =
+        payload.status === "approved" ||
+        payload.status === "rejected" ||
+        payload.status === "cancelled"
+          ? payload.status
+          : "approved";
+      await upsertReservationStatus(userDb, {
+        reservationId: payload.reservationId,
+        status,
+        room: {
+          id: payload.roomId || "unknown",
+          name: payload.roomName || "On Campus",
+          capacity: 0,
+        },
+        updatedAt: now,
+        eventId: payload.dcSpaceEventId,
+      });
+    } catch {
+      /* non-blocking */
+    }
   }
 
   return result as SpaceEvent & { _id: ObjectId };

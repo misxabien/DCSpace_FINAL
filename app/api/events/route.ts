@@ -281,7 +281,51 @@ export async function POST(request: Request) {
   try {
     const db = await getAdminDb();
     const result = await eventsCollection(db).insertOne(doc);
-    const event = sanitizeEvent({ ...doc, _id: result.insertedId });
+    const eventId = String(result.insertedId);
+    let event = sanitizeEvent({ ...doc, _id: result.insertedId });
+
+    let roomReservation: Awaited<
+      ReturnType<
+        typeof import("@/lib/integrations/ensure-room-reservation").ensureRoomReservationForEvent
+      >
+    > = null;
+
+    if (
+      String(doc.venueType || "")
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
+        .includes("on campus")
+    ) {
+      try {
+        const { ensureRoomReservationForEvent } = await import(
+          "@/lib/integrations/ensure-room-reservation"
+        );
+        roomReservation = await ensureRoomReservationForEvent({
+          eventId,
+          actor: {
+            userId: actor.kind === "user" ? actor.id : undefined,
+            email:
+              actor.kind === "user"
+                ? actor.email
+                : actor.session.email,
+            name:
+              actor.kind === "user"
+                ? actor.name
+                : actor.session.name,
+          },
+        });
+        if (roomReservation) {
+          const refreshed = await eventsCollection(db).findOne({
+            _id: result.insertedId,
+          });
+          if (refreshed) {
+            event = sanitizeEvent(refreshed as SpaceEvent & { _id: typeof result.insertedId });
+          }
+        }
+      } catch {
+        /* event is saved even if eRoomReserve is temporarily unavailable */
+      }
+    }
 
     void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
       logUserActivity({
@@ -306,7 +350,21 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ event }, { status: 201 });
+    return NextResponse.json(
+      {
+        event,
+        roomReservation: roomReservation
+          ? {
+              reservationId: roomReservation.reservationId,
+              status: roomReservation.reservationStatus,
+              openUrl: roomReservation.openUrl,
+              pushedToEroomReserve: roomReservation.pushedToEroomReserve,
+              warning: roomReservation.warning || null,
+            }
+          : null,
+      },
+      { status: 201 },
+    );
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

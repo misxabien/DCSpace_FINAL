@@ -741,6 +741,11 @@ export function CreateEventView() {
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         event?: { id?: string };
+        roomReservation?: {
+          openUrl?: string;
+          pushedToEroomReserve?: boolean;
+          warning?: string | null;
+        };
       };
       if (!res.ok) {
         throw new Error(data.error || "Failed to save event to the server.");
@@ -753,11 +758,28 @@ export function CreateEventView() {
       } catch {
         /* ignore */
       }
-      showToast(
-        editingId ? "Event updated successfully." : "Event created successfully.",
-        "success",
-        { durationMs: 1800 },
-      );
+
+      const isOnCampus = venueType.trim().toLowerCase().includes("on campus");
+      if (isOnCampus && data.roomReservation?.openUrl) {
+        showToast(
+          data.roomReservation.pushedToEroomReserve
+            ? "Event created. Room reservation sent to eRoomReserve."
+            : "Event saved. Continue the room request in eRoomReserve.",
+          "success",
+          { durationMs: 3200 },
+        );
+        try {
+          window.open(data.roomReservation.openUrl, "_blank", "noopener,noreferrer");
+        } catch {
+          /* popup blocked — link remains in form */
+        }
+      } else {
+        showToast(
+          editingId ? "Event updated successfully." : "Event created successfully.",
+          "success",
+          { durationMs: 1800 },
+        );
+      }
       if (navigateAfterToastRef.current) clearTimeout(navigateAfterToastRef.current);
       navigateAfterToastRef.current = setTimeout(() => {
         navigateAfterToastRef.current = null;
@@ -1662,7 +1684,11 @@ export function CreateEventView() {
                     <span className={styles.fieldLabel}>Room Reservation Form<RequiredMark /></span>
                     <a
                       className={styles.iroomBtn}
-                      href="https://eroomreserve.vercel.app/"
+                      href={
+                        editingId
+                          ? `https://eroomreserve.vercel.app/?dcSpaceEventId=${encodeURIComponent(editingId)}&source=dcspace`
+                          : "https://eroomreserve.vercel.app/"
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                     >

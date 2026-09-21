@@ -9,6 +9,7 @@ export type ReservationRoom = {
 };
 
 export type ReservationStatusValue =
+  | "pending"
   | "approved"
   | "rejected"
   | "cancelled"
@@ -33,6 +34,7 @@ export function reservationUiLabel(status?: string | null) {
   if (status === "rejected") return "Rejected";
   if (status === "cancelled") return "Cancelled";
   if (status === "completed") return "Completed";
+  if (status === "pending") return "Pending eRoomReserve";
   if (status) return status.replace(/^\w/, (c) => c.toUpperCase());
   return "Pending";
 }
@@ -88,7 +90,7 @@ export async function upsertReservationStatus(
 }
 
 async function linkReservationToEvents(
-  db: Db,
+  statusDb: Db,
   input: {
     reservationId: string;
     status: ReservationStatusValue;
@@ -96,15 +98,32 @@ async function linkReservationToEvents(
     eventId?: string;
   },
 ) {
-  const events = eventsCollection(db);
-  const patch = {
+  // Events live in the admin DB; reservationStatuses stay in the user DB.
+  const { getAdminDb } = await import("@/lib/db/get-db");
+  const adminDb = await getAdminDb();
+  const events = eventsCollection(adminDb);
+  const now = new Date().toISOString();
+  const iroomStatus =
+    input.status === "completed" || input.status === "approved"
+      ? "approved"
+      : input.status === "rejected"
+        ? "rejected"
+        : input.status === "cancelled"
+          ? "cancelled"
+          : "pending";
+  const patch: Record<string, unknown> = {
     reservationId: input.reservationId,
     reservationStatus: input.status,
     reservationRoomId: input.room.id,
     reservationRoomName: input.room.name,
     reservationCapacity: input.room.capacity,
+    iroomReservationId: input.reservationId,
+    iroomStatus,
+    iroomRoomId: input.room.id,
+    iroomRoomName: input.room.name,
     location: input.room.name,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
+    iroomSyncedAt: now,
   };
 
   if (input.eventId && MongoObjectId.isValid(input.eventId)) {
@@ -114,7 +133,12 @@ async function linkReservationToEvents(
 
   // Prefer events already tagged with this reservation.
   const byReservation = await events.updateMany(
-    { reservationId: input.reservationId },
+    {
+      $or: [
+        { reservationId: input.reservationId },
+        { iroomReservationId: input.reservationId },
+      ],
+    },
     { $set: patch },
   );
   if (byReservation.matchedCount > 0) return;
@@ -127,13 +151,14 @@ async function linkReservationToEvents(
         { location: input.room.name },
         { reservationRoomName: input.room.name },
         { reservationRoomId: input.room.id },
+        { iroomRoomName: input.room.name },
       ],
     },
     { sort: { updatedAt: -1 } },
   );
   if (pending?._id) {
     await events.updateOne({ _id: pending._id as ObjectId }, { $set: patch });
-    await reservationStatusesCollection(db).updateOne(
+    await reservationStatusesCollection(statusDb).updateOne(
       { reservationId: input.reservationId },
       { $set: { eventId: String(pending._id) } },
     );

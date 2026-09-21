@@ -292,8 +292,13 @@ export async function PATCH(request: Request, context: RouteContext) {
         ),
       });
       const reservationStatus =
-        reservation?.status || String(existing.reservationStatus || "");
-      if (!isRoomValidatedForEventApproval(reservationStatus)) {
+        reservation?.status ||
+        String(existing.reservationStatus || "") ||
+        String(existing.iroomStatus || "");
+      const iroomOk =
+        existing.iroomStatus === "approved" ||
+        String(existing.iroomStatus || "") === "completed";
+      if (!isRoomValidatedForEventApproval(reservationStatus) && !iroomOk) {
         return NextResponse.json(
           {
             error:
@@ -327,6 +332,35 @@ export async function PATCH(request: Request, context: RouteContext) {
     const actorEmail = isAdmin && !("error" in admin) ? admin.session.email : actor && !("error" in actor) ? actor.email : "";
     const actorName = isAdmin && !("error" in admin) ? admin.session.name : actor && !("error" in actor) ? actor.name : "";
     const actorRole = isAdmin && !("error" in admin) ? admin.session.role : actor && !("error" in actor) ? actor.role : "";
+
+    let roomReservation: Awaited<
+      ReturnType<
+        typeof import("@/lib/integrations/ensure-room-reservation").ensureRoomReservationForEvent
+      >
+    > = null;
+    if (
+      String(event.venueType || "")
+        .toLowerCase()
+        .replace(/[_-]+/g, " ")
+        .includes("on campus") &&
+      !isAdmin
+    ) {
+      try {
+        const { ensureRoomReservationForEvent } = await import(
+          "@/lib/integrations/ensure-room-reservation"
+        );
+        roomReservation = await ensureRoomReservationForEvent({
+          eventId: event.id,
+          actor: {
+            userId: actor && !("error" in actor) ? actor.userId : undefined,
+            email: actorEmail,
+            name: actorName,
+          },
+        });
+      } catch {
+        /* keep event update even if eRoomReserve is down */
+      }
+    }
 
     if (body.status && isAdmin) {
       const type =
@@ -446,7 +480,28 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    return NextResponse.json({ event });
+    let responseEvent = event;
+    if (roomReservation) {
+      const refreshed = await eventsCollection(writeDb).findOne({ _id: new ObjectId(id) });
+      if (refreshed) {
+        responseEvent = sanitizeEvent(refreshed as SpaceEvent & { _id: ObjectId }, {
+          includeMedia: true,
+        });
+      }
+    }
+
+    return NextResponse.json({
+      event: responseEvent,
+      roomReservation: roomReservation
+        ? {
+            reservationId: roomReservation.reservationId,
+            status: roomReservation.reservationStatus,
+            openUrl: roomReservation.openUrl,
+            pushedToEroomReserve: roomReservation.pushedToEroomReserve,
+            warning: roomReservation.warning || null,
+          }
+        : null,
+    });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
