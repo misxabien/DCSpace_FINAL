@@ -37,6 +37,8 @@ declare global {
       renderEventDetails?: () => void;
       renderExploreDetails?: () => void;
       renderAttendanceDetails?: () => void;
+      refreshAttendanceRfid?: (eventId?: string) => void;
+      updateAttendanceRfidLive?: (eventId?: string) => void;
       renderSubmitPage?: () => void;
       bindDetailBack?: (fallbackHref?: string) => void;
       wireDetailActions?: (eventId: string) => void;
