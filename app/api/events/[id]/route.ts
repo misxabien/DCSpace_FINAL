@@ -39,7 +39,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const found = await findEventByIdAcrossDatabases(id);
+    const { searchParams } = new URL(request.url);
+    const includeMedia = searchParams.get("media") === "1";
+    const found = await findEventByIdAcrossDatabases(id, {
+      includeBlobs: includeMedia,
+    });
     if (!found) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -73,8 +77,9 @@ export async function GET(request: Request, context: RouteContext) {
       if (!doc.location) doc.location = reservation.room.name;
     }
 
+    // Default: lean JSON (attachment URLs only). Pass ?media=1 for inline base64.
     const event = applyHardcodedEroomApproval(
-      sanitizeEvent(doc, { includeMedia: true }),
+      sanitizeEvent(doc, { includeMedia }),
     );
 
     return NextResponse.json({ event });

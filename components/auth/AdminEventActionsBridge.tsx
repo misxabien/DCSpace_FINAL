@@ -17,6 +17,7 @@ type LiveEvent = {
   reviewNote: string;
   reviewedByEmail?: string;
   createdAt: string;
+  updatedAt?: string;
   requiredFiles?: string[];
   speakers?: string[];
   allowedCourses?: string[];
@@ -28,6 +29,7 @@ type LiveEvent = {
   venueType?: string;
   category?: string;
   attendanceRequired?: string;
+  gracePeriod?: string;
   conceptPaperName?: string;
   certificateTemplateName?: string;
   programFileName?: string;
@@ -355,11 +357,26 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
     host.classList.remove("is-loading-details");
   }
 
-  const title = root.querySelector("#event-info-card h3, .figma-detail-top h3, .detail-top-main h3");
+  const title = root.querySelector(
+    "#event-info-card h3, .figma-detail-top h3, .detail-top-main h3, .detail-card h3, h3.detail-title",
+  );
   if (title) title.textContent = event.title || "Event";
 
-  const desc = root.querySelector("#event-info-card .desc, .detail-top-main .desc");
+  const desc = root.querySelector("#event-info-card .desc, .detail-top-main .desc, .detail-card .desc");
   if (desc) desc.textContent = event.description || "No description provided.";
+
+  const submissionLabel = root.querySelector(".submission-date-label");
+  if (submissionLabel) {
+    submissionLabel.textContent = event.createdAt
+      ? `Submitted ${formatDate(event.createdAt)}`
+      : "EVENT SUBMISSION DATE";
+  }
+  const approvedLabel = root.querySelector(".approved-date-label");
+  if (approvedLabel) {
+    approvedLabel.textContent = event.reviewedByEmail
+      ? `Approved ${formatDate(event.updatedAt || event.createdAt)}`
+      : "APPROVED EVENT DATE";
+  }
 
   fillEventPoster(root, event);
 
@@ -378,7 +395,7 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   setField("END DATE", formatDate(event.endsAt));
   setField("START TIME", formatTime(event.startsAt));
   setField("END TIME", formatTime(event.endsAt));
-  setField("VENUE", event.location || "—");
+  setField("VENUE", event.reservationRoomName || event.location || "—");
   setField("ORGANIZER", event.organizerName || event.organizerEmail || "—");
   setField("STATUS", (event.status || "—").toUpperCase());
   setField("EVENT STATUS", (event.status || "—").toUpperCase());
@@ -391,7 +408,7 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   setField("ORGANIZATION", event.department || event.organizerName || "—");
   setField("DURATION", event.attendanceRequired || "—");
   setField("MINIMUM ATTENDANCE", event.attendanceRequired || "—");
-  setField("GRACE PERIOD", "—");
+  setField("GRACE PERIOD", event.gracePeriod || "—");
   setField("ANNOUNCEMENTS", event.announcements || "—");
 
   const submittedBy =
@@ -621,12 +638,18 @@ export function AdminEventActionsBridge() {
         rootEl.classList.add("is-loading-details");
       }
 
-      const eventId = queryId || (await resolveAdminEventId(queryId, statusParam));
-      if (!eventId || cancelled) return;
+      const eventId = queryId || (await resolveAdminEventId(queryId, statusParam || "live"));
+      if (!eventId || cancelled) {
+        if (rootEl instanceof HTMLElement) {
+          rootEl.classList.remove("is-loading-details");
+        }
+        return;
+      }
       if (!queryId) {
         const next = new URL(window.location.href);
         if (next.searchParams.get("id") !== eventId) {
           next.searchParams.set("id", eventId);
+          if (statusParam) next.searchParams.set("status", statusParam);
           window.history.replaceState({}, "", next.toString());
         }
       }
@@ -640,23 +663,32 @@ export function AdminEventActionsBridge() {
               cached.event.reservationStatus === "completed",
             cached.event.reservationStatus || "",
           );
+        } else {
+          // Replace Figma placeholders immediately so "Event Name" never sticks.
+          const title = rootEl.querySelector(
+            "#event-info-card h3, .detail-top-main h3, .detail-card h3",
+          );
+          if (title && /^(event name|loading)/i.test((title.textContent || "").trim())) {
+            title.textContent = "Loading event…";
+          }
         }
 
         const event = await fetchEventDetails(eventId);
         if (event && !cancelled) {
-          window.requestAnimationFrame(() => {
-            if (cancelled) return;
-            fillEventDetails(rootEl, event);
-            showPendingReviewActions(
-              event.status,
-              event.reservationStatus === "approved" ||
-                event.reservationStatus === "completed",
-              event.reservationStatus || "",
-            );
-          });
+          fillEventDetails(rootEl, event);
+          showPendingReviewActions(
+            event.status,
+            event.reservationStatus === "approved" ||
+              event.reservationStatus === "completed",
+            event.reservationStatus || "",
+          );
+        } else if (rootEl instanceof HTMLElement) {
+          rootEl.classList.remove("is-loading-details");
         }
       } catch {
-        /* keep static */
+        if (rootEl instanceof HTMLElement) {
+          rootEl.classList.remove("is-loading-details");
+        }
       }
     };
 

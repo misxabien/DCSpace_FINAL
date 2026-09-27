@@ -936,22 +936,28 @@ async function listRfidEligibleEvents() {
 async function resolveRfidEventId() {
   const query = new URLSearchParams(window.location.search);
   const fromQuery = (query.get("id") || query.get("eventId") || "").trim();
-  if (fromQuery) {
-    rememberRfidEventId(fromQuery);
-    return fromQuery;
-  }
-  if (rfidScanEventId) return rfidScanEventId;
+  const candidates = [fromQuery, rfidScanEventId];
   try {
     const stored = sessionStorage.getItem(RFID_EVENT_STORAGE_KEY) || "";
-    if (stored) {
-      rememberRfidEventId(stored);
-      return stored;
-    }
+    if (stored) candidates.push(stored);
   } catch {
     /* ignore */
   }
 
   const eligible = await listRfidEligibleEvents();
+  const eligibleIds = new Set(eligible.map((event) => event.id));
+
+  // Prefer an explicit URL/session id only when it still exists in Mongo.
+  for (const candidate of candidates) {
+    const id = candidate.trim();
+    if (!id) continue;
+    if (eligibleIds.size === 0 || eligibleIds.has(id)) {
+      rememberRfidEventId(id);
+      return id;
+    }
+  }
+
+  // Fall back to the newest live/approved event from Mongo (not a hardcoded id).
   if (eligible[0]?.id) {
     rememberRfidEventId(eligible[0].id);
     return eligible[0].id;
@@ -1280,37 +1286,70 @@ type RfidLivePayload = {
   }>;
 };
 
+const RFID_EVENT_PLACEHOLDERS = new Set([
+  "",
+  "event name",
+  "loading event…",
+  "loading event...",
+  "loading event",
+]);
+
+function isRfidEventTitlePlaceholder(value: string) {
+  return RFID_EVENT_PLACEHOLDERS.has(value.trim().toLowerCase());
+}
+
+function setRfidEventTitle(title: string) {
+  const nameEl = document.querySelector(".event-name");
+  if (!nameEl) return;
+  const next = title.trim();
+  nameEl.textContent = next || "Loading event…";
+}
+
 function applyRfidLivePayload(
   data: RfidLivePayload | null,
-  options?: { preserveProfileEmail?: string },
+  options?: {
+    preserveProfileEmail?: string;
+    /** Polls must leave the desk profile alone — only scan responses own it. */
+    applyLatestProfile?: boolean;
+  },
 ) {
   const eventTitle = data?.event?.title || data?.latestScan?.eventTitle || "";
-  const nameEl = document.querySelector(".event-name");
-  if (nameEl) nameEl.textContent = eventTitle || "Event Name";
+  if (eventTitle) {
+    setRfidEventTitle(eventTitle);
+  } else {
+    const nameEl = document.querySelector(".event-name");
+    const current = (nameEl?.textContent || "").trim();
+    if (!nameEl || isRfidEventTitlePlaceholder(current)) {
+      setRfidEventTitle("Loading event…");
+    }
+  }
 
   const latest = data?.latestScan;
   const preserveEmail = (options?.preserveProfileEmail || "").trim().toLowerCase();
   const latestEmail = latest?.email.trim().toLowerCase() || "";
+  const applyProfile = options?.applyLatestProfile === true;
 
-  if (latest && (!preserveEmail || latestEmail === preserveEmail)) {
-    applyRfidParticipantProfile({
-      name: latest.participantName,
-      email: latest.email,
-      studentNumber: latest.studentNumber,
-      course: latest.course,
-      school: latest.school,
-      organization: latest.organization,
-      organizationRole: latest.organizationRole,
-      organizationPosition: latest.organizationPosition,
-      rfidNumber: latest.rfidNumber,
-      photoUrl: latest.photoUrl,
-    });
-  } else if (!preserveEmail && !latest) {
-    applyRfidParticipantProfile(null);
-    setTapTimes("", "");
+  if (applyProfile) {
+    if (latest && (!preserveEmail || latestEmail === preserveEmail)) {
+      applyRfidParticipantProfile({
+        name: latest.participantName,
+        email: latest.email,
+        studentNumber: latest.studentNumber,
+        course: latest.course,
+        school: latest.school,
+        organization: latest.organization,
+        organizationRole: latest.organizationRole,
+        organizationPosition: latest.organizationPosition,
+        rfidNumber: latest.rfidNumber,
+        photoUrl: latest.photoUrl,
+      });
+    } else if (!preserveEmail && !latest) {
+      applyRfidParticipantProfile(null);
+      setTapTimes("", "");
+    }
   }
 
-  const emailForTimes = preserveEmail || latestEmail;
+  const emailForTimes = preserveEmail || (applyProfile ? latestEmail : "");
   if (emailForTimes) {
     const userScans = (data?.recentScans || []).filter(
       (row) => row.email.trim().toLowerCase() === emailForTimes,
@@ -1319,37 +1358,84 @@ function applyRfidLivePayload(
     const lastOut = userScans.find((row) => row.action === "out")?.scannedAt || "";
     if (lastIn || lastOut) {
       setTapTimes(lastIn, lastOut);
-    } else if (latest && latestEmail === emailForTimes) {
+    } else if (applyProfile && latest && latestEmail === emailForTimes) {
       setTapTimes(
         latest.action === "in" ? latest.scannedAt : "",
         latest.action === "out" ? latest.scannedAt : "",
       );
     }
   }
-
-  setRfidAlert("");
 }
 
-async function refreshRfidUi(options?: { light?: boolean; preserveProfileEmail?: string }) {
+async function applyRfidEventTitleHint(eventId: string) {
+  const id = eventId.trim();
+  if (!id) return;
+  const nameEl = document.querySelector(".event-name");
+  if (!nameEl) return;
+  if (!isRfidEventTitlePlaceholder(nameEl.textContent || "")) return;
+
+  // Prefer Mongo event list (already loaded for eligibility), then lean event GET.
+  try {
+    const eligible = await listRfidEligibleEvents();
+    const match = eligible.find((event) => event.id === id);
+    if (match?.title) {
+      setRfidEventTitle(match.title);
+      return;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const data = await fetchJson<{ event?: { title?: string } }>(
+    `/api/events/${encodeURIComponent(id)}`,
+  );
+  if (data?.event?.title) {
+    setRfidEventTitle(data.event.title);
+  }
+}
+
+async function refreshRfidUi(options?: {
+  light?: boolean;
+  preserveProfileEmail?: string;
+  applyLatestProfile?: boolean;
+}) {
   const eventId = rfidScanEventId || (await resolveRfidEventId());
   if (!eventId) {
     clearRfidDemoUi();
     setRfidAlert("No approved or live event available for attendance.", true);
-    const nameEl = document.querySelector(".event-name");
-    if (nameEl) nameEl.textContent = "Event Name";
+    setRfidEventTitle("No live event");
     return;
   }
 
   rememberRfidEventId(eventId);
+  void applyRfidEventTitleHint(eventId);
   const query = new URLSearchParams({ eventId });
   if (options?.light) query.set("light", "1");
   const data = await fetchJson<RfidLivePayload>(
     `/api/admin/attendance/live?${query.toString()}`,
   );
-  applyRfidLivePayload(data, options);
+  if (!data) {
+    // Keep any in-progress scan alert; only show this if the desk is idle.
+    const alert = document.querySelector<HTMLElement>(".rfid-alert");
+    if (!alert?.textContent) {
+      setRfidAlert("Could not load live attendance from the database. Retrying…", true);
+    }
+    return;
+  }
+  applyRfidLivePayload(data, {
+    preserveProfileEmail: options?.preserveProfileEmail,
+    // Default false so 5s polls never pin the last Mongo scan (e.g. Misxa) over the card just tapped.
+    applyLatestProfile: options?.applyLatestProfile === true,
+  });
 }
 
-async function hydrateRfid(options?: { light?: boolean }) {
+async function hydrateRfid(options?: { light?: boolean; resetProfile?: boolean }) {
+  // Only wipe the desk on first paint / explicit reset — never on the 5s poll.
+  if (options?.resetProfile !== false && !rfidScannerWired) {
+    clearRfidDemoUi();
+    setRfidEventTitle("Loading event…");
+  }
+
   const eventId = await resolveRfidEventId();
   if (!rfidScannerWired) {
     wireRfidScanner(eventId);
@@ -1361,12 +1447,12 @@ async function hydrateRfid(options?: { light?: boolean }) {
   await syncRfidEventPicker(eventId);
 
   if (!eventId) {
-    clearRfidDemoUi();
     setRfidAlert("No approved or live event available for attendance.", true);
-    const nameEl = document.querySelector(".event-name");
-    if (nameEl) nameEl.textContent = "Event Name";
+    setRfidEventTitle("No live event");
     return;
   }
+
+  void applyRfidEventTitleHint(eventId);
 
   const card = document.querySelector(".profile-card");
   if (card instanceof HTMLElement && !card.classList.contains("dc-profile-live")) {
@@ -1375,10 +1461,12 @@ async function hydrateRfid(options?: { light?: boolean }) {
 
   if (rfidLiveInflight) {
     await rfidLiveInflight;
-    return;
   }
 
-  rfidLiveInflight = refreshRfidUi({ light: options?.light }).finally(() => {
+  rfidLiveInflight = refreshRfidUi({
+    light: options?.light,
+    applyLatestProfile: false,
+  }).finally(() => {
     rfidLiveInflight = null;
   });
   await rfidLiveInflight;
@@ -1438,8 +1526,14 @@ function wireRfidScanner(eventId: string) {
   let lastDeskSubmitAt = 0;
 
   const submitScan = async (rawValue?: string) => {
-    const rfidNumber = String(rawValue ?? input.value).trim();
-    if (!rfidNumber) return;
+    // Prefer digit run from HID wedges; keep alphanumeric tags like RFID-ARA-001.
+    const raw = String(rawValue ?? input.value).trim();
+    const digitRun = raw.replace(/\D/g, "");
+    const rfidNumber =
+      digitRun.length >= 6 && digitRun.length >= raw.replace(/\s/g, "").length * 0.7
+        ? digitRun
+        : raw.replace(/\s+/g, "");
+    if (!rfidNumber || rfidNumber.length < 3) return;
 
     const action = rfidScanMode === "out" ? "out" : "in";
     const submitKey = `${rfidScanEventId}:${rfidNumber}:${action}`;
@@ -1454,6 +1548,7 @@ function wireRfidScanner(eventId: string) {
     hidBuffer = "";
     window.clearTimeout(hidTimer);
     input.value = "";
+    setRfidAlert(`Reading RFID ${rfidNumber}…`);
 
     if (!rfidScanEventId) {
       const resolved = await resolveRfidEventId();
@@ -1472,6 +1567,43 @@ function wireRfidScanner(eventId: string) {
       if (!res.ok) {
         const message = String(data.error || "Scan failed.");
         const code = String(data.code || "");
+        const errUser = data.user as
+          | {
+              name?: string;
+              email?: string;
+              studentNumber?: string;
+              course?: string;
+              school?: string;
+              organization?: string;
+              organizationRole?: string;
+              organizationPosition?: string;
+              rfidNumber?: string;
+              photoUrl?: string;
+            }
+          | undefined;
+        // Always show the card owner when Mongo resolved the RFID — even on duplicate/409.
+        if (errUser?.name || errUser?.email) {
+          applyRfidParticipantProfile(errUser);
+          const tapInAt = String(data.lastTapInAt || "").trim();
+          const tapOutAt = String(data.lastTapOutAt || "").trim();
+          if (tapInAt || tapOutAt) {
+            setTapTimes(tapInAt || undefined, tapOutAt || undefined);
+          } else {
+            const syncedEmail = String(errUser.email || "").trim().toLowerCase();
+            if (syncedEmail) {
+              window.requestAnimationFrame(() => {
+                void refreshRfidUi({
+                  light: true,
+                  preserveProfileEmail: syncedEmail,
+                  applyLatestProfile: false,
+                });
+              });
+            }
+          }
+        } else if (code === "unknown_rfid") {
+          applyRfidParticipantProfile(null);
+          setTapTimes("", "");
+        }
         if (
           code === "duplicate_entry" ||
           code === "duplicate_warning" ||
@@ -1490,7 +1622,13 @@ function wireRfidScanner(eventId: string) {
       }
       setRfidAlert("");
       const scan = data.scan as
-        | { action?: string; scannedAt?: string; duplicate?: boolean }
+        | {
+            action?: string;
+            scannedAt?: string;
+            duplicate?: boolean;
+            participantName?: string;
+            email?: string;
+          }
         | undefined;
       if (scan?.duplicate) {
         showRfidDuplicatePopup(
@@ -1513,18 +1651,34 @@ function wireRfidScanner(eventId: string) {
             photoUrl?: string;
           }
         | undefined;
-      if (user) applyRfidParticipantProfile(user);
+      // Always paint the owner from the scan response first (authoritative).
+      if (user?.name || user?.email) {
+        applyRfidParticipantProfile(user);
+      } else if (scan?.participantName || scan?.email) {
+        applyRfidParticipantProfile({
+          name: scan.participantName,
+          email: scan.email,
+          rfidNumber,
+        });
+      }
       if (scan?.action === "in") {
         setTapTimes(scan.scannedAt || new Date().toISOString(), "");
       } else if (scan?.action === "out") {
         setTapTimes(undefined, scan.scannedAt || new Date().toISOString());
       }
+      const ownerLabel = user?.name || scan?.participantName || "Participant";
+      setRfidAlert(
+        `${ownerLabel} — Tap ${scan?.action === "out" ? "Out" : "In"} recorded`,
+      );
       // Background sync only — scan response already updated the UI instantly.
-      const syncedEmail = String(user?.email || "").trim().toLowerCase();
+      const syncedEmail = String(user?.email || scan?.email || "")
+        .trim()
+        .toLowerCase();
       window.requestAnimationFrame(() => {
         void refreshRfidUi({
           light: true,
           preserveProfileEmail: syncedEmail,
+          applyLatestProfile: false,
         });
       });
     } catch {
@@ -1549,11 +1703,21 @@ function wireRfidScanner(eventId: string) {
   if (document.body.dataset.dcRfidHidWired !== "1") {
     document.body.dataset.dcRfidHidWired = "1";
 
-    const flushHid = () => {
+    const flushHid = (reason: "enter" | "idle") => {
       const value = hidBuffer.trim();
       hidBuffer = "";
       input.value = "";
-      if (value) void submitScan(value);
+      window.clearTimeout(hidTimer);
+      if (!value) return;
+      // Ignore idle flushes of short fragments (incomplete card reads).
+      const digits = value.replace(/\D/g, "");
+      if (reason === "idle" && digits.length > 0 && digits.length < 8) {
+        return;
+      }
+      if (reason === "idle" && value.length < 6) {
+        return;
+      }
+      void submitScan(value);
     };
 
     document.addEventListener(
@@ -1571,7 +1735,7 @@ function wireRfidScanner(eventId: string) {
           event.preventDefault();
           event.stopImmediatePropagation();
           window.clearTimeout(hidTimer);
-          flushHid();
+          flushHid("enter");
           return;
         }
 
@@ -1580,7 +1744,8 @@ function wireRfidScanner(eventId: string) {
         hidBuffer += event.key;
         input.value = hidBuffer;
         window.clearTimeout(hidTimer);
-        hidTimer = window.setTimeout(flushHid, 120);
+        // Wedges vary — wait longer between keys so we don't flush mid-card.
+        hidTimer = window.setTimeout(() => flushHid("idle"), 320);
       },
       true,
     );
@@ -3338,6 +3503,9 @@ export function AdminOpsBridge() {
       window.cancelAnimationFrame(t1);
       window.clearInterval(poll);
       window.clearInterval(badgePoll);
+      if (pageIdFromPath(pathname) === "rfid17") {
+        rfidScannerWired = false;
+      }
     };
   }, [pathname, queryId, queryEvent]);
 

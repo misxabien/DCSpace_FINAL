@@ -39,13 +39,17 @@ export const EVENT_LIST_CARD_PROJECT = {
   organizerName: 1,
   organizerEmail: 1,
   organizerId: 1,
+  reviewedByEmail: 1,
   reservationStatus: 1,
   reservationId: 1,
   reservationRoomName: 1,
+  reservationCapacity: 1,
   createdAt: 1,
   updatedAt: 1,
   submittedByPortal: 1,
+  attendanceRequired: 1,
   attendanceRequiredMinutes: 1,
+  gracePeriod: 1,
 } as const;
 
 function dedupeById(docs: EventDoc[]): EventDoc[] {
@@ -76,17 +80,36 @@ export async function findEventsAcrossDatabases(
   const perDbLimit = Math.min(limit * 2, 1000);
   const lean = options?.lean !== false;
   const cardFields = options?.cardFields ?? lean;
+  const project = cardFields
+    ? EVENT_LIST_CARD_PROJECT
+    : lean
+      ? EVENT_LIST_EXCLUDE_BLOBS
+      : null;
 
   const batches = await Promise.all(
     dbs.map(async (db) => {
       try {
-        let cursor = eventsCollection(db).find(filter).sort(sort).limit(perDbLimit);
-        if (cardFields) {
-          cursor = cursor.project(EVENT_LIST_CARD_PROJECT);
-        } else if (lean) {
-          cursor = cursor.project(EVENT_LIST_EXCLUDE_BLOBS);
+        // Project BEFORE sort so Mongo never materializes multi‑MB attachment
+        // blobs into the 32MB in-memory sort buffer.
+        if (project) {
+          const docs = await eventsCollection(db)
+            .aggregate(
+              [
+                { $match: filter as Document },
+                { $project: project as Document },
+                { $sort: sort as Document },
+                { $limit: perDbLimit },
+              ],
+              { allowDiskUse: true },
+            )
+            .toArray();
+          return docs as EventDoc[];
         }
-        return (await cursor.toArray()) as EventDoc[];
+        return (await eventsCollection(db)
+          .find(filter)
+          .sort(sort)
+          .limit(perDbLimit)
+          .toArray()) as EventDoc[];
       } catch (error) {
         console.warn(
           `[DC Space] events query failed for db=${db.databaseName}:`,
@@ -109,17 +132,25 @@ export async function findEventsAcrossDatabases(
 /** Find one event by id in user DB first, then admin DB (parallel). */
 export async function findEventByIdAcrossDatabases(
   id: string,
+  options?: { includeBlobs?: boolean },
 ): Promise<{ db: Db; doc: EventDoc } | null> {
   if (!ObjectId.isValid(id)) return null;
   const objectId = new ObjectId(id);
   const dbs = await getEventsDatabases();
+  const includeBlobs = options?.includeBlobs === true;
   const hits = await Promise.all(
     dbs.map(async (db) => {
-      const doc = (await eventsCollection(db).findOne({
-        _id: objectId,
-      })) as EventDoc | null;
+      const doc = (
+        includeBlobs
+          ? await eventsCollection(db).findOne({ _id: objectId })
+          : await eventsCollection(db).findOne(
+              { _id: objectId },
+              { projection: EVENT_LIST_EXCLUDE_BLOBS },
+            )
+      ) as EventDoc | null;
       return doc ? { db, doc } : null;
     }),
   );
+  // Prefer user DB (canonical) when both have a copy.
   return hits.find(Boolean) || null;
 }

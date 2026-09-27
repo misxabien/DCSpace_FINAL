@@ -102,8 +102,19 @@ export function sanitizeEvent(
   doc: SpaceEvent & { _id: ObjectId },
   options?: { includeMedia?: boolean },
 ) {
+  const id = doc._id.toString();
+  // When list/detail queries exclude base64 blobs, fall back to name/mime flags
+  // so attachment links still resolve via /api/events/:id/attachments/*.
+  const hasPoster = Boolean(doc.posterImageBase64) || Boolean(doc.posterImageMimeType);
+  const hasConceptPaper =
+    Boolean(doc.conceptPaperBase64) || Boolean(doc.conceptPaperName);
+  const hasCertificateTemplate =
+    Boolean(doc.certificateTemplateBase64) || Boolean(doc.certificateTemplateName);
+  const hasProgramFile =
+    Boolean(doc.programFileBase64) || Boolean(doc.programFileName);
+
   return {
-    id: doc._id.toString(),
+    id,
     title: doc.title,
     description: doc.description || "",
     category: doc.category || "",
@@ -130,24 +141,22 @@ export function sanitizeEvent(
     audienceSchools: asStringList(doc.audienceSchools),
     programActivities: asStringList(doc.programActivities),
     department: doc.department || "",
-    hasPoster: Boolean(doc.posterImageBase64),
-    hasConceptPaper: Boolean(doc.conceptPaperBase64),
-    hasCertificateTemplate: Boolean(doc.certificateTemplateBase64),
-    hasProgramFile: Boolean(doc.programFileBase64),
+    hasPoster,
+    hasConceptPaper,
+    hasCertificateTemplate,
+    hasProgramFile,
     posterImage: options?.includeMedia ? doc.posterImageBase64 || "" : "",
     attachments: {
-      conceptPaper: doc.conceptPaperBase64
-        ? `/api/events/${doc._id.toString()}/attachments/concept-paper`
+      conceptPaper: hasConceptPaper
+        ? `/api/events/${id}/attachments/concept-paper`
         : "",
-      certificateTemplate: doc.certificateTemplateBase64
-        ? `/api/events/${doc._id.toString()}/attachments/certificate-template`
+      certificateTemplate: hasCertificateTemplate
+        ? `/api/events/${id}/attachments/certificate-template`
         : "",
-      programFile: doc.programFileBase64
-        ? `/api/events/${doc._id.toString()}/attachments/program-file`
+      programFile: hasProgramFile
+        ? `/api/events/${id}/attachments/program-file`
         : "",
-      poster: doc.posterImageBase64
-        ? `/api/events/${doc._id.toString()}/attachments/poster`
-        : "",
+      poster: hasPoster ? `/api/events/${id}/attachments/poster` : "",
     },
     status: doc.status,
     organizerId: doc.organizerId || "",

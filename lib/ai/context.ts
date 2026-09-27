@@ -96,17 +96,71 @@ function sentimentFromRating(avgRating: number) {
 export async function loadEventAiContext(eventId: string) {
   const db = await getUserDb();
   if (!ObjectId.isValid(eventId)) return null;
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(eventId) });
+  // Lean event read — never pull multi‑MB poster/certificate blobs into AI context.
+  const event = await eventsCollection(db).findOne(
+    { _id: new ObjectId(eventId) },
+    {
+      projection: {
+        title: 1,
+        description: 1,
+        status: 1,
+        location: 1,
+        venueType: 1,
+        category: 1,
+        startsAt: 1,
+        endsAt: 1,
+        attendanceRequired: 1,
+        attendanceRequiredMinutes: 1,
+        gracePeriod: 1,
+        allowedCourses: 1,
+        requiredFiles: 1,
+        speakers: 1,
+        collaboratingDepartments: 1,
+        programActivities: 1,
+        organizerName: 1,
+        organizerEmail: 1,
+        reservationCapacity: 1,
+        reservationStatus: 1,
+        reservationRoomName: 1,
+        reservationId: 1,
+      },
+    },
+  );
   if (!event) return null;
+
+  const { applyHardcodedEroomApproval } = await import(
+    "@/lib/integrations/reservation-status"
+  );
+  const eventWithCapacity = applyHardcodedEroomApproval({
+    title: String(event.title || ""),
+    location: String(event.location || ""),
+    reservationStatus: String(event.reservationStatus || ""),
+    reservationRoomName: String(event.reservationRoomName || ""),
+    reservationCapacity: Number(event.reservationCapacity || 0) || null,
+    reservationId: String(event.reservationId || ""),
+  });
 
   const [registrationCount, attendanceDocs, feedbackDocs, savedCount, security] =
     await Promise.all([
     registrationsCollection(db).countDocuments({
       eventId,
-      status: { $in: ["joined", "approved"] },
+      status: { $in: ["joined", "approved", "pending"] },
     }),
     attendanceCollection(db)
-      .find({ eventId })
+      .find(
+        { eventId },
+        {
+          projection: {
+            email: 1,
+            action: 1,
+            scannedAt: 1,
+            createdAt: 1,
+            attendanceMinutes: 1,
+            qualifiedForCertificate: 1,
+            participantName: 1,
+          },
+        },
+      )
       .sort({ scannedAt: 1, createdAt: 1 })
       .limit(5000)
       .toArray(),
@@ -170,7 +224,10 @@ export async function loadEventAiContext(eventId: string) {
   const attendanceRate = registrationCount
     ? Math.round((uniqueTapIns / registrationCount) * 100)
     : 0;
-  const venueCapacity = Math.max(0, Number(event.reservationCapacity || 0));
+  const venueCapacity = Math.max(
+    0,
+    Number(eventWithCapacity.reservationCapacity || event.reservationCapacity || 0),
+  );
 
   return {
     event: {
@@ -178,7 +235,7 @@ export async function loadEventAiContext(eventId: string) {
       title: event.title,
       description: event.description || "",
       status: event.status,
-      location: event.location || "",
+      location: eventWithCapacity.location || event.location || "",
       venueType: event.venueType || "",
       category: event.category || "",
       startsAt: event.startsAt || "",
@@ -229,6 +286,8 @@ export async function loadEventAiContext(eventId: string) {
       entryRate,
       exitRate,
       predictedPeakTime: arrivalPeak.predictedPeakTime,
+      remainingCapacity:
+        venueCapacity > 0 ? Math.max(0, venueCapacity - currentlyInside) : null,
     },
     feedbackSamples: feedbackDocs
       .map((row) => String(row.comment || "").trim())

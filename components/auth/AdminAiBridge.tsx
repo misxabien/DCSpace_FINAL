@@ -31,6 +31,7 @@ type EventInsights = {
   registrations?: number;
   uniqueTapIns?: number;
   venueCapacity?: number;
+  remainingCapacity?: number | null;
   occupancyPercent?: number;
   eventLocation?: string;
   savedInterest?: number;
@@ -160,16 +161,18 @@ function setMetricRow(root: ParentNode, labelIncludes: string, value: string, pc
     const fill = row.querySelector<HTMLElement>(".progress-fill");
     const valueEl = row.querySelector(".metric-value, .flow-pill, .stat-value");
 
+    // Update both progress text and plain value nodes when present.
     if (fill) {
       fill.textContent = value;
       if (pct != null) {
         const clamped = Math.max(0, Math.min(100, Math.round(pct)));
         fill.style.width = `${clamped}%`;
       }
-    } else if (valueEl) {
+    }
+    if (valueEl && valueEl !== fill) {
       valueEl.textContent = value;
       if (valueEl.classList.contains("flow-pill")) {
-        valueEl.classList.remove("bad", "warn", "good");
+        valueEl.classList.remove("bad", "warn", "good", "alert");
         valueEl.classList.add(riskClass(value));
       }
     }
@@ -196,18 +199,36 @@ function applyEventInsights(root: ParentNode, data: EventInsights) {
   const registrations = Math.max(0, Number(data.registrations ?? 0));
   const venueCapacity = Math.max(0, Number(data.venueCapacity ?? 0));
   const currentlyInside = Math.max(0, Number(data.currentlyInside ?? 0));
-  const uniqueTapIns = Math.max(0, Number(data.uniqueTapIns ?? data.tappedIn ?? 0));
+  const uniqueTapIns = Math.max(0, Number(data.uniqueTapIns ?? 0));
+  const totalTapIn = Math.max(0, Number(data.tappedIn ?? uniqueTapIns));
+  const totalTapOut = Math.max(0, Number(data.tappedOut ?? 0));
   const expectedAttendees = Math.max(0, Number(data.expectedAttendees ?? 0));
   const occupancyPercent = Math.max(
     0,
-    Number(data.occupancyPercent ?? barPct(currentlyInside, venueCapacity || registrations || 1)),
+    Number(
+      data.occupancyPercent ??
+        barPct(currentlyInside, venueCapacity || Math.max(registrations, expectedAttendees, 1)),
+    ),
   );
   const actualAttendanceRate = Math.max(
     0,
     Number(data.attendanceRate ?? data.comparedToPrediction ?? 0),
   );
-  const predictedAttendance = Math.max(0, Number(data.comparedToPrediction ?? actualAttendanceRate));
+  const predictedAttendance = Math.max(
+    0,
+    Number(data.comparedToPrediction ?? data.expectedAttendanceRate ?? actualAttendanceRate),
+  );
   const capacityBase = venueCapacity || Math.max(registrations, expectedAttendees, 1);
+  const remainingCapacity =
+    data.remainingCapacity != null
+      ? Math.max(0, Number(data.remainingCapacity))
+      : venueCapacity > 0
+        ? Math.max(0, venueCapacity - currentlyInside)
+        : null;
+  const responseRate =
+    registrations > 0
+      ? Math.min(100, Math.round((Number(data.feedbackCount || 0) / registrations) * 100))
+      : 0;
 
   setMetricRow(
     root,
@@ -248,10 +269,16 @@ function applyEventInsights(root: ParentNode, data: EventInsights) {
   setMetricRow(root, "lowest attendance", data.lowestPeriod);
   setMetricRow(root, "average attendance duration", data.avgDurationLabel);
   setMetricRow(root, "saved the event", String(data.savedInterest ?? 0));
-  setMetricRow(root, "tapped in", String(uniqueTapIns));
-  setMetricRow(root, "tapped out", String(data.tappedOut ?? 0));
+  // Live attendance: unique people for IN, total OUT records (desk scan volume).
+  setMetricRow(root, "tapped in", String(uniqueTapIns || totalTapIn));
+  setMetricRow(root, "tapped out", String(totalTapOut));
   setMetricRow(root, "current inside", String(currentlyInside));
   setMetricRow(root, "current occupancy", String(currentlyInside));
+  setMetricRow(
+    root,
+    "remaining capacity",
+    remainingCapacity != null ? String(remainingCapacity) : "—",
+  );
   setMetricRow(root, "attendance rate", `${actualAttendanceRate}%`, actualAttendanceRate);
   setMetricRow(root, "crowd density", data.crowdDensity || "Low");
   setMetricRow(root, "congestion risk", data.congestionRisk || "Low");
@@ -272,6 +299,7 @@ function applyEventInsights(root: ParentNode, data: EventInsights) {
   setMetricRow(root, "manual override", String(data.manualOverrideCount ?? 0));
   setMetricRow(root, "security risk", data.securityRisk || "Low");
   setMetricRow(root, "responses received", String(data.feedbackCount ?? 0));
+  setMetricRow(root, "response rate", `${responseRate}%`, responseRate);
   setMetricRow(root, "average rating", data.averageRating ? `${data.averageRating}/5` : "—");
   setMetricRow(root, "overall sentiment", data.overallSentiment || "Pending");
   setMetricRow(root, "interest flow", data.interestFlow || "Steady");
@@ -383,7 +411,15 @@ function unavailableInsights(): EventInsights {
     avgDurationLabel: "—",
     comparedToPrediction: 0,
     recommendations: ["Open the RFID attendance desk to start collecting live crowd data."],
+    registrations: 0,
+    venueCapacity: 0,
+    remainingCapacity: null,
+    tappedIn: 0,
+    tappedOut: 0,
+    uniqueTapIns: 0,
     currentlyInside: 0,
+    attendanceRate: 0,
+    occupancyPercent: 0,
     crowdDensity: "Low",
     congestionRisk: "Low",
     crowdFlow: "Stable",
@@ -410,28 +446,35 @@ async function hydrateEventPage(root: ParentNode, eventId: string, live = false)
   const cached = live ? null : readCachedEventInsights(eventId);
   if (cached) {
     applyEventInsights(root, cached);
-  } else if (!live) {
+  } else {
     markEventAiLoading(root);
   }
 
-  // Live pages refresh numbers every poll; Gemini narrative reuses cacheKey when taps unchanged.
-  const res = await fetch("/api/ai/event-insights", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ eventId, refresh: false }),
-  });
-  const payload = await res.json().catch(() => ({}));
-  root.querySelectorAll(".ai-conclusion-box").forEach((box) => {
-    box.classList.remove("is-loading");
-  });
-  if (!res.ok) {
+  try {
+    // Live pages refresh numbers every poll; Gemini narrative reuses cacheKey when taps unchanged.
+    const res = await fetch("/api/ai/event-insights", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ eventId, refresh: false }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    root.querySelectorAll(".ai-conclusion-box").forEach((box) => {
+      box.classList.remove("is-loading");
+    });
+    if (!res.ok) {
+      if (!cached) applyEventInsights(root, unavailableInsights());
+      return;
+    }
+    const insights = payload as EventInsights;
+    applyEventInsights(root, insights);
+    writeCachedEventInsights(eventId, insights);
+  } catch {
+    root.querySelectorAll(".ai-conclusion-box").forEach((box) => {
+      box.classList.remove("is-loading");
+    });
     if (!cached) applyEventInsights(root, unavailableInsights());
-    return;
   }
-  const insights = payload as EventInsights;
-  applyEventInsights(root, insights);
-  writeCachedEventInsights(eventId, insights);
 }
 
 async function hydrateUserInsights(userId: string) {
