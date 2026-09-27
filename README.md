@@ -11,6 +11,24 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to `/login`.
 
+## User vs admin links (Vercel)
+
+One deployment can serve two public URLs. Attach both domains to the same Vercel project, then set:
+
+```bash
+NEXT_PUBLIC_USER_HOST=dcspace.vercel.app          # student / faculty
+NEXT_PUBLIC_ADMIN_HOST=admin.your-domain.edu      # admin / super-admin
+```
+
+| Portal | Link |
+|--------|------|
+| User | `https://<NEXT_PUBLIC_USER_HOST>/` → `/login` |
+| Admin | `https://<NEXT_PUBLIC_ADMIN_HOST>/` → `/admin` |
+
+If those env vars are empty, both portals work on one host via paths (`/login` and `/admin`).
+
+Local dual-host check: set `NEXT_PUBLIC_ADMIN_HOST=admin.localhost` and open [http://admin.localhost:3000](http://admin.localhost:3000).
+
 ## Routes
 
 | Legacy HTML | Next.js route |

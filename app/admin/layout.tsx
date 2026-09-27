@@ -20,6 +20,7 @@ export default function AdminLayout({
         rel="stylesheet"
       />
       <link rel="stylesheet" href="/assets/admin-sidebar-collapse.css?v=11" />
+      <link rel="stylesheet" href="/empty-state.css" />
       {/* Isolate admin HTML pages from student globals as much as possible */}
       <style>{`
         html:has([data-admin-legacy]),

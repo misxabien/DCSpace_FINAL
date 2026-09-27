@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { buildEmptyStateMarkup } from "@/lib/ui/empty-state";
 import {
   hideLegacyDemoContent,
   patchChildren,
@@ -1296,8 +1297,14 @@ function hydrateReportCategoryList(
     empty.querySelector(".rl-group-head h3")!.textContent = "No reports yet";
     const cards = empty.querySelector(".rl-cards");
     if (cards) {
-      cards.innerHTML =
-        '<p class="dc-report-empty">Generate a report from the Reports page or Smart Report Assistant to see it here.</p>';
+      cards.innerHTML = buildEmptyStateMarkup(
+        {
+          title: "No reports yet",
+          description:
+            "Generate a report from the Reports page or Smart Report Assistant to see it here.",
+        },
+        { compact: true, extraClass: "dc-empty-state--inline" },
+      );
     }
     const rows = empty.querySelector(".rl-list-rows");
     if (rows) rows.innerHTML = "";

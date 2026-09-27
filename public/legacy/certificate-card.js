@@ -65,25 +65,18 @@
   }
 
   function injectEmptyStateStyles() {
-    if (document.getElementById('dc-cert-empty-state-styles')) return;
-    var style = document.createElement('style');
-    style.id = 'dc-cert-empty-state-styles';
-    style.textContent =
-      '.dc-empty-state--certificates{grid-column:1/-1;width:100%;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:28px 16px 36px;text-align:center;}' +
-      '.cert-grid:has(> .dc-empty-state--certificates){grid-template-columns:1fr !important;max-width:none !important;width:100%;justify-items:center;}' +
-      '.dc-empty-state__icon--certificates{width:140px;height:auto;margin:0 auto 16px;display:block;}' +
-      '.dc-empty-state--certificates .dc-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
-      '.dc-empty-state--certificates .dc-empty-state__description{max-width:640px;margin:0 auto;color:#b7aa89;font-size:clamp(0.95rem,1.4vw,1.05rem);font-weight:500;line-height:1.45;}';
-    document.head.appendChild(style);
+    /* Styles live in /empty-state.css (loaded from app layout). */
   }
+
+  var EMPTY_STATE_ICON = '/empty-state.svg';
 
   function createEmptyState() {
     injectEmptyStateStyles();
     var emptyState = document.createElement('div');
-    emptyState.className = 'dc-empty-state dc-empty-state--certificates';
+    emptyState.className = 'dc-empty-state dc-empty-state--compact dc-empty-state--certificates';
     emptyState.setAttribute('role', 'status');
     emptyState.innerHTML =
-      '<img class="dc-empty-state__icon dc-empty-state__icon--certificates" src="/no-certificates.svg" width="140" height="128" alt="" aria-hidden="true" />' +
+      '<img class="dc-empty-state__icon" src="' + EMPTY_STATE_ICON + '" width="160" height="161" alt="" aria-hidden="true" />' +
       '<h3 class="dc-empty-state__title">No certificates yet.</h3>' +
       '<p class="dc-empty-state__description">Certificates you earn from completed events will appear here.</p>';
     return emptyState;

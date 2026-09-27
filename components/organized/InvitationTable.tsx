@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   INVITE_FILTER_OPTIONS,
   type InviteCandidate,
@@ -219,23 +220,25 @@ export function InvitationTable({
       </div>
 
       <div className={styles.tableWrap}>
-        <table className={styles.table} aria-label={title}>
-          <thead>
-            <tr>
-              <th scope="col">{numberLabel}</th>
-              <th scope="col">STUDENT NAME</th>
-              <th scope="col">COURSE</th>
-              <th scope="col">ORGANIZATION</th>
-              <th scope="col">Send Invite</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.length === 0 ? (
-              <tr className={styles.emptyRow}>
-                <td colSpan={5}>No users found.</td>
+        {pageRows.length === 0 ? (
+          <EmptyState
+            compact
+            title="No users found."
+            description="Search or adjust filters to find students you can invite to this event."
+          />
+        ) : (
+          <table className={styles.table} aria-label={title}>
+            <thead>
+              <tr>
+                <th scope="col">{numberLabel}</th>
+                <th scope="col">STUDENT NAME</th>
+                <th scope="col">COURSE</th>
+                <th scope="col">ORGANIZATION</th>
+                <th scope="col">Send Invite</th>
               </tr>
-            ) : (
-              pageRows.map((row) => {
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
                 const invited = Boolean(inviteState[row.id]);
                 return (
                   <tr key={row.id}>
@@ -256,10 +259,10 @@ export function InvitationTable({
                     </td>
                   </tr>
                 );
-              })
-            )}
-          </tbody>
-        </table>
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className={styles.footer}>

@@ -206,20 +206,10 @@
   }
 
   function injectEmptyStateStyles() {
-    if (document.getElementById('dc-empty-state-styles')) return;
-    var style = document.createElement('style');
-    style.id = 'dc-empty-state-styles';
-    style.textContent =
-      '.dc-empty-state,.home-empty-state{grid-column:1/-1;width:100%;min-height:min(360px,calc(100vh - 300px));display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto;padding:40px 24px 48px;text-align:center;color:#b7aa89;}' +
-      '.dc-empty-state--compact{min-height:240px;padding:28px 16px 36px;}' +
-      '.dc-empty-state--section{min-height:min(420px,calc(100vh - 340px));padding:48px 24px;}' +
-      '.event-grid:has(> .dc-empty-state),.event-grid:has(> .home-empty-state){grid-template-columns:1fr !important;max-width:none !important;width:100%;}' +
-      '.dc-empty-state__icon,.home-empty-state__icon{width:140px;height:140px;margin:0 auto 16px;display:block;}' +
-      '.dc-empty-state--compact .dc-empty-state__icon{width:110px;height:110px;}' +
-      '.dc-empty-state__title,.home-empty-state__title{margin:0 auto 8px;max-width:680px;color:#b1a483;font-size:clamp(1.25rem,2vw,1.65rem);font-weight:600;line-height:1.3;text-align:center;}' +
-      '.dc-empty-state__description,.home-empty-state__description{max-width:640px;margin:0 auto;color:#b7aa89;font-size:clamp(0.95rem,1.4vw,1.05rem);font-weight:500;line-height:1.45;}';
-    document.head.appendChild(style);
+    /* Styles live in /empty-state.css (loaded from app layout). */
   }
+
+  var EMPTY_STATE_ICON = '/empty-state.svg';
 
   function escapeEmptyHtml(value) {
     return String(value)
@@ -416,7 +406,7 @@
     emptyState.className = 'dc-empty-state home-empty-state' + sizeClass;
     emptyState.setAttribute('role', 'status');
     emptyState.innerHTML =
-      '<img class="dc-empty-state__icon home-empty-state__icon" src="/no-event.svg" width="160" height="160" alt="" aria-hidden="true" />' +
+      '<img class="dc-empty-state__icon home-empty-state__icon" src="' + EMPTY_STATE_ICON + '" width="160" height="161" alt="" aria-hidden="true" />' +
       '<h3 class="dc-empty-state__title home-empty-state__title">' + escapeEmptyHtml(copy.title) + '</h3>' +
       '<p class="dc-empty-state__description home-empty-state__description">' + escapeEmptyHtml(copy.description) + '</p>';
     return emptyState;

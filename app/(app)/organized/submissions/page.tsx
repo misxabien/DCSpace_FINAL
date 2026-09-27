@@ -8,7 +8,7 @@ import {
   useOrganizedEvents,
   type OrganizedEvent,
 } from "@/components/organized/OrganizedShell";
-import { EmptyState, ORGANIZED_EMPTY_STATE_ICON } from "@/components/ui/EmptyState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import styles from "@/components/organized/Organized.module.css";
 
 function matchesQuery(event: OrganizedEvent, query: string) {
@@ -47,7 +47,6 @@ function Section({
       {events.length === 0 ? (
         <EmptyState
           compact
-          iconSrc={ORGANIZED_EMPTY_STATE_ICON}
           title="No events in this section."
           description="When matching submissions are available, they will appear here."
         />
@@ -129,7 +128,6 @@ export default function SubmissionsPage() {
       {error ? (
         <EmptyState
           compact
-          iconSrc={ORGANIZED_EMPTY_STATE_ICON}
           title="Couldn’t load submissions."
           description={`${error} Try signing out and back in, then refresh this page.`}
         />

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { OrganizedEventHeader } from "@/components/organized/OrganizedEventHeader";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventRegistration } from "@/lib/organizedRegistrations";
@@ -82,24 +83,26 @@ export function OrganizedRegistrationsView({
         </div>
 
         <div className={styles.tableWrap}>
-          <table className={styles.table} aria-label="Submitted registrations">
-            <thead>
-              <tr>
-                <th scope="col">STUDENT NUMBER</th>
-                <th scope="col">STUDENT NAME</th>
-                <th scope="col">COURSE</th>
-                <th scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.length === 0 ? (
-                <tr className={styles.emptyRow}>
-                  <td colSpan={4}>No registrations found.</td>
+          {pageRows.length === 0 ? (
+            <EmptyState
+              compact
+              title="No registrations found."
+              description="Student registrations for this event will appear here once participants sign up."
+            />
+          ) : (
+            <table className={styles.table} aria-label="Submitted registrations">
+              <thead>
+                <tr>
+                  <th scope="col">STUDENT NUMBER</th>
+                  <th scope="col">STUDENT NAME</th>
+                  <th scope="col">COURSE</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ) : (
-                pageRows.map((row) => (
+              </thead>
+              <tbody>
+                {pageRows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.studentNumber}</td>
                     <td>{row.studentName}</td>
@@ -127,10 +130,10 @@ export function OrganizedRegistrationsView({
                       </Link>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         <div className={styles.footer}>

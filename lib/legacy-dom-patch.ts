@@ -1,5 +1,7 @@
 /** Non-destructive DOM helpers — update text in existing legacy markup only. */
 
+import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
+
 const HIDDEN_CLASS = "dc-legacy-hidden";
 const EMPTY_CLASS = "dc-events-empty";
 
@@ -25,51 +27,6 @@ a.att-event-card[hidden],
 table tbody tr.${HIDDEN_CLASS},
 table tbody tr[hidden] {
   display: none !important;
-}
-.${EMPTY_CLASS},
-.${EMPTY_CLASS}.dc-card-row-empty {
-  width: 100%;
-  min-height: 220px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 28px 16px;
-  margin: 0;
-  text-align: center;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  color: #b7aa89;
-}
-.${EMPTY_CLASS}.${HIDDEN_CLASS},
-.${EMPTY_CLASS}[hidden] {
-  display: none !important;
-}
-.${EMPTY_CLASS}__icon {
-  width: 120px;
-  height: 120px;
-  margin: 0 auto 8px;
-  display: block;
-  object-fit: contain;
-}
-.${EMPTY_CLASS}__title {
-  margin: 0;
-  max-width: 520px;
-  color: #b1a483;
-  font-size: 1.15rem;
-  font-weight: 700;
-  line-height: 1.35;
-}
-.${EMPTY_CLASS}__text {
-  margin: 0;
-  max-width: 520px;
-  color: #b7aa89;
-  font-size: 0.95rem;
-  font-weight: 400;
-  line-height: 1.55;
 }
 `;
   document.head.appendChild(style);
@@ -264,12 +221,12 @@ export function setEventsEmptyState(
     let note = panel.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}`);
     if (!note) {
       note = document.createElement("div");
-      note.className = EMPTY_CLASS;
+      note.className = `dc-empty-state dc-empty-state--admin ${EMPTY_CLASS}`;
       note.setAttribute("role", "status");
       note.innerHTML = `
-        <img class="${EMPTY_CLASS}__icon" src="/no-event.svg" width="120" height="120" alt="" aria-hidden="true" />
-        <h3 class="${EMPTY_CLASS}__title"></h3>
-        <p class="${EMPTY_CLASS}__text"></p>
+        <img class="dc-empty-state__icon ${EMPTY_CLASS}__icon" src="${EMPTY_STATE_ICON}" width="140" height="141" alt="" aria-hidden="true" />
+        <h3 class="dc-empty-state__title ${EMPTY_CLASS}__title"></h3>
+        <p class="dc-empty-state__description ${EMPTY_CLASS}__text"></p>
       `;
       const footer = panel.querySelector(
         ".events-footer, .table-footer, .cd-footer, .cert-footer",
@@ -300,12 +257,12 @@ export function setCardRowEmptyState(
   let note = row.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-card-row-empty`);
   if (!note) {
     note = document.createElement("div");
-    note.className = `${EMPTY_CLASS} dc-card-row-empty`;
+    note.className = `dc-empty-state dc-empty-state--compact ${EMPTY_CLASS} dc-card-row-empty`;
     note.setAttribute("role", "status");
     note.innerHTML = `
-      <img class="${EMPTY_CLASS}__icon" src="/no-event.svg" width="96" height="96" alt="" aria-hidden="true" />
-      <h3 class="${EMPTY_CLASS}__title"></h3>
-      <p class="${EMPTY_CLASS}__text"></p>
+      <img class="dc-empty-state__icon ${EMPTY_CLASS}__icon" src="${EMPTY_STATE_ICON}" width="140" height="141" alt="" aria-hidden="true" />
+      <h3 class="dc-empty-state__title ${EMPTY_CLASS}__title"></h3>
+      <p class="dc-empty-state__description ${EMPTY_CLASS}__text"></p>
     `;
     row.appendChild(note);
   }

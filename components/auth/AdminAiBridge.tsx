@@ -2,7 +2,12 @@
 
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { patchChildren, setEventsEmptyState, setLegacyHidden } from "@/lib/legacy-dom-patch";
+import { buildEmptyStateMarkup } from "@/lib/ui/empty-state";
+import {
+  patchChildren,
+  setEventsEmptyState,
+  setLegacyHidden,
+} from "@/lib/legacy-dom-patch";
 import { resolveAdminEventId } from "@/lib/events/resolve-admin-event-id";
 
 type EventInsights = {
@@ -344,8 +349,13 @@ function applySecurityEventList(
   }
 
   if (!events.length) {
-    list.innerHTML =
-      '<p class="dc-security-event-empty">No scan errors recorded yet.</p>';
+    list.innerHTML = buildEmptyStateMarkup(
+      {
+        title: "No scan errors recorded yet.",
+        description: "RFID scan issues for this event will appear here when they are detected.",
+      },
+      { compact: true, extraClass: "dc-empty-state--inline" },
+    );
     return;
   }
 

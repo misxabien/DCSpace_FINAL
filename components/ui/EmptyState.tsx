@@ -1,38 +1,44 @@
 "use client";
 
-import styles from "@/components/ui/EmptyState.module.css";
-
-export const ORGANIZED_EMPTY_STATE_ICON = "/no-organized-events.svg";
+import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
 
 type EmptyStateProps = {
   title: string;
   description: string;
   compact?: boolean;
-  iconSrc?: string;
+  section?: boolean;
+  className?: string;
 };
 
-/** Illustrated empty state matching Home (calendar + message). */
+/** Illustrated empty state used across student, organizer, and admin screens. */
 export function EmptyState({
   title,
   description,
   compact = false,
-  iconSrc = "/no-event.svg",
+  section = false,
+  className = "",
 }: EmptyStateProps) {
+  const sizeClass = section
+    ? " dc-empty-state--section"
+    : compact
+      ? " dc-empty-state--compact"
+      : "";
+
   return (
-    <div
-      className={`${styles.emptyState}${compact ? ` ${styles.compact}` : ""}`}
-      role="status"
-    >
+    <div className={`dc-empty-state${sizeClass}${className ? ` ${className}` : ""}`} role="status">
       <img
-        className={styles.icon}
-        src={iconSrc}
+        className="dc-empty-state__icon"
+        src={EMPTY_STATE_ICON}
         width={160}
-        height={160}
+        height={161}
         alt=""
         aria-hidden="true"
       />
-      <h3 className={styles.title}>{title}</h3>
-      <p className={styles.description}>{description}</p>
+      <h3 className="dc-empty-state__title">{title}</h3>
+      <p className="dc-empty-state__description">{description}</p>
     </div>
   );
 }
+
+/** @deprecated Use default EmptyState icon — kept for existing imports. */
+export const ORGANIZED_EMPTY_STATE_ICON = EMPTY_STATE_ICON;

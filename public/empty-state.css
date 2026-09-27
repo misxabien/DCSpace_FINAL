@@ -1,0 +1,143 @@
+/* Unified illustrated empty state — student, organizer, and admin */
+
+.dc-empty-state,
+.home-empty-state,
+.dc-events-empty {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: min(420px, calc(100vh - 280px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  padding: 40px 24px 48px;
+  text-align: center;
+  color: #b7aa89;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.dc-empty-state--compact,
+.dc-events-empty.dc-card-row-empty {
+  min-height: 280px;
+  padding: 28px 16px 36px;
+}
+
+.dc-empty-state--section {
+  min-height: min(420px, calc(100vh - 340px));
+  padding: 48px 24px;
+}
+
+.dc-empty-state--admin {
+  min-height: 220px;
+  padding: 28px 16px 32px;
+}
+
+.dc-empty-state--inline {
+  min-height: 200px;
+  padding: 24px 16px 28px;
+}
+
+.dc-empty-state__icon,
+.home-empty-state__icon,
+.dc-events-empty__icon {
+  width: 160px;
+  height: auto;
+  max-height: 161px;
+  margin: 0 auto 16px;
+  display: block;
+  object-fit: contain;
+}
+
+.dc-empty-state--compact .dc-empty-state__icon,
+.dc-events-empty.dc-card-row-empty .dc-events-empty__icon {
+  width: 140px;
+  max-height: 141px;
+}
+
+.dc-empty-state--admin .dc-empty-state__icon,
+.dc-events-empty:not(.dc-card-row-empty) .dc-events-empty__icon {
+  width: 140px;
+  max-height: 141px;
+}
+
+.dc-empty-state__title,
+.home-empty-state__title,
+.dc-events-empty__title {
+  margin: 0 auto 8px;
+  max-width: 680px;
+  color: #b1a483;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.dc-empty-state__description,
+.home-empty-state__description,
+.dc-events-empty__text {
+  max-width: 640px;
+  margin: 0 auto;
+  color: #b7aa89;
+  font-size: clamp(0.95rem, 1.4vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.dc-empty-state.dc-legacy-hidden,
+.dc-empty-state[hidden],
+.dc-events-empty.dc-legacy-hidden,
+.dc-events-empty[hidden],
+.home-empty-state[hidden] {
+  display: none !important;
+}
+
+.event-grid:has(> .dc-empty-state),
+.event-grid:has(> .home-empty-state),
+.cert-grid:has(> .dc-empty-state),
+.cert-grid:has(> .dc-empty-state--certificates),
+.main .event-grid:has(> .dc-empty-state),
+.main .event-grid:has(> .home-empty-state) {
+  grid-template-columns: 1fr !important;
+  max-width: none !important;
+  width: 100%;
+  justify-items: center;
+}
+
+.event-grid--today:has(> .dc-empty-state),
+.event-grid--today:has(> .home-empty-state) {
+  min-height: min(420px, calc(100vh - 340px));
+  align-items: center;
+}
+
+[data-admin-legacy] .events-panel > .dc-events-empty {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+[data-admin-legacy] .card-row > .dc-events-empty.dc-card-row-empty {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.dc-empty-state--feedback {
+  margin-top: 16px;
+  min-height: 240px;
+  padding: 28px 16px 36px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(68, 138, 255, 0.15);
+}
+
+.dc-report-empty,
+.dc-security-event-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}

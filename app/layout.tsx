@@ -26,6 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <link rel="stylesheet" href="/empty-state.css" />
         <link rel="stylesheet" href="/site-tour.css" />
       </head>
       <body>
