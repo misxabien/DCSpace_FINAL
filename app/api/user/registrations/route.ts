@@ -1,15 +1,34 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { findEventById } from "@/lib/events/find-event";
+import { isPublicEventStatus } from "@/lib/events/public-status";
+import { getUserDb } from "@/lib/db/get-db";
 import { logUserActivity } from "@/lib/user-server/activity";
 import {
   invitationsCollection,
+  notifyAdmins,
   notifyUser,
   registrationsCollection,
 } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+
+async function bumpEventRegistrationCount(eventId: string, delta: number) {
+  if (!ObjectId.isValid(eventId) || !delta) return;
+  const { adminDb, userDb } = await findEventById(eventId);
+  const oid = new ObjectId(eventId);
+  await Promise.all([
+    eventsCollection(userDb).updateOne(
+      { _id: oid },
+      { $inc: { registrationCount: delta }, $set: { updatedAt: new Date().toISOString() } },
+    ),
+    eventsCollection(adminDb).updateOne(
+      { _id: oid },
+      { $inc: { registrationCount: delta }, $set: { updatedAt: new Date().toISOString() } },
+    ),
+  ]);
+}
 
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -68,7 +87,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
-  let body: { eventId?: string; eventTitle?: string; status?: string };
+  let body: { eventId?: string; eventTitle?: string; status?: string; files?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -82,12 +101,26 @@ export async function POST(request: Request) {
 
   try {
     const userDb = await getUserDb();
-    const adminDb = await getAdminDb();
-    const event = ObjectId.isValid(eventId)
-      ? await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) })
-      : null;
+    const found = await findEventById(eventId);
+    const event = found.event;
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found." }, { status: 404 });
+    }
+
+    const eventStatus = String(event.status || "");
+    const isOrganizer =
+      String(event.organizerEmail || "").trim().toLowerCase() === actor.email ||
+      String(event.organizerId || "") === String(actor.userId || "");
+    if (!isPublicEventStatus(eventStatus) && !isOrganizer) {
+      return NextResponse.json(
+        { error: "This event is not open for registration yet." },
+        { status: 403 },
+      );
+    }
+
     const eventTitle =
-      String(body.eventTitle || "").trim() || String(event?.title || "Event");
+      String(body.eventTitle || "").trim() || String(event.title || "Event");
 
     const existing = await registrationsCollection(userDb).findOne({
       eventId,
@@ -107,8 +140,8 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
     const user = await userDb.collection("users").findOne({ email: actor.email });
-    const files = Array.isArray((body as { files?: unknown }).files)
-      ? ((body as { files?: Array<Record<string, unknown>> }).files || [])
+    const files = Array.isArray(body.files)
+      ? (body.files as Array<Record<string, unknown>>)
           .slice(0, 5)
           .map((file, index) => ({
             id: String(file.id || `file-${index + 1}`),
@@ -120,6 +153,7 @@ export async function POST(request: Request) {
             uploaded: true,
           }))
       : [];
+    const status = files.length ? "pending" : String(body.status || "joined");
     const doc = {
       eventId,
       eventTitle,
@@ -131,9 +165,10 @@ export async function POST(request: Request) {
       school: String(user?.school || ""),
       organization: String(user?.organizationPart || ""),
       organizationRole: String(user?.organizationRole || ""),
-      status: files.length ? "pending" : String(body.status || "joined"),
+      status,
       files,
       createdAt: now,
+      updatedAt: now,
     };
     const result = await registrationsCollection(userDb).insertOne(doc);
 
@@ -142,18 +177,23 @@ export async function POST(request: Request) {
       { $set: { status: "joined", updatedAt: now } },
     );
 
-    await logUserActivity({
-      type: "event_submitted",
+    // Feed admin crowd prediction / AI insights immediately.
+    if (status === "joined" || status === "approved") {
+      await bumpEventRegistrationCount(eventId, 1);
+    }
+
+    void logUserActivity({
+      type: "event_joined",
       actorEmail: actor.email,
       actorName: actor.name,
       actorRole: actor.role,
       targetId: eventId,
       targetTitle: eventTitle,
-      meta: { kind: "registration" },
+      meta: { kind: "registration", status },
     });
 
-    if (event?.organizerEmail) {
-      await notifyUser({
+    if (event.organizerEmail) {
+      void notifyUser({
         email: String(event.organizerEmail),
         title: "New event registration",
         body: `${actor.name} registered for ${eventTitle}.`,
@@ -163,8 +203,23 @@ export async function POST(request: Request) {
       });
     }
 
+    // Surface joins to admins so live crowd prediction stays current.
+    void notifyAdmins({
+      title: "New event registration",
+      body: `${actor.name} joined ${eventTitle}. Registration count updated for crowd prediction.`,
+      type: `registration:${eventId}:${actor.email}`,
+      eventId,
+      eventTitle,
+    });
+
     return NextResponse.json(
-      { registration: { id: String(result.insertedId), ...doc } },
+      {
+        registration: { id: String(result.insertedId), ...doc },
+        crowdPrediction: {
+          eventId,
+          counted: status === "joined" || status === "approved",
+        },
+      },
       { status: 201 },
     );
   } catch (error) {

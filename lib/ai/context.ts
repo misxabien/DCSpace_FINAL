@@ -95,9 +95,10 @@ function sentimentFromRating(avgRating: number) {
 
 export async function loadEventAiContext(eventId: string) {
   const userDb = await getUserDb();
-  const adminDb = await getAdminDb();
   if (!ObjectId.isValid(eventId)) return null;
-  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
+  const { findEventById } = await import("@/lib/events/find-event");
+  const found = await findEventById(eventId);
+  const event = found.event;
   if (!event) return null;
 
   const [registrationCount, attendanceDocs, feedbackDocs, savedCount, security] =

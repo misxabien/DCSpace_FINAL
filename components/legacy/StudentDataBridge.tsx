@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   bucketCategory,
+  eventTimingBucket,
   mapDbEventToCard,
   resolveEventImageUrl,
   type LegacyCardEvent,
@@ -659,7 +660,12 @@ export function StudentDataBridge() {
           .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
           .map((event) => {
             const card = mapDbEventToCard(event, bucketCategory(event));
+            const timing = eventTimingBucket(event.startsAt, event.status);
             const tags = [card.category];
+            // Always tag calendar buckets so Happening Today / Upcoming still
+            // show them even when the card uses a thematic category.
+            if (timing === "today" && !tags.includes("today")) tags.push("today");
+            if (timing === "upcoming" && !tags.includes("upcoming")) tags.push("upcoming");
             if (invited.has(card.id)) tags.push("invited");
             if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
             const status = joined.get(card.id);
@@ -1381,7 +1387,7 @@ export function StudentDataBridge() {
     };
 
     const joinEvent = async (eventId: string, eventTitle: string, files?: unknown[]) => {
-      const res = await fetch("/api/user/registrations", {
+      const res = await authFetch("/api/user/registrations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

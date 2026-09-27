@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { eventsCollection, sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
 import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { PORTAL_EVENT_PROJECTION } from "@/lib/events/list-projection";
-import { findEventsByIds } from "@/lib/events/find-event";
+import { findEventsByIds, mergeEventDocs, type EventDoc } from "@/lib/events/find-event";
 import { escapeRegex } from "@/lib/events/ownership";
 import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
@@ -25,10 +25,17 @@ export async function GET(request: Request) {
   try {
     const [userDb, adminDb] = await Promise.all([getUserDb(), getAdminDb()]);
 
-    const [eventDocs, registrationDocs, invitationDocs, savedDoc, attendanceDocs] =
+    const publicFilter = { status: { $in: [...PUBLIC_EVENT_STATUSES] } };
+    const [adminEventDocs, userEventDocs, registrationDocs, invitationDocs, savedDoc, attendanceDocs] =
       await Promise.all([
         eventsCollection(adminDb)
-          .find({ status: { $in: [...PUBLIC_EVENT_STATUSES] } })
+          .find(publicFilter)
+          .project(PORTAL_EVENT_PROJECTION)
+          .sort({ startsAt: 1, updatedAt: -1 })
+          .limit(500)
+          .toArray(),
+        eventsCollection(userDb)
+          .find(publicFilter)
           .project(PORTAL_EVENT_PROJECTION)
           .sort({ startsAt: 1, updatedAt: -1 })
           .limit(500)
@@ -56,9 +63,21 @@ export async function GET(request: Request) {
           .toArray(),
       ]);
 
-    const byId = new Map(
-      eventDocs.map((doc) => [String(doc._id), doc as SpaceEvent & { _id: ObjectId }]),
-    );
+    // Union admin + user public events (live/approved in either DB must appear).
+    const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
+    for (const doc of userEventDocs) {
+      byId.set(String(doc._id), doc as SpaceEvent & { _id: ObjectId });
+    }
+    for (const doc of adminEventDocs) {
+      const id = String(doc._id);
+      const existing = byId.get(id);
+      byId.set(
+        id,
+        existing
+          ? mergeEventDocs(doc as EventDoc, existing)
+          : (doc as SpaceEvent & { _id: ObjectId }),
+      );
+    }
 
     // Pull any registered / attended events missing from the public browse set.
     const neededIds = [

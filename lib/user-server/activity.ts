@@ -5,6 +5,7 @@ export type ActivityType =
   | "user_registered"
   | "user_login"
   | "event_submitted"
+  | "event_joined"
   | "event_approved"
   | "event_rejected"
   | "event_live"

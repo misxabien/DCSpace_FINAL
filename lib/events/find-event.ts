@@ -1,38 +1,78 @@
 import { ObjectId, type Db } from "mongodb";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { eventsCollection, type SpaceEvent } from "@/lib/events/types";
+import { isPublicEventStatus } from "@/lib/events/public-status";
 
 export type EventDoc = SpaceEvent & { _id: ObjectId };
 
-function mergeEventDocs(primary: EventDoc, secondary: EventDoc | null): EventDoc {
+const STATUS_RANK: Record<string, number> = {
+  draft: 0,
+  pending: 1,
+  rejected: 2,
+  postponed: 3,
+  cancelled: 4,
+  approved: 5,
+  live: 6,
+  completed: 7,
+};
+
+function statusRank(status?: string | null) {
+  return STATUS_RANK[String(status || "").toLowerCase()] ?? 0;
+}
+
+/** Merge two DB copies; prefer the more advanced lifecycle status + any attachments. */
+export function mergeEventDocs(primary: EventDoc, secondary: EventDoc | null): EventDoc {
   if (!secondary) return primary;
-  const merged: EventDoc = { ...secondary, ...primary };
+
+  // Prefer the copy that has moved further through approval / live / completed.
+  const preferSecondary = statusRank(secondary.status) > statusRank(primary.status);
+  const base = preferSecondary ? secondary : primary;
+  const other = preferSecondary ? primary : secondary;
+  const merged: EventDoc = { ...other, ...base };
+
   // Keep attachment blobs from whichever copy still has them.
-  if (!merged.posterImageBase64 && secondary.posterImageBase64) {
-    merged.posterImageBase64 = secondary.posterImageBase64;
+  if (!merged.posterImageBase64 && other.posterImageBase64) {
+    merged.posterImageBase64 = other.posterImageBase64;
     merged.posterImageMimeType =
-      secondary.posterImageMimeType || merged.posterImageMimeType || "image/jpeg";
+      other.posterImageMimeType || merged.posterImageMimeType || "image/jpeg";
     merged.hasPoster = true;
   }
-  if (!merged.conceptPaperBase64 && secondary.conceptPaperBase64) {
-    merged.conceptPaperBase64 = secondary.conceptPaperBase64;
+  if (!merged.conceptPaperBase64 && other.conceptPaperBase64) {
+    merged.conceptPaperBase64 = other.conceptPaperBase64;
     merged.conceptPaperMimeType =
-      secondary.conceptPaperMimeType || merged.conceptPaperMimeType;
-    merged.conceptPaperName = secondary.conceptPaperName || merged.conceptPaperName;
+      other.conceptPaperMimeType || merged.conceptPaperMimeType;
+    merged.conceptPaperName = other.conceptPaperName || merged.conceptPaperName;
   }
-  if (!merged.programFileBase64 && secondary.programFileBase64) {
-    merged.programFileBase64 = secondary.programFileBase64;
+  if (!merged.programFileBase64 && other.programFileBase64) {
+    merged.programFileBase64 = other.programFileBase64;
     merged.programFileMimeType =
-      secondary.programFileMimeType || merged.programFileMimeType;
-    merged.programFileName = secondary.programFileName || merged.programFileName;
+      other.programFileMimeType || merged.programFileMimeType;
+    merged.programFileName = other.programFileName || merged.programFileName;
   }
-  if (!merged.certificateTemplateBase64 && secondary.certificateTemplateBase64) {
-    merged.certificateTemplateBase64 = secondary.certificateTemplateBase64;
+  if (!merged.certificateTemplateBase64 && other.certificateTemplateBase64) {
+    merged.certificateTemplateBase64 = other.certificateTemplateBase64;
     merged.certificateTemplateMimeType =
-      secondary.certificateTemplateMimeType || merged.certificateTemplateMimeType;
+      other.certificateTemplateMimeType || merged.certificateTemplateMimeType;
     merged.certificateTemplateName =
-      secondary.certificateTemplateName || merged.certificateTemplateName;
+      other.certificateTemplateName || merged.certificateTemplateName;
   }
+
+  // Never let a stale pending admin copy hide a live/approved student copy.
+  if (isPublicEventStatus(other.status) && !isPublicEventStatus(merged.status)) {
+    merged.status = other.status;
+  }
+  if (
+    (!merged.reservationStatus || merged.reservationStatus === "pending") &&
+    other.reservationStatus &&
+    other.reservationStatus !== "pending"
+  ) {
+    merged.reservationStatus = other.reservationStatus;
+    merged.reservationRoomName =
+      other.reservationRoomName || merged.reservationRoomName;
+    merged.reservationCapacity =
+      other.reservationCapacity ?? merged.reservationCapacity;
+  }
+
   return merged;
 }
 
@@ -88,7 +128,9 @@ export async function findOrganizerEvents(
     byId.set(String(doc._id), doc as EventDoc);
   }
   for (const doc of adminDocs) {
-    byId.set(String(doc._id), doc as EventDoc);
+    const id = String(doc._id);
+    const existing = byId.get(id);
+    byId.set(id, existing ? mergeEventDocs(doc as EventDoc, existing) : (doc as EventDoc));
   }
 
   return [...byId.values()].sort((a, b) =>

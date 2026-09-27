@@ -424,12 +424,12 @@ async function hydrateEventPage(root: ParentNode, eventId: string, live = false)
     markEventAiLoading(root);
   }
 
-  // Live pages refresh numbers every poll; Gemini narrative reuses cacheKey when taps unchanged.
+  // Always re-fetch so new student joins update crowd prediction numbers.
   const res = await fetch("/api/ai/event-insights", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ eventId, refresh: false }),
+    body: JSON.stringify({ eventId, refresh: live }),
   });
   const payload = await res.json().catch(() => ({}));
   root.querySelectorAll(".ai-conclusion-box").forEach((box) => {

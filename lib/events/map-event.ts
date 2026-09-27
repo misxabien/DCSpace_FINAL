@@ -157,7 +157,15 @@ export function thematicCategory(e: SanitizedEvent): string {
   ) {
     return "organization";
   }
-  if (cat.includes("acad")) return "academic";
+  if (
+    cat.includes("acad") ||
+    cat.includes("seminar") ||
+    cat.includes("oath") ||
+    cat.includes("lecture") ||
+    cat.includes("workshop")
+  ) {
+    return "academic";
+  }
   return "";
 }
 

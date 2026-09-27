@@ -21,7 +21,7 @@ export type PortalPayload = {
 };
 
 const MEMORY_TTL_MS = 45_000;
-const STORAGE_KEY = "dc_portal_data_v1";
+const STORAGE_KEY = "dc_portal_data_v2";
 
 let cache: { at: number; data: PortalPayload | null } = { at: 0, data: null };
 let inflight: Promise<PortalPayload | null> | null = null;
@@ -100,7 +100,9 @@ export function invalidatePortalCache(options?: { resetUi?: boolean }) {
         const key = window.sessionStorage.key(i);
         if (
           key &&
-          (key.startsWith("dc_portal_data_v1") || key.startsWith("dc_events_cards_v1"))
+          (key.startsWith("dc_portal_data_v1") ||
+            key.startsWith("dc_portal_data_v2") ||
+            key.startsWith("dc_events_cards_v1"))
         ) {
           keys.push(key);
         }
