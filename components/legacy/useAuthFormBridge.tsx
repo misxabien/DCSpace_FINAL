@@ -226,8 +226,8 @@ export function useAuthFormBridge() {
       const data = new FormData(formEl);
 
       try {
+        // /login is owned by LoginBridge — never handled here.
         if (pathname === "/login") {
-          // Login is handled by LoginBridge + /api/auth/login (main design).
           return;
         }
 
@@ -553,6 +553,10 @@ export function useAuthFormBridge() {
       if (!formEl || formEl.tagName !== "FORM") {
         return;
       }
+      // Let LoginBridge own student/faculty sign-in (do not stopImmediatePropagation).
+      if (pathname === "/login" || formEl.closest(".signin-card")) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (typeof (event as SubmitEvent).stopImmediatePropagation === "function") {
@@ -564,6 +568,11 @@ export function useAuthFormBridge() {
     const onClick = (event: MouseEvent) => {
       const target = event.target as Element | null;
       if (!target) {
+        return;
+      }
+
+      // Student login SIGN IN is handled exclusively by LoginBridge.
+      if (pathname === "/login" || target.closest(".signin-card")) {
         return;
       }
 

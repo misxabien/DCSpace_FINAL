@@ -7,6 +7,7 @@ import {
   formatEventDateParts,
   type OrganizedEvent,
 } from "@/components/organized/OrganizedShell";
+import { TimeAmPmPicker } from "@/components/organized/TimeAmPmPicker";
 import { authFetch } from "@/lib/user-api";
 import styles from "@/components/organized/CreateEvent.module.css";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
@@ -105,15 +106,6 @@ function CalendarIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
       <rect x="3" y="4" width="18" height="18" rx="2" />
       <path d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
     </svg>
   );
 }
@@ -1082,32 +1074,22 @@ export function CreateEventView() {
                   <div className={styles.row}>
                     <span className={styles.fieldLabel}>Start &amp; End Time<RequiredMark /></span>
                     <div className={styles.rowEnd}>
-                      <div className={styles.timeField}>
-                        <span className={styles.timeIcon}>
-                          <ClockIcon />
-                        </span>
-                        <input
-                          id="start-time"
-                          className={styles.timeInput}
-                          type="time"
-                          value={startTime}
-                          onChange={(e) => setStartTime(e.target.value)}
-                          aria-label="Start time"
-                        />
-                      </div>
+                      <TimeAmPmPicker
+                        id="start-time"
+                        value={startTime}
+                        onChange={setStartTime}
+                        ariaLabel="Start time"
+                        showLeadingIcon
+                      />
                       <span className={styles.rangeSep} aria-hidden="true">
                         →
                       </span>
-                      <div className={styles.timeField}>
-                        <input
-                          id="end-time"
-                          className={styles.timeInput}
-                          type="time"
-                          value={endTime}
-                          onChange={(e) => setEndTime(e.target.value)}
-                          aria-label="End time"
-                        />
-                      </div>
+                      <TimeAmPmPicker
+                        id="end-time"
+                        value={endTime}
+                        onChange={setEndTime}
+                        ariaLabel="End time"
+                      />
                     </div>
                   </div>
 

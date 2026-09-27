@@ -26,6 +26,22 @@ export function SiteTourLoader() {
       document.body.appendChild(script);
     }
 
+    // Decorate legacy Help buttons after hydration only (never before).
+    const decorate = () => {
+      document
+        .querySelectorAll<HTMLElement>('.tool-btn--help, [aria-label="Help"]')
+        .forEach((button) => {
+          if (!button.hasAttribute("aria-haspopup")) {
+            button.setAttribute("aria-haspopup", "dialog");
+          }
+          if (!button.getAttribute("title")) {
+            button.setAttribute("title", "Start page tour");
+          }
+        });
+    };
+    decorate();
+    const timer = window.setTimeout(decorate, 0);
+
     const onHelp = (event: MouseEvent) => {
       const target = event.target as Element | null;
       const button = target?.closest<HTMLElement>('.tool-btn--help, [aria-label="Help"]');
@@ -35,7 +51,10 @@ export function SiteTourLoader() {
       window.DCWebsiteTour.start(button);
     };
     document.addEventListener("click", onHelp, true);
-    return () => document.removeEventListener("click", onHelp, true);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("click", onHelp, true);
+    };
   }, []);
 
   return null;

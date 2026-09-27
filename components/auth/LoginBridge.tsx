@@ -18,6 +18,39 @@ function ensureErrorEl(form: HTMLFormElement) {
   return errorEl;
 }
 
+/** Strip invisible / autofill junk that can break domain checks. */
+function normalizeSchoolEmail(raw: string) {
+  return String(raw || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function isSchoolEmail(email: string) {
+  return email.endsWith("@sdca.edu.ph");
+}
+
+function readLoginFields(form: HTMLFormElement) {
+  const emailInput =
+    form.querySelector<HTMLInputElement>("#email") ||
+    form.querySelector<HTMLInputElement>('input[type="email"][name="email"]') ||
+    form.querySelector<HTMLInputElement>('input[type="email"]');
+  const passwordInput =
+    form.querySelector<HTMLInputElement>("#password") ||
+    form.querySelector<HTMLInputElement>('input[type="password"][name="password"]') ||
+    form.querySelector<HTMLInputElement>('input[type="password"]');
+
+  // Prefer live input values; FormData helps when Safari autofill is visual-only.
+  const data = new FormData(form);
+  const email = normalizeSchoolEmail(
+    emailInput?.value || String(data.get("email") || ""),
+  );
+  const password = passwordInput?.value || String(data.get("password") || "");
+
+  return { emailInput, passwordInput, email, password };
+}
+
 /**
  * Student/organizer login — same UI, wired to shared /api/auth/login.
  * Document-level listeners survive legacy HTML remounts.
@@ -35,21 +68,32 @@ export function LoginBridge() {
       form.setAttribute("action", "#");
       form.setAttribute("method", "post");
 
-      const emailInput = form.querySelector<HTMLInputElement>("#email");
-      const passwordInput = form.querySelector<HTMLInputElement>("#password");
-      const email = (emailInput?.value ?? "").trim();
-      const password = passwordInput?.value ?? "";
       const errorEl = ensureErrorEl(form);
       errorEl.textContent = "";
 
-      const isSdcaEmail = /^[A-Za-z0-9._%+\-]+@sdca\.edu\.ph$/i.test(email);
-      if (!isSdcaEmail) {
+      let { emailInput, passwordInput, email, password } = readLoginFields(form);
+
+      // Safari sometimes paints autofill before committing .value — retry once.
+      if (!email || !password) {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+        ({ emailInput, passwordInput, email, password } = readLoginFields(form));
+      }
+
+      if (!email) {
+        errorEl.textContent = "Please enter your school email.";
+        emailInput?.focus();
+        return;
+      }
+      if (!isSchoolEmail(email)) {
         errorEl.textContent = "Use your school email ending in @sdca.edu.ph";
         emailInput?.focus();
         return;
       }
       if (!password) {
         errorEl.textContent = "Please enter your password.";
+        passwordInput?.focus();
         return;
       }
 

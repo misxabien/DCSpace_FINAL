@@ -385,26 +385,13 @@
     resizeTimer = window.setTimeout(positionCurrentStep, 80);
   }
 
-  function bindHelpButtons() {
-    document.querySelectorAll('.tool-btn--help, [aria-label="Help"]').forEach(function (button) {
-      if (button.dataset.tourBound === 'true') return;
-      button.dataset.tourBound = 'true';
-      button.setAttribute('aria-haspopup', 'dialog');
-      button.setAttribute('title', 'Start page tour');
-      button.addEventListener('click', function () {
-        startTour(button);
-      });
-    });
-  }
-
+  /**
+   * Do not mutate Help button attributes here — that races Next.js hydration
+   * on React-owned buttons (e.g. OrganizedShell). Clicks are handled by
+   * SiteTourLoader via window.DCWebsiteTour.start().
+   */
   window.DCWebsiteTour = {
-    start: function () { startTour(document.activeElement); },
+    start: function (from) { startTour(from || document.activeElement); },
     close: closeTour
   };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindHelpButtons);
-  } else {
-    bindHelpButtons();
-  }
 })();

@@ -175,12 +175,14 @@
   background: #fff;
   overflow: hidden;
   min-width: 0;
+  height: 42px;
+  box-sizing: border-box;
 }
 
 .dateIcon,
 .timeIcon {
   width: 40px;
-  height: 40px;
+  height: 42px;
   background: #e8d5b5;
   color: #7a5a32;
   display: inline-flex;
@@ -193,6 +195,7 @@
 .timeIcon svg {
   width: 18px;
   height: 18px;
+  display: block;
 }
 
 .dateInput,
@@ -206,7 +209,81 @@
   color: var(--text);
   padding: 10px 12px;
   min-width: 118px;
-  width: 130px;
+  width: 138px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.timeHourSelect,
+.timeMinuteSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  height: 42px;
+  padding: 0 2px 0 10px;
+  cursor: pointer;
+}
+
+.timeMinuteSelect {
+  padding-left: 2px;
+  padding-right: 6px;
+}
+
+.timeColon {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ampmBeside {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: stretch;
+  margin-left: 2px;
+  border-left: 1px solid #e6d7bf;
+  flex-shrink: 0;
+  height: 42px;
+}
+
+.ampmChoice {
+  border: none;
+  background: #f7f0e4;
+  color: #7a5a32;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 36px;
+  padding: 0 9px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ampmChoice + .ampmChoice {
+  border-left: 1px solid #e6d7bf;
+}
+
+.ampmChoice:hover {
+  background: #efe3cf;
+}
+
+.ampmChoiceActive {
+  background: #448aff;
+  color: #fff;
+}
+
+.ampmChoiceActive:hover {
+  background: #3a7aee;
+  color: #fff;
 }
 
 .rangeSep {
