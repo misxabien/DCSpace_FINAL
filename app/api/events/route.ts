@@ -7,10 +7,13 @@ import { SESSION_COOKIE } from "@/lib/auth/types";
 import {
   eventsCollection,
   sanitizeEvent,
+  sanitizeEventListCard,
   asStringList,
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
+import { findEventsAcrossDatabases } from "@/lib/events/events-query";
+import { applyHardcodedEroomApproval } from "@/lib/integrations/reservation-status";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
 import {
   assertSameManilaDay,
@@ -92,18 +95,35 @@ export async function GET(request: Request) {
       ];
     }
 
-    const db = await getUserDb();
-    const docs = await eventsCollection(db)
-      .find(filter)
-      .sort({ updatedAt: -1 })
-      .limit(limit)
-      .toArray();
+    // Admins (and shared lists) read both user + admin Mongo DBs so older
+    // organizer submissions still appear under Pending Approval.
+    // Card projection keeps payloads small so Pending Approval paints ASAP.
+    const docs = await findEventsAcrossDatabases(filter, {
+      sort: { updatedAt: -1 },
+      limit,
+      lean: true,
+      cardFields: true,
+    });
 
     return NextResponse.json({
-      events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
+      events: docs.map((doc) => {
+        const card = applyHardcodedEroomApproval(sanitizeEventListCard(doc));
+        // Query already filtered to templated events — flag for clients that check it.
+        if (searchParams.get("hasCertificateTemplate") === "1") {
+          return {
+            ...card,
+            hasCertificateTemplate: true,
+            attachments: {
+              certificateTemplate: `/api/events/${card.id}/attachments/certificate-template`,
+            },
+          };
+        }
+        return card;
+      }),
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
+    console.error("[DC Space] GET /api/events failed:", details);
     return NextResponse.json(
       { error: "Failed to load events.", details },
       { status: 500 },

@@ -74,6 +74,30 @@ export function eventsCollection(db: Db) {
   return db.collection<SpaceEvent>("events");
 }
 
+/** Slim card payload for admin/organizer event lists (fast JSON). */
+export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
+  const id = doc._id?.toString?.() || String(doc._id || "");
+  return {
+    id,
+    title: String(doc.title || "Untitled event"),
+    status: String(doc.status || ""),
+    location: String(doc.location || ""),
+    startsAt: String(doc.startsAt || ""),
+    endsAt: String(doc.endsAt || ""),
+    category: String(doc.category || ""),
+    department: String(doc.department || ""),
+    venueType: String(doc.venueType || ""),
+    organizerName: String(doc.organizerName || ""),
+    organizerEmail: String(doc.organizerEmail || ""),
+    reservationStatus: String(doc.reservationStatus || ""),
+    reservationId: String(doc.reservationId || ""),
+    reservationRoomName: String(doc.reservationRoomName || ""),
+    attendanceRequiredMinutes: Number(doc.attendanceRequiredMinutes || 0),
+    createdAt: String(doc.createdAt || ""),
+    updatedAt: String(doc.updatedAt || ""),
+  };
+}
+
 export function sanitizeEvent(
   doc: SpaceEvent & { _id: ObjectId },
   options?: { includeMedia?: boolean },

@@ -15,3 +15,12 @@ export async function getUserDb(): Promise<Db> {
 
   return connectPromise;
 }
+
+/** Warm the Mongo pool so the first page load is less likely to stall. */
+export function warmUserMongoConnection() {
+  void getUserDb().catch(() => {
+    /* first real request will retry */
+  });
+}
+
+warmUserMongoConnection();

@@ -93,6 +93,7 @@ export function setLegacyHidden(el: HTMLElement | null | undefined, hidden: bool
   if (!el) return;
   ensureLegacyHideStyles();
   el.classList.toggle(HIDDEN_CLASS, hidden);
+  el.classList.toggle("is-hidden", hidden);
   if (hidden) {
     el.setAttribute("hidden", "");
     el.style.setProperty("display", "none", "important");
@@ -308,6 +309,47 @@ export function ensureEventsFooterAtBottom(host: ParentNode | null) {
     if (!footer) return;
     if (panel.lastElementChild !== footer) {
       panel.appendChild(footer);
+    }
+  });
+}
+
+/**
+ * Sync Asc/Desc pager labels with actually visible event rows
+ * (ignores dc-legacy-hidden / [hidden] template stubs).
+ */
+export function updateEventsPagers(root: ParentNode | null) {
+  if (!root) return;
+  const blocks = Array.from(
+    (root as Element).querySelectorAll?.(".events-block") || [],
+  ) as HTMLElement[];
+  const panels =
+    blocks.length > 0
+      ? blocks
+      : (Array.from(
+          (root as Element).querySelectorAll?.(".events-panel") || [],
+        ) as HTMLElement[]);
+
+  panels.forEach((block) => {
+    const panel = block.classList.contains("events-panel")
+      ? block
+      : block.querySelector<HTMLElement>(".events-panel") || block;
+    const items = Array.from(panel.querySelectorAll<HTMLElement>(".event-item"));
+    const visible = items.filter(
+      (el) =>
+        !el.classList.contains(HIDDEN_CLASS) &&
+        !el.classList.contains("is-hidden") &&
+        !el.hasAttribute("hidden"),
+    );
+    const pager =
+      panel.querySelector(".pager") || block.querySelector(".pager");
+    if (!pager) return;
+    const spans = pager.querySelectorAll("span");
+    const total = visible.length;
+    if (spans[0]) {
+      spans[0].textContent = `Show ${total} out of ${total} entries`;
+    }
+    if (spans[1]) {
+      spans[1].textContent = `Page ${total ? 1 : 0} of ${total ? 1 : 0}`;
     }
   });
 }

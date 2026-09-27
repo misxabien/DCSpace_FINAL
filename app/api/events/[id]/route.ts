@@ -8,6 +8,7 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
+import { findEventByIdAcrossDatabases } from "@/lib/events/events-query";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
@@ -38,11 +39,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const doc = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
-    if (!doc) {
+    const found = await findEventByIdAcrossDatabases(id);
+    if (!found) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
+    const { db, doc } = found;
 
     if (!isAdmin && actor && !("error" in actor)) {
       const visible =
@@ -55,7 +56,7 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     // Merge latest eRoomReserve sync onto the event payload for approval UI.
-    const { findReservationForEvent } = await import(
+    const { findReservationForEvent, applyHardcodedEroomApproval } = await import(
       "@/lib/integrations/reservation-status"
     );
     const reservation = await findReservationForEvent(db, {
@@ -72,9 +73,11 @@ export async function GET(request: Request, context: RouteContext) {
       if (!doc.location) doc.location = reservation.room.name;
     }
 
-    return NextResponse.json({
-      event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, { includeMedia: true }),
-    });
+    const event = applyHardcodedEroomApproval(
+      sanitizeEvent(doc, { includeMedia: true }),
+    );
+
+    return NextResponse.json({ event });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
@@ -139,11 +142,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const db = await getUserDb();
-    const existing = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
-    if (!existing) {
+    const found = await findEventByIdAcrossDatabases(id);
+    if (!found) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
+    const { db, doc: existing } = found;
 
     if (!isAdmin) {
       const owns =

@@ -168,3 +168,38 @@ export async function findReservationForEvent(
   }
   return null;
 }
+
+/** Demo hardcode: ASCEND 2026 is always treated as eRoomReserve-approved. */
+export function isHardcodedEroomApprovedEvent(title?: string | null) {
+  const normalized = String(title || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.includes("ascend") && normalized.includes("2026");
+}
+
+export function applyHardcodedEroomApproval<
+  T extends {
+    title?: string;
+    location?: string;
+    reservationStatus?: string;
+    reservationRoomName?: string;
+    reservationCapacity?: number | null;
+    reservationId?: string;
+  },
+>(event: T): T {
+  if (!isHardcodedEroomApprovedEvent(event.title)) return event;
+  const roomName =
+    String(event.reservationRoomName || event.location || "").trim() || "D.R.A. Hall";
+  const capacity =
+    typeof event.reservationCapacity === "number" && event.reservationCapacity > 0
+      ? event.reservationCapacity
+      : 300;
+  return {
+    ...event,
+    reservationId: event.reservationId || "demo-ascend-2026",
+    reservationStatus: "approved",
+    reservationRoomName: roomName,
+    reservationCapacity: capacity,
+  };
+}

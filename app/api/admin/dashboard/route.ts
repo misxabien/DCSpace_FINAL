@@ -16,6 +16,7 @@ import {
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { buildDashboardCharts } from "@/lib/admin/dashboard-charts";
+import { findEventsAcrossDatabases } from "@/lib/events/events-query";
 import {
   MONGO_QUICK_TIMEOUT_MS,
   withTimeout,
@@ -182,16 +183,14 @@ export async function GET(request: Request) {
         .sort({ updatedAt: -1 })
         .limit(6)
         .toArray(),
-      eventsCol
-        .find({ status: "pending" })
-        .sort({ createdAt: -1 })
-        .limit(500)
-        .toArray(),
-      eventsCol
-        .find({ status: { $in: ["approved", "live", "completed"] } })
-        .sort({ updatedAt: -1 })
-        .limit(500)
-        .toArray(),
+      findEventsAcrossDatabases(
+        { status: "pending" },
+        { sort: { createdAt: -1 }, limit: 500, lean: true, cardFields: true },
+      ),
+      findEventsAcrossDatabases(
+        { status: { $in: ["approved", "live", "completed"] } },
+        { sort: { updatedAt: -1 }, limit: 500, lean: true, cardFields: true },
+      ),
       eventsCol
         .find({ status: { $in: ["approved", "live"] } })
         .sort({ startsAt: 1 })
