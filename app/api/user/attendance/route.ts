@@ -117,7 +117,26 @@ export async function GET(request: Request) {
     }
 
     const docs = await attendanceCollection(db)
-      .find(filter)
+      .find(filter, {
+        projection: {
+          eventId: 1,
+          eventTitle: 1,
+          eventName: 1,
+          email: 1,
+          participantName: 1,
+          userName: 1,
+          action: 1,
+          status: 1,
+          source: 1,
+          rfidNumber: 1,
+          createdAt: 1,
+          scannedAt: 1,
+          attendanceMinutes: 1,
+          qualifiedForCertificate: 1,
+          studentNumber: 1,
+          course: 1,
+        },
+      })
       .sort({ scannedAt: -1, createdAt: -1 })
       .limit(500)
       .toArray();

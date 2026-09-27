@@ -50,6 +50,9 @@ export const EVENT_LIST_CARD_PROJECT = {
   attendanceRequired: 1,
   attendanceRequiredMinutes: 1,
   gracePeriod: 1,
+  // Name-only flag — never include certificateTemplateBase64 in list cards.
+  certificateTemplateName: 1,
+  certificateTemplateMimeType: 1,
 } as const;
 
 function dedupeById(docs: EventDoc[]): EventDoc[] {

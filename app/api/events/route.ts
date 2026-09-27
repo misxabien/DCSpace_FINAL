@@ -79,7 +79,17 @@ export async function GET(request: Request) {
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     if (searchParams.get("hasCertificateTemplate") === "1") {
-      filter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+      // Match by name or blob so lean cards (name-only projection) still qualify.
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? (filter.$and as object[]) : []),
+        {
+          $or: [
+            { certificateTemplateBase64: { $exists: true, $nin: [null, ""] } },
+            { certificateTemplateName: { $exists: true, $nin: [null, ""] } },
+          ],
+        },
+      ];
+      delete filter.certificateTemplateBase64;
     }
 
     if (actor.kind === "user") {

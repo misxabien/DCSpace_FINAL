@@ -1290,8 +1290,12 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
   }> = [];
 
   try {
+    // Templated events only + lean cert metadata (no PDF blobs).
     const [eventsRes, certsRes, attendRes] = await Promise.all([
-      fetch("/api/events?limit=500", { cache: "no-store", credentials: "include" }),
+      fetch("/api/events?hasCertificateTemplate=1&limit=500", {
+        cache: "no-store",
+        credentials: "include",
+      }),
       fetch("/api/user/certificates", { cache: "no-store", credentials: "include" }),
       fetch("/api/user/attendance", { cache: "no-store", credentials: "include" }),
     ]);
@@ -1312,7 +1316,7 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
 
   const pipelineEvents = events.filter(
     (event) =>
-      Boolean(event.hasCertificateTemplate) &&
+      Boolean(event.hasCertificateTemplate || event.attachments?.certificateTemplate) &&
       ["live", "completed", "approved"].includes(event.status),
   );
 
@@ -1922,14 +1926,27 @@ export function AdminDataBridge() {
       }
     }
 
-    // Dashboard is optional for event list pages once events already painted.
+    const CERT_PAGES = new Set(["cert45", "certdeets46", "fulld46", "cert38"]);
+    // Certificates board: lean APIs only — paint before heavy dashboard.
+    let certsHydrated = false;
+    if (CERT_PAGES.has(pageId)) {
+      await hydrateCertificatesAdmin(root, emptyDashboardShell([]));
+      certsHydrated = true;
+      if (cancelled) return;
+      if (STAT_LOADING_PAGES.has(pageId)) {
+        initialStatsLoadDone = true;
+        clearRemainingStatCardLoading(root);
+      }
+    }
+
+    // Dashboard is optional for event list / cert pages once content already painted.
     let data: DashboardPayload | null = null;
     const needsDashboard =
-      !EVENT_LIST_PAGES.has(pageId) ||
-      !liveEventsPainted ||
       pageId === "home12" ||
       pageId === "user27" ||
-      STAT_LOADING_PAGES.has(pageId);
+      (STAT_LOADING_PAGES.has(pageId) && pageId !== "cert45") ||
+      (EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted) ||
+      (!EVENT_LIST_PAGES.has(pageId) && !certsHydrated);
 
     if (needsDashboard) {
       try {
@@ -2034,7 +2051,7 @@ export function AdminDataBridge() {
       if (pageId === "feedback47") wireFeedbackFilters(root, () => void reloadFeedback());
       await reloadFeedback();
     }
-    if (pageId === "cert45" || pageId === "certdeets46" || pageId === "fulld46" || pageId === "cert38") {
+    if (CERT_PAGES.has(pageId) && !certsHydrated && data) {
       await hydrateCertificatesAdmin(root, data);
     }
     if (pageId === "report51" || pageId === "reportgen53") {

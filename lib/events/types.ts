@@ -77,6 +77,8 @@ export function eventsCollection(db: Db) {
 /** Slim card payload for admin/organizer event lists (fast JSON). */
 export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
   const id = doc._id?.toString?.() || String(doc._id || "");
+  const hasCertificateTemplate =
+    Boolean(doc.certificateTemplateName) || Boolean(doc.certificateTemplateBase64);
   return {
     id,
     title: String(doc.title || "Untitled event"),
@@ -93,6 +95,8 @@ export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
     reservationId: String(doc.reservationId || ""),
     reservationRoomName: String(doc.reservationRoomName || ""),
     attendanceRequiredMinutes: Number(doc.attendanceRequiredMinutes || 0),
+    certificateTemplateName: String(doc.certificateTemplateName || ""),
+    hasCertificateTemplate,
     createdAt: String(doc.createdAt || ""),
     updatedAt: String(doc.updatedAt || ""),
   };
