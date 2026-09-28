@@ -52,7 +52,10 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    const { event: doc, userDb, source } = await findEventById(id);
+    // Default lean — posters/templates load via /attachments/* when needed.
+    const { event: doc, userDb, source } = await findEventById(id, {
+      includeBlobs: false,
+    });
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -88,11 +91,9 @@ export async function GET(request: Request, context: RouteContext) {
       if (!doc.location) doc.location = reservation.room.name;
     }
 
-    const light = new URL(request.url).searchParams.get("light") === "1";
     return NextResponse.json({
       event: sanitizeEvent(doc as SpaceEvent & { _id: ObjectId }, {
-        // List/card hydration must stay light — posters load via /attachments/poster.
-        includeMedia: !light,
+        includeMedia: false,
       }),
       source: source || undefined,
     });
@@ -160,7 +161,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    const { event: existing, adminDb, userDb, source } = await findEventById(id);
+    const { event: existing, adminDb, userDb, source } = await findEventById(id, {
+      includeBlobs: true,
+    });
     if (!existing) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }

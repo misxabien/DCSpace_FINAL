@@ -255,6 +255,30 @@
     }
   }
 
+  function applyHeroImage(event) {
+    var heroWrap = document.querySelector('.detail-hero');
+    var heroImg = heroWrap ? heroWrap.querySelector('img') : null;
+    if (!heroWrap || !heroImg) return;
+    var imageUrl = event && event.imageUrl ? String(event.imageUrl).trim() : '';
+    if (imageUrl) {
+      heroWrap.style.display = '';
+      heroWrap.hidden = false;
+      heroImg.loading = 'eager';
+      heroImg.decoding = 'async';
+      heroImg.fetchPriority = 'high';
+      // Drop the Unsplash placeholder immediately so a slow poster fetch
+      // does not keep showing the wrong crowd photo.
+      if (heroImg.src !== imageUrl) {
+        heroImg.removeAttribute('src');
+        heroImg.alt = (event && event.name) || 'Event';
+        heroImg.src = imageUrl;
+      }
+    } else {
+      heroWrap.style.display = 'none';
+      heroWrap.hidden = true;
+    }
+  }
+
   function refreshAttendanceRfid(eventId) {
     if (!DCEvents) return;
     var id = eventId || getQueryParam('id');
@@ -262,6 +286,7 @@
     var event = DCEvents.getEventById(id);
     var rfid = DCEvents.getAttendanceRfid(id);
     if (!event || !rfid) return;
+    applyHeroImage(event);
     applyRfidMetrics(rfid, event);
     renderRfidLogs(rfid, { jumpToLatest: true });
   }
@@ -273,6 +298,7 @@
     var event = DCEvents.getEventById(id);
     var rfid = DCEvents.getAttendanceRfid(id);
     if (!event || !rfid) return;
+    applyHeroImage(event);
     applyRfidMetrics(rfid, event);
     touchLiveIndicator();
   }
@@ -302,17 +328,7 @@
     var statusWrap = document.getElementById('detail-status-wrap');
     if (statusWrap) statusWrap.hidden = true;
 
-    var heroWrap = document.querySelector('.detail-hero');
-    var heroImg = heroWrap ? heroWrap.querySelector('img') : null;
-    if (heroWrap) {
-      if (event.imageUrl && heroImg) {
-        heroWrap.style.display = '';
-        heroImg.src = event.imageUrl;
-        heroImg.alt = event.name || 'Event';
-      } else {
-        heroWrap.style.display = 'none';
-      }
-    }
+    applyHeroImage(event);
 
     // Keep metadata icons sized — never let large SVG paths fill the page.
     document.querySelectorAll(

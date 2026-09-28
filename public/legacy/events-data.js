@@ -225,10 +225,21 @@
     fillAttachments(event);
 
     var heroImg = document.querySelector('.detail-hero img');
-    if (heroImg && event.imageUrl) {
-      heroImg.src = event.imageUrl;
-      heroImg.loading = 'eager';
-      heroImg.alt = event.name;
+    if (heroImg) {
+      if (event.imageUrl) {
+        if (heroImg.src !== event.imageUrl) {
+          heroImg.removeAttribute('src');
+          heroImg.src = event.imageUrl;
+        }
+        heroImg.loading = 'eager';
+        heroImg.decoding = 'async';
+        heroImg.alt = event.name || 'Event';
+        var heroWrap = heroImg.closest('.detail-hero');
+        if (heroWrap) {
+          heroWrap.style.display = '';
+          heroWrap.hidden = false;
+        }
+      }
     }
 
     var filesRequired = document.getElementById('detail-files-required');

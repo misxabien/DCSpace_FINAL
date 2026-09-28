@@ -34,8 +34,26 @@ export async function GET(request: Request) {
       filter.email = email.trim().toLowerCase();
     }
 
+    // Never materialize generatedPdfBase64 in list queries — each PDF is
+    // ~200KB+ and loading them made /api/user/certificates take 10–16s.
     const docs = await certificatesCollection(db)
-      .find(filter)
+      .find(filter, {
+        projection: {
+          name: 1,
+          eventId: 1,
+          eventName: 1,
+          eventTitle: 1,
+          email: 1,
+          userName: 1,
+          studentNumber: 1,
+          course: 1,
+          school: 1,
+          dateIssued: 1,
+          createdAt: 1,
+          status: 1,
+          category: 1,
+        },
+      })
       .sort({ createdAt: -1 })
       .limit(200)
       .toArray();

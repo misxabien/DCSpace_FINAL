@@ -1138,8 +1138,8 @@ export function StudentDataBridge() {
         };
 
         if (logsChanged || !prevRfid.logs) {
-          window.DCEvents.refreshAttendanceRfid?.(eventId) ||
-            window.DCEvents.renderAttendanceDetails?.();
+          window.DCEvents.renderAttendanceDetails?.();
+          window.DCEvents.refreshAttendanceRfid?.(eventId);
         } else {
           window.DCEvents.updateAttendanceRfidLive?.(eventId);
         }

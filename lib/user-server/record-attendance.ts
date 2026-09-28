@@ -323,33 +323,42 @@ export async function recordAttendanceTap(
       doc.attendanceMinutes = attendanceMinutes;
       doc.qualifiedForCertificate = qualifiedForCertificate;
 
-      if (qualifiedForCertificate && event.certificateTemplateBase64) {
-        const existingCert = await userDb.collection("certificates").findOne({
-          eventId,
-          email,
-        });
+      if (qualifiedForCertificate) {
+        const existingCert = await userDb.collection("certificates").findOne(
+          { eventId, email },
+          { projection: { _id: 1 } },
+        );
         if (!existingCert) {
-          const createdCert = await createCertificateDoc({
-            db: userDb,
-            event: {
-              id: eventId,
-              title: String(event.title || eventTitle),
-              startsAt: String(event.startsAt || ""),
-              certificateTemplateBase64: String(event.certificateTemplateBase64 || ""),
-            },
-            recipient: {
-              email,
-              userName: input.participant.name || email,
-            },
-            generatedBy: {
-              email: input.actor?.email || email,
-              name: input.actor?.name || input.participant.name || email,
-              role: input.actor?.role || input.participant.role || "student",
-            },
-            qualificationSource: "attendance",
-            attendanceMinutes,
-          });
-          certificateId = createdCert.id;
+          // Pull template only when issuing — keep loadLiveEvent lean otherwise.
+          let templateBase64 = String(event.certificateTemplateBase64 || "");
+          if (!templateBase64) {
+            const { findEventById } = await import("@/lib/events/find-event");
+            const full = await findEventById(eventId, { includeBlobs: true });
+            templateBase64 = String(full.event?.certificateTemplateBase64 || "");
+          }
+          if (templateBase64) {
+            const createdCert = await createCertificateDoc({
+              db: userDb,
+              event: {
+                id: eventId,
+                title: String(event.title || eventTitle),
+                startsAt: String(event.startsAt || ""),
+                certificateTemplateBase64: templateBase64,
+              },
+              recipient: {
+                email,
+                userName: input.participant.name || email,
+              },
+              generatedBy: {
+                email: input.actor?.email || email,
+                name: input.actor?.name || input.participant.name || email,
+                role: input.actor?.role || input.participant.role || "student",
+              },
+              qualificationSource: "attendance",
+              attendanceMinutes,
+            });
+            certificateId = createdCert.id;
+          }
         } else {
           certificateId = String(existingCert._id || "");
         }

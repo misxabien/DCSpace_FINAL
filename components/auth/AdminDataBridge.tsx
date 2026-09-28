@@ -904,8 +904,12 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
   }> = [];
 
   try {
+    // Templated events only + lean cert metadata (no PDF blobs).
     const [eventsRes, certsRes, attendRes] = await Promise.all([
-      fetch("/api/events?limit=500", { cache: "no-store", credentials: "include" }),
+      fetch("/api/events?hasCertificateTemplate=1&limit=500", {
+        cache: "no-store",
+        credentials: "include",
+      }),
       fetch("/api/user/certificates", { cache: "no-store", credentials: "include" }),
       fetch("/api/user/attendance", { cache: "no-store", credentials: "include" }),
     ]);
@@ -926,7 +930,7 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
 
   const pipelineEvents = events.filter(
     (event) =>
-      Boolean(event.hasCertificateTemplate) &&
+      Boolean(event.hasCertificateTemplate || event.attachments?.certificateTemplate) &&
       ["live", "completed", "approved"].includes(event.status),
   );
 
@@ -1453,7 +1457,36 @@ export function AdminDataBridge() {
 
     document.addEventListener("click", onCertAction, true);
 
+    let runInFlight = false;
+    const emptyDashboardShell = (): DashboardPayload =>
+      ({
+        generatedAt: new Date().toISOString(),
+        stats: {
+          totalEvents: 0,
+          ongoingEvents: 0,
+          totalUsers: 0,
+          certificatesGenerated: 0,
+          attendanceRate: 0,
+          feedbackReceived: 0,
+          pendingEvents: 0,
+          facultyUsers: 0,
+          newUsers: 0,
+          activeUsers: 0,
+        },
+        attention: [],
+        todayEvents: [],
+        events: { pending: [], approved: [] },
+        users: [],
+        activities: [],
+        attendance: [],
+        feedback: [],
+      }) as unknown as DashboardPayload;
+
+    const CERT_PAGES = new Set(["cert45", "certdeets46", "fulld46", "cert38"]);
+
     const run = async () => {
+      if (runInFlight || cancelled) return;
+      runInFlight = true;
       try {
         const root =
           document.querySelector(".admin-legacy-root") ||
@@ -1462,6 +1495,12 @@ export function AdminDataBridge() {
         if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
           hideLegacyDemoContent(root);
           root.setAttribute("data-dc-blanked", pageId);
+        }
+
+        // Certificates: lean APIs first — never block on /api/admin/dashboard.
+        if (CERT_PAGES.has(pageId) && root instanceof Element) {
+          await hydrateCertificatesAdmin(root, emptyDashboardShell());
+          return;
         }
 
         const res = await fetch("/api/admin/dashboard", { cache: "no-store" });
@@ -1519,9 +1558,6 @@ export function AdminDataBridge() {
           if (pageId === "feedback47") wireFeedbackFilters(root, () => void reloadFeedback());
           await reloadFeedback();
         }
-        if (pageId === "cert45" || pageId === "certdeets46" || pageId === "fulld46" || pageId === "cert38") {
-          await hydrateCertificatesAdmin(root, data);
-        }
         if (pageId === "report51" || pageId === "reportgen53") {
           blankReportHubPlaceholders(root);
           const reportsRes = await fetch("/api/admin/reports", { cache: "no-store", credentials: "include" });
@@ -1544,21 +1580,24 @@ export function AdminDataBridge() {
         }
       } catch {
         /* keep original static markup */
+      } finally {
+        runInFlight = false;
       }
     };
 
     const t1 = window.setTimeout(() => void run(), 50);
-    const t2 = window.setTimeout(() => void run(), 300);
+    const t2 = window.setTimeout(() => void run(), 400);
     const pollMs =
-      pageId === "cert45" ||
-      pageId === "reportgen53" ||
-      pageId === "report51" ||
-      pageId === "reportlist52" ||
-      pageId === "feedback47" ||
-      pageId === "fcollection48" ||
-      pageId === "scollection48"
-        ? 4000
-        : 12000;
+      pageId === "cert45"
+        ? 20000
+        : pageId === "reportgen53" ||
+            pageId === "report51" ||
+            pageId === "reportlist52" ||
+            pageId === "feedback47" ||
+            pageId === "fcollection48" ||
+            pageId === "scollection48"
+          ? 8000
+          : 12000;
     const poll = window.setInterval(() => void run(), pollMs);
 
     return () => {

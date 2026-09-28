@@ -19,3 +19,52 @@ export const PORTAL_EVENT_PROJECTION = {
   ...HEAVY_ATTACHMENT_PROJECTION,
   posterImageBase64: 0,
 } as const;
+
+/** Auth + metadata fields needed to authorize attachment downloads. */
+const ATTACHMENT_AUTH_FIELDS = {
+  status: 1,
+  organizerEmail: 1,
+  organizerId: 1,
+  programFileVisibility: 1,
+} as const;
+
+/**
+ * Projection that fetches only one attachment blob — posters used to take
+ * 30–90s because they also pulled the multi‑MB certificate PDF.
+ */
+export function attachmentKindProjection(kind: string): Record<string, 0 | 1> {
+  if (kind === "poster") {
+    return {
+      ...ATTACHMENT_AUTH_FIELDS,
+      posterImageBase64: 1,
+      posterImageMimeType: 1,
+      hasPoster: 1,
+    };
+  }
+  if (kind === "certificate-template") {
+    return {
+      ...ATTACHMENT_AUTH_FIELDS,
+      certificateTemplateBase64: 1,
+      certificateTemplateMimeType: 1,
+      certificateTemplateName: 1,
+    };
+  }
+  if (kind === "concept-paper") {
+    return {
+      ...ATTACHMENT_AUTH_FIELDS,
+      conceptPaperBase64: 1,
+      conceptPaperMimeType: 1,
+      conceptPaperName: 1,
+    };
+  }
+  if (kind === "program-file") {
+    return {
+      ...ATTACHMENT_AUTH_FIELDS,
+      programFileBase64: 1,
+      programFileMimeType: 1,
+      programFileName: 1,
+      programFileVisibility: 1,
+    };
+  }
+  return { ...ATTACHMENT_AUTH_FIELDS };
+}

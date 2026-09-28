@@ -11,6 +11,7 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
+import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
 import { findOrganizerEvents } from "@/lib/events/find-event";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { organizerOwnershipFilter } from "@/lib/events/ownership";
@@ -72,7 +73,15 @@ export async function GET(request: Request) {
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     if (searchParams.get("hasCertificateTemplate") === "1") {
-      filter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? (filter.$and as object[]) : []),
+        {
+          $or: [
+            { certificateTemplateBase64: { $exists: true, $nin: [null, ""] } },
+            { certificateTemplateName: { $exists: true, $nin: [null, ""] } },
+          ],
+        },
+      ];
     }
 
     if (actor.kind === "user") {
@@ -101,11 +110,22 @@ export async function GET(request: Request) {
       };
       if (status) publicFilter.status = status;
       if (searchParams.get("hasCertificateTemplate") === "1") {
-        publicFilter.certificateTemplateBase64 = { $exists: true, $nin: [null, ""] };
+        publicFilter.$or = [
+          { certificateTemplateBase64: { $exists: true, $nin: [null, ""] } },
+          { certificateTemplateName: { $exists: true, $nin: [null, ""] } },
+        ];
       }
       const [adminPublic, userPublic] = await Promise.all([
-        eventsCollection(adminDb).find(publicFilter).sort({ updatedAt: -1 }).limit(limit).toArray(),
-        eventsCollection(userDb).find(publicFilter).sort({ updatedAt: -1 }).limit(limit).toArray(),
+        eventsCollection(adminDb)
+          .find(publicFilter, { projection: EVENT_LIST_PROJECTION })
+          .sort({ updatedAt: -1 })
+          .limit(limit)
+          .toArray(),
+        eventsCollection(userDb)
+          .find(publicFilter, { projection: EVENT_LIST_PROJECTION })
+          .sort({ updatedAt: -1 })
+          .limit(limit)
+          .toArray(),
       ]);
       const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
       for (const doc of [...userPublic, ...adminPublic, ...owned]) {
@@ -116,12 +136,12 @@ export async function GET(request: Request) {
         .slice(0, limit);
     } else {
       const docsAdmin = await eventsCollection(adminDb)
-        .find(filter)
+        .find(filter, { projection: EVENT_LIST_PROJECTION })
         .sort({ updatedAt: -1 })
         .limit(limit)
         .toArray();
       const docsUser = await eventsCollection(userDb)
-        .find(filter)
+        .find(filter, { projection: EVENT_LIST_PROJECTION })
         .sort({ updatedAt: -1 })
         .limit(limit)
         .toArray();
@@ -135,7 +155,16 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
-      events: docs.map((doc) => sanitizeEvent(doc as SpaceEvent & { _id: ObjectId })),
+      events: docs.map((doc) => {
+        const event = sanitizeEvent(doc as SpaceEvent & { _id: ObjectId });
+        if (searchParams.get("hasCertificateTemplate") === "1") {
+          return {
+            ...event,
+            hasCertificateTemplate: true,
+          };
+        }
+        return event;
+      }),
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";

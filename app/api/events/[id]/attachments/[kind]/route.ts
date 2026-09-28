@@ -6,7 +6,7 @@ import {
   isEventAttachmentKind,
   resolveEventAttachment,
 } from "@/lib/events/files";
-import { findEventById } from "@/lib/events/find-event";
+import { findEventAttachmentById } from "@/lib/events/find-event";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string; kind: string }> };
@@ -25,8 +25,8 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   try {
-    // Events (and posters) live in admin DB; fall back to user DB for legacy rows.
-    const { event: doc } = await findEventById(id);
+    // Only pull the requested blob — never the full event with all attachments.
+    const { event: doc } = await findEventAttachmentById(id, kind);
     if (!doc) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -68,8 +68,8 @@ export async function GET(request: Request, context: RouteContext) {
         "Content-Disposition": `inline; filename="${fileName}"`,
         "Cache-Control":
           kind === "poster" && publiclyVisible
-            ? "public, max-age=300"
-            : "private, max-age=300",
+            ? "public, max-age=3600, stale-while-revalidate=86400"
+            : "private, max-age=600",
       },
     });
   } catch (error) {

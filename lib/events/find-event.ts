@@ -1,6 +1,7 @@
 import { ObjectId, type Db } from "mongodb";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { eventsCollection, type SpaceEvent } from "@/lib/events/types";
+import { EVENT_LIST_PROJECTION, attachmentKindProjection } from "@/lib/events/list-projection";
 import { isPublicEventStatus } from "@/lib/events/public-status";
 
 export type EventDoc = SpaceEvent & { _id: ObjectId };
@@ -77,7 +78,10 @@ export function mergeEventDocs(primary: EventDoc, secondary: EventDoc | null): E
 }
 
 /** Prefer admin DB (canonical), fall back to user DB for pre-merge events. */
-export async function findEventById(id: string): Promise<{
+export async function findEventById(
+  id: string,
+  options?: { includeBlobs?: boolean },
+): Promise<{
   event: EventDoc | null;
   adminDb: Db;
   userDb: Db;
@@ -88,9 +92,48 @@ export async function findEventById(id: string): Promise<{
     return { event: null, adminDb, userDb, source: null };
   }
   const oid = new ObjectId(id);
+  const includeBlobs = options?.includeBlobs === true;
+  const findOpts = includeBlobs
+    ? undefined
+    : { projection: EVENT_LIST_PROJECTION };
   const [fromAdmin, fromUser] = await Promise.all([
-    eventsCollection(adminDb).findOne({ _id: oid }),
-    eventsCollection(userDb).findOne({ _id: oid }),
+    eventsCollection(adminDb).findOne({ _id: oid }, findOpts),
+    eventsCollection(userDb).findOne({ _id: oid }, findOpts),
+  ]);
+
+  if (fromAdmin) {
+    return {
+      event: mergeEventDocs(fromAdmin as EventDoc, (fromUser as EventDoc) || null),
+      adminDb,
+      userDb,
+      source: "admin",
+    };
+  }
+  if (fromUser) {
+    return { event: fromUser as EventDoc, adminDb, userDb, source: "user" };
+  }
+  return { event: null, adminDb, userDb, source: null };
+}
+
+/** Load only the blob fields for one attachment kind (fast poster/PDF downloads). */
+export async function findEventAttachmentById(
+  id: string,
+  kind: string,
+): Promise<{
+  event: EventDoc | null;
+  adminDb: Db;
+  userDb: Db;
+  source: "admin" | "user" | null;
+}> {
+  const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
+  if (!ObjectId.isValid(id)) {
+    return { event: null, adminDb, userDb, source: null };
+  }
+  const oid = new ObjectId(id);
+  const projection = attachmentKindProjection(kind);
+  const [fromAdmin, fromUser] = await Promise.all([
+    eventsCollection(adminDb).findOne({ _id: oid }, { projection }),
+    eventsCollection(userDb).findOne({ _id: oid }, { projection }),
   ]);
 
   if (fromAdmin) {
@@ -114,13 +157,14 @@ export async function findOrganizerEvents(
   options?: { projection?: Record<string, 0 | 1> },
 ): Promise<EventDoc[]> {
   const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
-  const list = (db: Db) => {
-    let cursor = eventsCollection(db).find(filter).sort({ updatedAt: -1 }).limit(limit);
-    if (options?.projection) {
-      cursor = cursor.project(options.projection);
-    }
-    return cursor.toArray();
-  };
+  const projection = options?.projection || EVENT_LIST_PROJECTION;
+  const list = (db: Db) =>
+    eventsCollection(db)
+      .find(filter, { projection })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .toArray();
+
   const [adminDocs, userDocs] = await Promise.all([list(adminDb), list(userDb)]);
 
   const byId = new Map<string, EventDoc>();
@@ -145,9 +189,10 @@ export async function findEventsByIds(ids: string[]): Promise<EventDoc[]> {
   if (!objectIds.length) return [];
 
   const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
+  const findOpts = { projection: EVENT_LIST_PROJECTION };
   const [adminDocs, userDocs] = await Promise.all([
-    eventsCollection(adminDb).find({ _id: { $in: objectIds } }).toArray(),
-    eventsCollection(userDb).find({ _id: { $in: objectIds } }).toArray(),
+    eventsCollection(adminDb).find({ _id: { $in: objectIds } }, findOpts).toArray(),
+    eventsCollection(userDb).find({ _id: { $in: objectIds } }, findOpts).toArray(),
   ]);
 
   const userById = new Map(userDocs.map((doc) => [String(doc._id), doc as EventDoc]));

@@ -65,42 +65,26 @@ export async function buildCertificatePdfFromTemplate(input: {
   }
 
   const font = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const subFont = await pdf.embedFont(StandardFonts.Helvetica);
   const { width, height } = page.getSize();
 
   const name = input.recipientName.trim() || "Participant";
-  const title = input.eventName.trim() || "Event";
-  const nameSize = Math.max(24, Math.min(34, width / 18));
-  const metaSize = Math.max(12, Math.min(16, width / 42));
-
+  // Landscape certificate templates put the name blank under "PRESENTED TO"
+  // (upper-middle). PDF y=0 is the bottom; ~0.538 sits the baseline a little
+  // above that underline. Only overlay the recipient name — the template
+  // already has event copy, dates, and signatures.
+  const nameSize = Math.max(22, Math.min(28, width / 24));
   const nameWidth = font.widthOfTextAtSize(name, nameSize);
   page.drawText(name, {
     x: Math.max(36, (width - nameWidth) / 2),
-    y: height * 0.38,
+    y: height * 0.538,
     size: nameSize,
     font,
     color: rgb(0.13, 0.2, 0.34),
   });
 
-  const subtitle = `For completing the attendance requirement for ${title}`;
-  const subtitleWidth = subFont.widthOfTextAtSize(subtitle, metaSize);
-  page.drawText(subtitle, {
-    x: Math.max(36, (width - subtitleWidth) / 2),
-    y: height * 0.31,
-    size: metaSize,
-    font: subFont,
-    color: rgb(0.23, 0.27, 0.33),
-  });
-
-  const issued = `Issued ${input.dateIssued}`;
-  const issuedWidth = subFont.widthOfTextAtSize(issued, metaSize);
-  page.drawText(issued, {
-    x: Math.max(36, (width - issuedWidth) / 2),
-    y: height * 0.25,
-    size: metaSize,
-    font: subFont,
-    color: rgb(0.23, 0.27, 0.33),
-  });
+  // Keep event/date params in the signature for callers; unused on filled templates.
+  void input.eventName;
+  void input.dateIssued;
 
   const bytes = await pdf.save();
   return Buffer.from(bytes).toString("base64");
