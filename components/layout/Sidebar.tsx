@@ -13,6 +13,10 @@ import {
 import { NavIcon } from "@/components/layout/NavIcons";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { UserNotifBadgeBridge } from "@/components/legacy/UserNotifBadgeBridge";
+import {
+  applyTopbarAvatar,
+  readCachedAccountImages,
+} from "@/lib/profile-images";
 
 const SIDEBAR_STORAGE_KEY = "dc_sidebar_collapsed";
 
@@ -49,23 +53,51 @@ function useSidebarCollapse() {
   }, []);
 }
 
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { isOrganizer, logout } = useAuth();
+  const { user, isOrganizer, logout } = useAuth();
   // Keep first paint identical on server + client (auth cache only exists in the browser).
   const [hydrated, setHydrated] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    const { photoUrl } = readCachedAccountImages();
+    applyTopbarAvatar(photoUrl);
+  }, [user?.name, pathname]);
+
   const navItems = hydrated ? getNavItemsForRole(isOrganizer) : STUDENT_NAV_ITEMS;
   useSidebarCollapse();
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    document.body.classList.toggle("is-mobile-nav-open", mobileOpen);
+    return () => document.body.classList.remove("is-mobile-nav-open");
+  }, [mobileOpen]);
+
+  const closeMobile = () => setMobileOpen(false);
 
   const handleNavClick = (
     event: React.MouseEvent<HTMLAnchorElement>,
     href: string,
   ) => {
     window.DCWebsiteTour?.close?.();
+    closeMobile();
     if (href === pathname) {
       event.preventDefault();
     }
@@ -76,6 +108,7 @@ export function Sidebar() {
     href: string
   ) => {
     window.DCWebsiteTour?.close?.();
+    closeMobile();
     if (href !== "/login") return;
     event.preventDefault();
     await logout();
@@ -84,42 +117,86 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="sidebar" aria-label="Main navigation">
+    <>
       <button
         type="button"
-        className="sidebar__collapse"
-        id="sidebar-collapse"
-        aria-label="Collapse sidebar"
+        className="sidebar-mobile-trigger"
+        aria-label="Open navigation menu"
+        aria-expanded={mobileOpen}
+        aria-controls="app-sidebar"
+        onClick={() => setMobileOpen(true)}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="6.5" cy="6.5" r="2.8" fill="currentColor" opacity="0.78" />
-          <circle cx="17.5" cy="6.5" r="3.6" fill="currentColor" />
-          <circle cx="6.5" cy="17.5" r="3.6" fill="currentColor" />
-          <circle cx="17.5" cy="17.5" r="2.3" fill="currentColor" opacity="0.52" />
-        </svg>
+        <MenuIcon />
       </button>
-      <button
-        type="button"
-        className="sidebar__toggle"
-        id="sidebar-toggle"
-        aria-label="Expand sidebar"
-      >
-        <Image src="/finallogo.png" alt="" width={32} height={32} />
-      </button>
-      <div className="sidebar__brand">
-        <Image
-          src="/finallogo.png"
-          alt="DC Space"
-          className="sidebar__logo"
-          width={96}
-          height={48}
-        />
-        <span className="sidebar__title">DC SPACE</span>
-      </div>
 
-      <nav aria-label="Primary">
-        <ul className="nav">
-          {navItems.map((item) => {
+      <div
+        className={`sidebar-backdrop${mobileOpen ? " is-open" : ""}`}
+        aria-hidden={!mobileOpen}
+        onClick={closeMobile}
+      />
+
+      <aside
+        id="app-sidebar"
+        className={`sidebar${mobileOpen ? " is-mobile-open" : ""}`}
+        aria-label="Main navigation"
+      >
+        <button
+          type="button"
+          className="sidebar__collapse"
+          id="sidebar-collapse"
+          aria-label="Collapse sidebar"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6.5" cy="6.5" r="2.8" fill="currentColor" opacity="0.78" />
+            <circle cx="17.5" cy="6.5" r="3.6" fill="currentColor" />
+            <circle cx="6.5" cy="17.5" r="3.6" fill="currentColor" />
+            <circle cx="17.5" cy="17.5" r="2.3" fill="currentColor" opacity="0.52" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="sidebar__toggle"
+          id="sidebar-toggle"
+          aria-label="Expand sidebar"
+        >
+          <Image src="/finallogo.png" alt="" width={32} height={32} />
+        </button>
+        <div className="sidebar__brand">
+          <Image
+            src="/finallogo.png"
+            alt="DC Space"
+            className="sidebar__logo"
+            width={96}
+            height={48}
+          />
+          <span className="sidebar__title">DC SPACE</span>
+        </div>
+
+        <nav aria-label="Primary">
+          <ul className="nav">
+            {navItems.map((item) => {
+              const active = hydrated && isNavActive(pathname, item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={active ? "is-active" : undefined}
+                    aria-current={active ? "page" : undefined}
+                    onClick={(event) => handleNavClick(event, item.href)}
+                  >
+                    <NavIcon icon={item.icon} />
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <div className="sidebar__spacer" aria-hidden="true" />
+
+        <ul className="nav nav--bottom">
+          {BOTTOM_NAV.map((item) => {
             const active = hydrated && isNavActive(pathname, item.href);
             return (
               <li key={item.href}>
@@ -127,7 +204,7 @@ export function Sidebar() {
                   href={item.href}
                   className={active ? "is-active" : undefined}
                   aria-current={active ? "page" : undefined}
-                  onClick={(event) => handleNavClick(event, item.href)}
+                  onClick={(event) => handleBottomClick(event, item.href)}
                 >
                   <NavIcon icon={item.icon} />
                   {item.label}
@@ -136,29 +213,8 @@ export function Sidebar() {
             );
           })}
         </ul>
-      </nav>
-
-      <div className="sidebar__spacer" aria-hidden="true" />
-
-      <ul className="nav nav--bottom">
-        {BOTTOM_NAV.map((item) => {
-          const active = hydrated && isNavActive(pathname, item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className={active ? "is-active" : undefined}
-                aria-current={active ? "page" : undefined}
-                onClick={(event) => handleBottomClick(event, item.href)}
-              >
-                <NavIcon icon={item.icon} />
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </aside>
+      </aside>
+    </>
   );
 }
 

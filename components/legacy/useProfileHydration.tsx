@@ -120,14 +120,6 @@ function applyProfileToDom(profile: UserProfile) {
 
   applyUserDisplayNameToDom(fullName || profile.email || "");
 
-  // Home greeting: "Hello, User Name!" → registered account name
-  document.querySelectorAll(".main__greeting").forEach((el) => {
-    const text = (el.textContent || "").trim();
-    if (/^Hello,\s+/i.test(text) || /User Name/i.test(text)) {
-      el.textContent = `Hello, ${fullName || "User"}!`;
-    }
-  });
-
   // Always reset/apply photos for the active account (empty = default placeholder).
   // Also updates the top-right profile logo on every app page.
   applyAvatarToDom(profile.photoUrl || "");

@@ -324,6 +324,41 @@ export function resolveUserDisplayName(authName?: string | null): string {
   return "";
 }
 
+/** First token of a display name (used for compact mobile greetings). */
+export function firstNameFromDisplayName(fullName: string): string {
+  const parts = String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return parts[0] || String(fullName || "").trim();
+}
+
+function paintGreetingElement(el: Element, fullName: string) {
+  const parts = String(fullName || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const first = parts[0] || fullName || "User";
+  const surname = parts.slice(1).join(" ");
+  const mobile =
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 900px)").matches;
+
+  el.replaceChildren();
+  // Mobile: first name only so the greeting stays readable in the tight header.
+  if (mobile || !surname) {
+    el.textContent = `Hello, ${first}!`;
+    return;
+  }
+
+  el.append("Hello, ", first);
+  const surnameEl = document.createElement("span");
+  surnameEl.className = "greeting-surname";
+  surnameEl.textContent = ` ${surname}`;
+  el.append(surnameEl);
+  el.append("!");
+}
+
 /** Paint the signed-in name into every header chip / greeting on the current page. */
 export function applyUserDisplayNameToDom(authName?: string | null): string {
   if (typeof document === "undefined") return "";
@@ -336,8 +371,14 @@ export function applyUserDisplayNameToDom(authName?: string | null): string {
 
   document.querySelectorAll(".main__greeting, .joined-head").forEach((el) => {
     const text = (el.textContent || "").trim();
-    if (/^Hello[,!\s]/i.test(text) || /User Name/i.test(text) || /Your Name/i.test(text)) {
-      el.textContent = `Hello, ${name}!`;
+    // Only rewrite personal greetings — skip titles like "Saved Events".
+    if (
+      /^Hello\b/i.test(text) ||
+      /User Name/i.test(text) ||
+      /Your Name/i.test(text) ||
+      el.querySelector(".greeting-surname")
+    ) {
+      paintGreetingElement(el, name);
     }
   });
 

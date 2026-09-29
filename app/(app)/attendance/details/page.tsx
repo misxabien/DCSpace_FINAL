@@ -1,6 +1,7 @@
 import { AppLegacyPage } from "@/components/legacy/AppLegacyPage";
 import type { LegacyPageData } from "@/lib/navigation";
 import legacyData from "@/content/legacy/25-attendance-details.json";
+import "../../events/details/event-details-mobile.css";
 
 const legacy = legacyData as LegacyPageData;
 

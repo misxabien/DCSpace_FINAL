@@ -1,0 +1,61 @@
+/* Mobile create-account header — imported by page so HMR always picks up changes */
+@media (max-width: 900px) {
+  [data-legacy-page="02-create"] {
+    display: block;
+    margin: 0;
+    padding: 0;
+  }
+
+  [data-legacy-page="02-create"] .shell {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  [data-legacy-page="02-create"] .hero {
+    margin: 0 !important;
+    padding: 0 20px 16px !important;
+    min-height: 0 !important;
+    justify-content: flex-start !important;
+    gap: 0 !important;
+  }
+
+  [data-legacy-page="02-create"] .logo-wrap {
+    margin-top: -28px !important;
+    margin-bottom: -36px !important;
+  }
+
+  [data-legacy-page="02-create"] .logo {
+    width: min(195px, 54vw) !important;
+  }
+
+  [data-legacy-page="02-create"] .mobile-hero-title {
+    margin: -4px 0 0 !important;
+    position: relative;
+    top: -6px;
+  }
+
+  [data-legacy-page="02-create"] .form-inner {
+    min-height: auto !important;
+    flex: 0 0 auto !important;
+  }
+
+  [data-legacy-page="02-create"] .form-actions {
+    margin-top: 28px !important;
+    padding-top: 0 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  [data-legacy-page="02-create"] .hero {
+    padding: 0 16px 14px !important;
+  }
+
+  [data-legacy-page="02-create"] .logo-wrap {
+    margin-top: -24px !important;
+    margin-bottom: -30px !important;
+  }
+
+  [data-legacy-page="02-create"] .logo {
+    width: min(175px, 52vw) !important;
+  }
+}

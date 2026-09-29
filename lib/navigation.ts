@@ -47,7 +47,7 @@ export const ORGANIZER_NAV_ITEM: NavItem = {
 export const NAV_ITEMS = STUDENT_NAV_ITEMS;
 
 export const BOTTOM_NAV: NavItem[] = [
-  { href: "/feedback", label: "Submit Feedback", icon: "feedback" },
+  { href: "/feedback", label: "Submit a Feedback", icon: "feedback" },
   { href: "/login", label: "Log out", icon: "logout" },
 ];
 

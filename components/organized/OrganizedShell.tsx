@@ -93,13 +93,13 @@ export function OrganizedShell({
             </div>
             <div className="main__tools">
               <span className="main__user-name">{displayName}</span>
-              <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
+              <Link className={`tool-btn ${styles.toolBtn}`} href="/profile" aria-label="Profile">
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
                 </svg>
               </Link>
               <Link
-                className={`${styles.toolBtn} tool-btn--notif`}
+                className={`tool-btn ${styles.toolBtn} tool-btn--notif`}
                 href="/notifications"
                 aria-label="Notifications"
               >
@@ -115,7 +115,7 @@ export function OrganizedShell({
               </Link>
               <button
                 type="button"
-                className={`${styles.toolBtn} ${styles.toolBtnHelp}`}
+                className={`tool-btn tool-btn--help ${styles.toolBtn} ${styles.toolBtnHelp}`}
                 aria-label="Help"
                 aria-haspopup="dialog"
                 title="Start page tour"
@@ -129,16 +129,16 @@ export function OrganizedShell({
           </header>
         ) : (
           <div className={`main__top ${styles.top}`}>
-            <h1 className={styles.greeting}>{title}</h1>
-            <div className={styles.tools}>
+            <h1 className={`main__greeting ${styles.greeting}`}>{title}</h1>
+            <div className={`main__tools ${styles.tools}`}>
               <span className={`main__user-name ${styles.userName}`}>{displayName}</span>
-              <Link className={styles.toolBtn} href="/profile" aria-label="Profile">
+              <Link className={`tool-btn ${styles.toolBtn}`} href="/profile" aria-label="Profile">
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
                 </svg>
               </Link>
               <Link
-                className={`${styles.toolBtn} tool-btn--notif`}
+                className={`tool-btn ${styles.toolBtn} tool-btn--notif`}
                 href="/notifications"
                 aria-label="Notifications"
               >
@@ -154,7 +154,7 @@ export function OrganizedShell({
               </Link>
               <button
                 type="button"
-                className={`${styles.toolBtn} ${styles.toolBtnHelp}`}
+                className={`tool-btn tool-btn--help ${styles.toolBtn} ${styles.toolBtnHelp}`}
                 aria-label="Help"
                 aria-haspopup="dialog"
                 title="Start page tour"

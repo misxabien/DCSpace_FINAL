@@ -25,6 +25,9 @@ export function UserDisplayNameBridge() {
     const t1 = window.setTimeout(sync, 0);
     const t2 = window.setTimeout(sync, 50);
     const t3 = window.setTimeout(sync, 200);
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onViewport = () => sync();
+    mq.addEventListener("change", onViewport);
 
     window.addEventListener("dcspace-profile-updated", sync);
     window.addEventListener("dc-legacy-content-ready", sync);
@@ -34,6 +37,7 @@ export function UserDisplayNameBridge() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
+      mq.removeEventListener("change", onViewport);
       window.removeEventListener("dcspace-profile-updated", sync);
       window.removeEventListener("dc-legacy-content-ready", sync);
     };

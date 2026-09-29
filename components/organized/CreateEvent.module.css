@@ -41,7 +41,15 @@
   white-space: nowrap;
 }
 
+.stepLabelText {
+  display: inline;
+}
+
 .stepLabelActive {
+  color: var(--blue);
+}
+
+.stepLabelDone {
   color: var(--blue);
 }
 
@@ -59,8 +67,8 @@
 
 .card {
   background: #fff8ef;
-  border: 1px solid #c9b08a;
-  border-radius: 14px;
+  border: 1.5px solid #c9b08a;
+  border-radius: 18px;
   padding: 22px 24px 24px;
 }
 
@@ -102,13 +110,13 @@
 .textarea {
   width: 100%;
   border: 1px solid #c9b08a;
-  border-radius: 12px;
+  border-radius: 999px;
   background: #fff;
   font-family: var(--font);
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
-  padding: 11px 14px;
+  padding: 12px 18px;
   outline: none;
 }
 
@@ -121,6 +129,8 @@
   min-height: 110px;
   resize: vertical;
   line-height: 1.5;
+  border-radius: 20px;
+  padding: 14px 18px;
 }
 
 .row {
@@ -138,11 +148,88 @@
   min-width: 0;
 }
 
+.timeRange {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.timeRange .timeField {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+
+.timeRange .rangeSep {
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
+.dateRange {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.dateRange .dateField {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+
+.dateRange .dateInput {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+}
+
+.dateRange .rangeSep {
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
 .bannerRow {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 16px;
   align-items: start;
+}
+
+.bannerField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.bannerUploadBtn {
+  margin-top: 4px;
+  width: auto;
+  height: auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #8b7355;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  line-height: 0;
+}
+
+.bannerUploadBtn svg {
+  width: 36px;
+  height: 36px;
+  display: block;
+}
+
+.bannerUploadBtn:hover,
+.bannerUploadBtn:focus-visible {
+  color: #6e5a3f;
+  outline: none;
 }
 
 .iconBtn {
@@ -171,7 +258,7 @@
   align-items: center;
   gap: 0;
   border: 1px solid #c9b08a;
-  border-radius: 12px;
+  border-radius: 999px;
   background: #fff;
   overflow: hidden;
   min-width: 0;
@@ -189,6 +276,11 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.timeIcon {
+  width: 36px;
+  border-radius: 0;
 }
 
 .dateIcon svg,
@@ -224,20 +316,21 @@
   background: transparent;
   font-family: var(--font);
   font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
+  font-weight: 700;
+  color: #4a3420;
   height: 42px;
-  padding: 0 2px 0 10px;
+  padding: 0 1px 0 6px;
   cursor: pointer;
+  min-width: 0;
 }
 
 .timeMinuteSelect {
-  padding-left: 2px;
-  padding-right: 6px;
+  padding-left: 1px;
+  padding-right: 4px;
 }
 
 .timeColon {
-  color: var(--muted);
+  color: #4a3420;
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
@@ -248,7 +341,7 @@
   display: inline-flex;
   align-items: stretch;
   align-self: stretch;
-  margin-left: 2px;
+  margin-left: auto;
   border-left: 1px solid #e6d7bf;
   flex-shrink: 0;
   height: 42px;
@@ -259,11 +352,11 @@
   background: #f7f0e4;
   color: #7a5a32;
   font-family: var(--font);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  min-width: 36px;
-  padding: 0 9px;
+  min-width: 30px;
+  padding: 0 7px;
   cursor: pointer;
   line-height: 1;
 }
@@ -298,13 +391,13 @@
   min-width: 180px;
   max-width: 100%;
   border: 1px solid #c9b08a;
-  border-radius: 12px;
+  border-radius: 999px;
   background: #fff;
   font-family: var(--font);
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
-  padding: 11px 14px;
+  padding: 11px 18px;
   outline: none;
 }
 
@@ -312,11 +405,11 @@
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  padding: 11px 22px 11px 12px;
+  padding: 11px 28px 11px 16px;
   background-color: #fff;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath fill='%231a1a1a' d='M0 0h10L5 6z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  background-position: right 14px center;
   background-size: 6px 4px;
   cursor: pointer;
 }
@@ -461,11 +554,11 @@
 .activityInput {
   flex: 1;
   border: 1px solid #c9b08a;
-  border-radius: 12px;
+  border-radius: 999px;
   background: #fff;
   font-family: var(--font);
   font-size: 13px;
-  padding: 10px 12px;
+  padding: 10px 16px;
   outline: none;
 }
 
@@ -632,7 +725,7 @@
 
 .continueBtn {
   border: none;
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--blue);
   color: #fff;
   font-family: var(--font);
@@ -895,6 +988,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  width: 100%;
+}
+
+.docHead .fieldLabel {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .questionRow {
@@ -915,7 +1015,7 @@
   align-items: center;
   gap: 0;
   border: 1px solid #c9b08a;
-  border-radius: 12px;
+  border-radius: 999px;
   background: #fff;
   overflow: hidden;
   min-height: 42px;
@@ -1116,13 +1216,106 @@
 @media (max-width: 900px) {
   .stepper {
     max-width: none;
+    margin: 8px auto 24px;
+  }
+
+  .progressSvg {
+    display: none;
+  }
+
+  .stepLabels {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    min-height: 18px;
+    margin-top: 0;
+    width: min(100%, 280px);
+    margin-left: auto;
+    margin-right: auto;
+    position: relative;
+  }
+
+  .stepLabels::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 50%;
+    height: 3px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      var(--blue) 0%,
+      var(--blue) var(--create-progress, 0%),
+      #e8d5b5 var(--create-progress, 0%),
+      #e8d5b5 100%
+    );
+    transform: translateY(-50%);
+    z-index: 0;
   }
 
   .stepLabel {
-    font-size: 10px;
+    position: relative;
+    left: auto !important;
+    top: auto;
+    transform: none;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    width: auto;
+    height: auto;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
   }
 
-  .row,
+  .stepLabelText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .stepLabel::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #e8d5b5;
+    box-sizing: border-box;
+  }
+
+  .stepLabelDone::before,
+  .stepLabelActive::before {
+    background: var(--blue);
+    border-color: var(--blue);
+  }
+
+  .sectionTitle {
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+
+  .section {
+    margin-bottom: 20px;
+  }
+
+  .card {
+    padding: 18px 16px 20px;
+    border-radius: 20px;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
   .bannerRow {
     grid-template-columns: 1fr;
   }
@@ -1130,6 +1323,79 @@
   .rowEnd {
     justify-content: flex-start;
     flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .rowEnd > .dateField:only-of-type,
+  .rowEnd > .dateField:only-child {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .timeRange {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .dateRange {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .dateRange .dateField {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .dateRange .dateIcon {
+    width: 32px;
+  }
+
+  .dateRange .dateInput {
+    width: 100%;
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .timeRange .timeField {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .timeRange .timeIcon {
+    width: 32px;
+  }
+
+  .timeRange .ampmChoice {
+    min-width: 26px;
+    padding: 0 5px;
+    font-size: 9px;
+  }
+
+  .timeRange .timeHourSelect,
+  .timeRange .timeMinuteSelect {
+    font-size: 12px;
+    padding-left: 4px;
+  }
+
+  .dateInput,
+  .timeInput {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .selectCompact,
+  .eventStatusSelect,
+  .attendSelect,
+  .collabSelect,
+  .venueTypeSelect {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 
   .programHead {
@@ -1138,10 +1404,22 @@
 
   .attendHead,
   .collabRow,
-  .docHead,
   .questionRow {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .docHead {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .docHead .fieldLabel {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
   }
 
   .questionRow .radioRow {
@@ -1153,16 +1431,32 @@
   }
 
   .footer {
-    flex-direction: column;
+    flex-direction: column-reverse;
     align-items: stretch;
+    gap: 14px;
+    margin-top: 22px;
+  }
+
+  .backLink {
+    text-align: center;
+    width: 100%;
   }
 
   .continueBtn {
     width: 100%;
+    min-width: 0;
+    padding: 15px 24px;
+    font-size: 15px;
   }
 
   .reviewFooter {
     grid-template-columns: 1fr;
+  }
+
+  .goBackBtn,
+  .createEventBtn {
+    width: 100%;
+    border-radius: 999px;
   }
 
   .reviewBody {

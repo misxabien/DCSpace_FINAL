@@ -53,8 +53,6 @@
       live.id = 'rfid-live-indicator';
       live.className = 'rfid-live-indicator';
       live.setAttribute('aria-live', 'polite');
-      live.style.cssText =
-        'margin:0 0 10px;font-size:12px;color:#64748b;line-height:1.4;';
       var table = section.querySelector('.rfid-log-table');
       if (table && table.parentElement) {
         table.parentElement.insertBefore(live, table);

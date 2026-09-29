@@ -6,7 +6,7 @@ import { OrganizedShell } from "@/components/organized/OrganizedShell";
 
 export default function CreateEventPage() {
   return (
-    <OrganizedShell title="Create an Event!">
+    <OrganizedShell title="Create Event">
       <Suspense fallback={<p>Loading form…</p>}>
         <CreateEventView />
       </Suspense>

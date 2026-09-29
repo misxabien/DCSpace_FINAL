@@ -136,14 +136,11 @@
       if (!h3 || h3.textContent.trim() !== title) continue;
       var keep = sections[i].querySelector('.detail-types, .detail-list');
       sections[i].querySelectorAll('p').forEach(function (node) { node.remove(); });
-      var anchor = keep || h3.nextSibling;
       lines.forEach(function (line) {
         var p = document.createElement('p');
         p.textContent = line;
-        if (keep) {
+        if (keep && keep.parentNode === sections[i]) {
           sections[i].insertBefore(p, keep);
-        } else if (anchor) {
-          sections[i].insertBefore(p, anchor);
         } else {
           sections[i].appendChild(p);
         }
@@ -162,8 +159,8 @@
     section.id = id;
     section.innerHTML = '<h3>' + escapeHtml(title) + '</h3><div class="detail-list"></div>';
     var actionWrap = page.querySelector('.detail-action-wrap');
-    if (actionWrap) {
-      page.insertBefore(section, actionWrap);
+    if (actionWrap && actionWrap.parentNode) {
+      actionWrap.parentNode.insertBefore(section, actionWrap);
     } else {
       page.appendChild(section);
     }
@@ -270,21 +267,23 @@
     upsertEvent: upsertEvent,
     renderDetailContent: renderDetailContent,
     bindDetailBack: function bindDetailBack(fallbackHref) {
-      var btn = document.getElementById('detail-back');
-      if (!btn || btn.dataset.dcWired === '1') return;
-      btn.dataset.dcWired = '1';
-      var fallback = fallbackHref || btn.getAttribute('data-fallback') || '/attendance';
-      btn.addEventListener('click', function (event) {
-        event.preventDefault();
-        if (window.history.length > 1) {
-          window.history.back();
-          return;
-        }
-        if (typeof window.__dcNavigate === 'function') {
-          window.__dcNavigate(fallback);
-          return;
-        }
-        window.location.assign(fallback);
+      var buttons = document.querySelectorAll('.detail-back, #detail-back, #detail-hero-back');
+      buttons.forEach(function (btn) {
+        if (!btn || btn.dataset.dcWired === '1') return;
+        btn.dataset.dcWired = '1';
+        var fallback = fallbackHref || btn.getAttribute('data-fallback') || '/attendance';
+        btn.addEventListener('click', function (event) {
+          event.preventDefault();
+          if (window.history.length > 1) {
+            window.history.back();
+            return;
+          }
+          if (typeof window.__dcNavigate === 'function') {
+            window.__dcNavigate(fallback);
+            return;
+          }
+          window.location.assign(fallback);
+        });
       });
     }
   };

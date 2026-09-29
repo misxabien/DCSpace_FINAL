@@ -225,18 +225,20 @@
 .organizerBar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-top: 36px;
   width: 100%;
+  flex-wrap: nowrap;
 }
 
 .attendedBtn {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   border: none;
   border-radius: 999px;
-  padding: 15px 28px;
+  padding: 14px 18px;
   font-family: var(--font);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   text-align: center;
   background: var(--sidebar-bg);
@@ -245,6 +247,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
+  text-decoration: none;
   transition: background 0.18s ease, border-color 0.18s ease;
 }
 
@@ -254,21 +258,30 @@
 
 .organizerTools {
   display: flex;
-  gap: 10px;
-  flex-shrink: 0;
+  gap: 8px;
+  flex: 0 1 auto;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .toolBtn {
-  width: 48px;
-  height: 48px;
+  width: auto;
+  height: auto;
+  min-height: 48px;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--sidebar-bg);
   color: var(--blue);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 10px 14px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  line-height: 1.2;
   transition: background 0.18s ease;
   text-decoration: none;
 }
@@ -537,12 +550,29 @@
   }
 
   .organizerBar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
 
   .organizerTools {
     justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .attendedBtn {
+    flex: 1 1 0;
+    padding: 12px 10px;
+    font-size: 12px;
+  }
+
+  .toolBtn {
+    min-height: 44px;
+    padding: 10px 10px;
+    font-size: 11px;
+    border-radius: 12px;
   }
 
   .inviteHead {

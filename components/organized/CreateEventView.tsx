@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   formatEventDateParts,
@@ -112,10 +112,10 @@ function CalendarIcon() {
 
 function FilePlusIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
       <path d="M14 2v6h6" />
-      <path d="M12 11v6M9 14h6" />
+      <path d="M12 12v5M9.5 14.5h5" />
     </svg>
   );
 }
@@ -146,7 +146,14 @@ function ProgressMeter({ currentStep }: { currentStep: number }) {
           : 1272.54;
 
   return (
-    <div className={styles.stepper}>
+    <div
+      className={styles.stepper}
+      style={
+        {
+          ["--create-progress" as string]: `${(currentStep / Math.max(STEPS.length - 1, 1)) * 100}%`,
+        } as CSSProperties
+      }
+    >
       <svg
         className={styles.progressSvg}
         width="1306"
@@ -205,12 +212,20 @@ function ProgressMeter({ currentStep }: { currentStep: number }) {
         {STEPS.map((label, index) => (
           <span
             key={label}
-            className={`${styles.stepLabel}${index === currentStep ? ` ${styles.stepLabelActive}` : ""}`}
+            className={[
+              styles.stepLabel,
+              index === currentStep ? styles.stepLabelActive : "",
+              index < currentStep ? styles.stepLabelDone : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             style={{
               left: `${(STEP_NODE_CENTERS[index] / PROGRESS_VIEWBOX_WIDTH) * 100}%`,
             }}
+            data-step={index + 1}
+            title={label}
           >
-            {label}
+            <span className={styles.stepLabelText}>{label}</span>
           </span>
         ))}
       </div>
@@ -951,26 +966,24 @@ export function CreateEventView() {
                     />
                   </div>
 
-                  <div className={styles.bannerRow}>
-                    <div>
-                      <span className={styles.fieldLabel}>Event Banner<RequiredMark /></span>
-                      <span className={styles.hint}>
-                        Files must be in acceptable format, such as PNG, JPEG, PDF, or similar
-                        supported types.
-                      </span>
-                      {bannerName ? (
-                        <span className={styles.hint}>Selected: {bannerName}</span>
-                      ) : null}
-                    </div>
+                  <div className={styles.bannerField}>
+                    <span className={styles.fieldLabel}>Event Banner<RequiredMark /></span>
+                    <span className={styles.hint}>
+                      Files must be in acceptable format, such as PNG, JPEG, PDF, or similar
+                      supported types.
+                    </span>
                     <button
                       type="button"
                       id="event-banner-upload"
-                      className={styles.iconBtn}
+                      className={styles.bannerUploadBtn}
                       aria-label="Upload event banner"
                       onClick={() => bannerInputRef.current?.click()}
                     >
                       <FilePlusIcon />
                     </button>
+                    {bannerName ? (
+                      <span className={styles.hint}>Selected: {bannerName}</span>
+                    ) : null}
                     <input
                       ref={bannerInputRef}
                       type="file"
@@ -1027,7 +1040,7 @@ export function CreateEventView() {
                 <div className={styles.stack}>
                   <div className={styles.row}>
                     <span className={styles.fieldLabel}>Start &amp; End Date<RequiredMark /></span>
-                    <div className={styles.rowEnd}>
+                    <div className={`${styles.rowEnd} ${styles.dateRange}`}>
                       <div className={styles.dateField}>
                         <span className={styles.dateIcon}>
                           <CalendarIcon />
@@ -1052,6 +1065,9 @@ export function CreateEventView() {
                         →
                       </span>
                       <div className={styles.dateField}>
+                        <span className={styles.dateIcon}>
+                          <CalendarIcon />
+                        </span>
                         <input
                           id="end-date"
                           className={styles.dateInput}
@@ -1073,7 +1089,7 @@ export function CreateEventView() {
 
                   <div className={styles.row}>
                     <span className={styles.fieldLabel}>Start &amp; End Time<RequiredMark /></span>
-                    <div className={styles.rowEnd}>
+                    <div className={`${styles.rowEnd} ${styles.timeRange}`}>
                       <TimeAmPmPicker
                         id="start-time"
                         value={startTime}
@@ -1089,6 +1105,7 @@ export function CreateEventView() {
                         value={endTime}
                         onChange={setEndTime}
                         ariaLabel="End time"
+                        showLeadingIcon
                       />
                     </div>
                   </div>

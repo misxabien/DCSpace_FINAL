@@ -1,4 +1,15 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDocument,
+  PDFName,
+  PDFRawStream,
+  PDFRef,
+  PDFStream,
+  StandardFonts,
+  decodePDFRawStream,
+  rgb,
+} from "pdf-lib";
+import type { PDFPage } from "pdf-lib";
 
 export function parseDurationToMinutes(value: string): number | null {
   const text = value.trim().toLowerCase();
@@ -52,6 +63,115 @@ function bytesFromBase64(base64: string): Uint8Array {
   return Uint8Array.from(Buffer.from(normalized, "base64"));
 }
 
+function streamToText(stream: PDFStream | PDFRawStream): string {
+  try {
+    const raw = stream as PDFRawStream;
+    const decoded = decodePDFRawStream({
+      dict: raw.dict,
+      contents: raw.getContents(),
+    });
+    return Buffer.from(decoded.decode()).toString("latin1");
+  } catch {
+    try {
+      return Buffer.from((stream as PDFStream).getContents()).toString("latin1");
+    } catch {
+      return "";
+    }
+  }
+}
+
+function getPageContentText(page: PDFPage): string {
+  const node = page.node;
+  const contents = node.get(PDFName.of("Contents"));
+  if (!contents) return "";
+
+  const context = page.doc.context;
+  const chunks: string[] = [];
+
+  const pushRefOrStream = (value: unknown) => {
+    let resolved = value;
+    if (value instanceof PDFRef) {
+      resolved = context.lookup(value);
+    }
+    if (resolved instanceof PDFStream || resolved instanceof PDFRawStream) {
+      chunks.push(streamToText(resolved));
+    }
+  };
+
+  if (contents instanceof PDFRef) {
+    const looked = context.lookup(contents);
+    if (looked instanceof PDFArray) {
+      for (let i = 0; i < looked.size(); i += 1) {
+        pushRefOrStream(looked.get(i));
+      }
+    } else {
+      pushRefOrStream(looked);
+    }
+  } else if (contents instanceof PDFArray) {
+    for (let i = 0; i < contents.size(); i += 1) {
+      pushRefOrStream(contents.get(i));
+    }
+  } else {
+    pushRefOrStream(contents);
+  }
+
+  return chunks.join("\n");
+}
+
+type LineCandidate = { y: number; length: number };
+
+/**
+ * Find long, thin horizontal strokes in the upper-middle of the page —
+ * typically the blank under "PRESENTED TO" for the recipient name.
+ */
+function findNameUnderlineY(page: PDFPage, width: number, height: number): number | null {
+  const content = getPageContentText(page);
+  if (!content) return null;
+
+  const candidates: LineCandidate[] = [];
+  const minLength = width * 0.28;
+  const yMin = height * 0.5;
+  const yMax = height * 0.82;
+
+  const consider = (y: number, length: number) => {
+    if (length < minLength) return;
+    if (y < yMin || y > yMax) return;
+    candidates.push({ y, length });
+  };
+
+  // path: x1 y1 m x2 y2 l  (then stroke)
+  const moveLine =
+    /([+-]?\d*\.?\d+)\s+([+-]?\d*\.?\d+)\s+m\s+([+-]?\d*\.?\d+)\s+([+-]?\d*\.?\d+)\s+l/g;
+  let match: RegExpExecArray | null;
+  while ((match = moveLine.exec(content))) {
+    const x1 = Number(match[1]);
+    const y1 = Number(match[2]);
+    const x2 = Number(match[3]);
+    const y2 = Number(match[4]);
+    if (!Number.isFinite(x1 + y1 + x2 + y2)) continue;
+    if (Math.abs(y1 - y2) > 1.5) continue;
+    consider((y1 + y2) / 2, Math.abs(x2 - x1));
+  }
+
+  // thin filled/stroked rect: x y w h re
+  const rect = /([+-]?\d*\.?\d+)\s+([+-]?\d*\.?\d+)\s+([+-]?\d*\.?\d+)\s+([+-]?\d*\.?\d+)\s+re/g;
+  while ((match = rect.exec(content))) {
+    const x = Number(match[1]);
+    const y = Number(match[2]);
+    const w = Number(match[3]);
+    const h = Number(match[4]);
+    if (!Number.isFinite(x + y + w + h)) continue;
+    if (Math.abs(h) > 4 || Math.abs(w) < minLength) continue;
+    consider(y + Math.abs(h) / 2, Math.abs(w));
+  }
+
+  if (!candidates.length) return null;
+
+  // Prefer the longest line in the name band (closest to typical blank slot).
+  candidates.sort((a, b) => b.length - a.length || Math.abs(a.y - height * 0.64) - Math.abs(b.y - height * 0.64));
+  return candidates[0]?.y ?? null;
+}
+
 export async function buildCertificatePdfFromTemplate(input: {
   templateBase64: string;
   recipientName: string;
@@ -68,15 +188,23 @@ export async function buildCertificatePdfFromTemplate(input: {
   const { width, height } = page.getSize();
 
   const name = input.recipientName.trim() || "Participant";
-  // Landscape certificate templates put the name blank under "PRESENTED TO"
-  // (upper-middle). PDF y=0 is the bottom; ~0.538 sits the baseline a little
-  // above that underline. Only overlay the recipient name — the template
-  // already has event copy, dates, and signatures.
-  const nameSize = Math.max(22, Math.min(28, width / 24));
-  const nameWidth = font.widthOfTextAtSize(name, nameSize);
+  // Landscape templates put the name blank under "PRESENTED TO".
+  // Detect that underline when possible; otherwise sit in the upper-middle band.
+  const underlineY = findNameUnderlineY(page, width, height);
+  // Baseline slightly above the stroke so the name sits on the line.
+  const nameY = underlineY != null ? underlineY + 3 : height * 0.64;
+
+  let nameSize = Math.max(20, Math.min(28, width / 24));
+  let nameWidth = font.widthOfTextAtSize(name, nameSize);
+  const maxNameWidth = width * 0.62;
+  while (nameWidth > maxNameWidth && nameSize > 14) {
+    nameSize -= 1;
+    nameWidth = font.widthOfTextAtSize(name, nameSize);
+  }
+
   page.drawText(name, {
     x: Math.max(36, (width - nameWidth) / 2),
-    y: height * 0.538,
+    y: nameY,
     size: nameSize,
     font,
     color: rgb(0.13, 0.2, 0.34),

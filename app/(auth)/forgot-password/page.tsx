@@ -1,6 +1,7 @@
 import { AuthLegacyPage } from "@/components/legacy/AuthLegacyPage";
 import type { LegacyPageData } from "@/lib/navigation";
 import legacyData from "@/content/legacy/07-fpemail.json";
+import "../auth-mobile.css";
 
 const legacy = legacyData as LegacyPageData;
 

@@ -1,0 +1,304 @@
+/* Shared mobile auth chrome — HMR-friendly overrides */
+@media (max-width: 900px) {
+  [data-legacy-page="03-schooldetails"],
+  [data-legacy-page="04-accounts"],
+  [data-legacy-page="05verify"],
+  [data-legacy-page="07-fpemail"],
+  [data-legacy-page="08-fpverification"],
+  [data-legacy-page="09-newpass"] {
+    display: block;
+    margin: 0;
+    padding: 0;
+  }
+
+  [data-legacy-page="03-schooldetails"] .shell,
+  [data-legacy-page="04-accounts"] .shell,
+  [data-legacy-page="05verify"] .shell,
+  [data-legacy-page="07-fpemail"] .shell,
+  [data-legacy-page="08-fpverification"] .shell,
+  [data-legacy-page="09-newpass"] .shell {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .hero,
+  [data-legacy-page="04-accounts"] .hero,
+  [data-legacy-page="05verify"] .hero,
+  [data-legacy-page="07-fpemail"] .hero,
+  [data-legacy-page="08-fpverification"] .hero,
+  [data-legacy-page="09-newpass"] .hero {
+    order: 1 !important;
+    margin: 0 !important;
+    padding: 0 20px 16px !important;
+    min-height: 0 !important;
+    justify-content: flex-start !important;
+    gap: 0 !important;
+    background: linear-gradient(
+      180deg,
+      #dbe8ff 0%,
+      #8ab6ff 27%,
+      #448aff 50%,
+      #8ab6ff 77%,
+      #dbe8ff 100%
+    ) !important;
+    border-radius: 0 0 28px 28px !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .logo-wrap,
+  [data-legacy-page="04-accounts"] .logo-wrap,
+  [data-legacy-page="05verify"] .logo-wrap,
+  [data-legacy-page="07-fpemail"] .logo-wrap,
+  [data-legacy-page="08-fpverification"] .logo-wrap,
+  [data-legacy-page="09-newpass"] .logo-wrap {
+    margin-top: -28px !important;
+    margin-bottom: -36px !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .logo,
+  [data-legacy-page="04-accounts"] .logo,
+  [data-legacy-page="05verify"] .logo,
+  [data-legacy-page="07-fpemail"] .logo,
+  [data-legacy-page="08-fpverification"] .logo,
+  [data-legacy-page="09-newpass"] .logo {
+    width: min(195px, 54vw) !important;
+    mix-blend-mode: screen !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .greeting,
+  [data-legacy-page="03-schooldetails"] .hero-sub,
+  [data-legacy-page="03-schooldetails"] .btn-signin-link,
+  [data-legacy-page="04-accounts"] .greeting,
+  [data-legacy-page="04-accounts"] .hero-sub,
+  [data-legacy-page="04-accounts"] .btn-signin-link,
+  [data-legacy-page="05verify"] .greeting,
+  [data-legacy-page="05verify"] .hero-sub,
+  [data-legacy-page="05verify"] .btn-signin-link,
+  [data-legacy-page="07-fpemail"] .greeting,
+  [data-legacy-page="07-fpemail"] .hero-sub,
+  [data-legacy-page="07-fpemail"] .btn-signin-link,
+  [data-legacy-page="08-fpverification"] .greeting,
+  [data-legacy-page="08-fpverification"] .hero-sub,
+  [data-legacy-page="08-fpverification"] .btn-signin-link,
+  [data-legacy-page="09-newpass"] .greeting,
+  [data-legacy-page="09-newpass"] .hero-sub,
+  [data-legacy-page="09-newpass"] .btn-signin-link {
+    display: none !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .mobile-hero-title,
+  [data-legacy-page="04-accounts"] .mobile-hero-title,
+  [data-legacy-page="05verify"] .mobile-hero-title,
+  [data-legacy-page="07-fpemail"] .mobile-hero-title,
+  [data-legacy-page="08-fpverification"] .mobile-hero-title,
+  [data-legacy-page="09-newpass"] .mobile-hero-title {
+    display: block !important;
+    margin: -4px 0 0 !important;
+    position: relative;
+    top: -6px;
+    font-size: clamp(22px, 5.8vw, 28px) !important;
+    font-weight: 800 !important;
+    color: #fff !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .page-title,
+  [data-legacy-page="04-accounts"] .page-title,
+  [data-legacy-page="05verify"] .page-title,
+  [data-legacy-page="07-fpemail"] .page-title,
+  [data-legacy-page="08-fpverification"] .page-title,
+  [data-legacy-page="09-newpass"] .page-title {
+    display: none !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .form-panel,
+  [data-legacy-page="04-accounts"] .form-panel,
+  [data-legacy-page="05verify"] .form-panel,
+  [data-legacy-page="07-fpemail"] .form-panel,
+  [data-legacy-page="08-fpverification"] .form-panel,
+  [data-legacy-page="09-newpass"] .form-panel {
+    order: 2 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fffef8 !important;
+    padding: 28px 22px 28px !important;
+    min-height: 0 !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .form-inner,
+  [data-legacy-page="04-accounts"] .form-inner,
+  [data-legacy-page="05verify"] .form-inner,
+  [data-legacy-page="07-fpemail"] .form-inner,
+  [data-legacy-page="08-fpverification"] .form-inner,
+  [data-legacy-page="09-newpass"] .form-inner {
+    min-height: auto !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .form-group input,
+  [data-legacy-page="03-schooldetails"] .form-group select,
+  [data-legacy-page="04-accounts"] .form-group input,
+  [data-legacy-page="04-accounts"] .input-wrap input,
+  [data-legacy-page="05verify"] .form-group input,
+  [data-legacy-page="07-fpemail"] .form-group input,
+  [data-legacy-page="08-fpverification"] .form-group input,
+  [data-legacy-page="09-newpass"] .form-group input,
+  [data-legacy-page="09-newpass"] .input-wrap input {
+    height: 48px !important;
+    border: 1.5px solid #e4e7ec !important;
+    border-radius: 999px !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .form-footer,
+  [data-legacy-page="03-schooldetails"] .form-actions,
+  [data-legacy-page="04-accounts"] .form-footer,
+  [data-legacy-page="04-accounts"] .form-actions,
+  [data-legacy-page="05verify"] .form-footer,
+  [data-legacy-page="05verify"] .form-actions,
+  [data-legacy-page="07-fpemail"] .form-footer,
+  [data-legacy-page="07-fpemail"] .form-actions,
+  [data-legacy-page="08-fpverification"] .form-footer,
+  [data-legacy-page="08-fpverification"] .form-actions,
+  [data-legacy-page="09-newpass"] .form-footer,
+  [data-legacy-page="09-newpass"] .form-actions {
+    margin-top: 28px !important;
+    padding-top: 0 !important;
+  }
+
+  [data-legacy-page="07-fpemail"] .form-actions,
+  [data-legacy-page="09-newpass"] .form-actions {
+    justify-content: flex-end !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .btn-continue,
+  [data-legacy-page="04-accounts"] .btn-create,
+  [data-legacy-page="05verify"] .btn-create,
+  [data-legacy-page="07-fpemail"] .btn-send,
+  [data-legacy-page="08-fpverification"] .btn-submit,
+  [data-legacy-page="09-newpass"] .btn-save {
+    height: 44px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 6px 16px rgba(68, 138, 255, 0.28) !important;
+  }
+
+  /* Agreement modal → full mobile page */
+  [data-legacy-page="06-agreement"] .page-backdrop {
+    display: none !important;
+  }
+
+  [data-legacy-page="06-agreement"] .modal-overlay {
+    position: relative !important;
+    inset: auto !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+    padding: 0 !important;
+    align-items: stretch !important;
+    background: #fffef8 !important;
+    backdrop-filter: none !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fffef8 !important;
+  }
+
+  [data-legacy-page="06-agreement"] .mobile-agree-hero {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 0 20px 16px !important;
+    background: linear-gradient(
+      180deg,
+      #dbe8ff 0%,
+      #8ab6ff 27%,
+      #448aff 50%,
+      #8ab6ff 77%,
+      #dbe8ff 100%
+    ) !important;
+    border-radius: 0 0 28px 28px !important;
+  }
+
+  [data-legacy-page="06-agreement"] .mobile-agree-hero .logo-wrap {
+    margin-top: -28px !important;
+    margin-bottom: -36px !important;
+  }
+
+  [data-legacy-page="06-agreement"] .mobile-agree-hero .logo {
+    width: min(195px, 54vw) !important;
+    mix-blend-mode: screen !important;
+  }
+
+  [data-legacy-page="06-agreement"] .mobile-agree-hero .mobile-hero-title {
+    display: block !important;
+    margin: -4px 0 0 !important;
+    position: relative;
+    top: -6px;
+    font-size: clamp(20px, 5.5vw, 26px) !important;
+    font-weight: 800 !important;
+    color: #fff !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card-header .header-top,
+  [data-legacy-page="06-agreement"] .card-header .title-block {
+    display: none !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card-header {
+    padding: 0 !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card-body {
+    padding: 24px 22px 8px !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card-footer {
+    padding: 14px 22px 28px !important;
+  }
+
+  [data-legacy-page="06-agreement"] .progress-dots {
+    display: none !important;
+  }
+
+  [data-legacy-page="06-agreement"] .btn-create {
+    height: 44px !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 6px 16px rgba(68, 138, 255, 0.28) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  [data-legacy-page="03-schooldetails"] .hero,
+  [data-legacy-page="04-accounts"] .hero,
+  [data-legacy-page="05verify"] .hero,
+  [data-legacy-page="07-fpemail"] .hero,
+  [data-legacy-page="08-fpverification"] .hero,
+  [data-legacy-page="09-newpass"] .hero,
+  [data-legacy-page="06-agreement"] .mobile-agree-hero {
+    padding: 0 16px 14px !important;
+    border-radius: 0 0 24px 24px !important;
+  }
+
+  [data-legacy-page="03-schooldetails"] .logo,
+  [data-legacy-page="04-accounts"] .logo,
+  [data-legacy-page="05verify"] .logo,
+  [data-legacy-page="07-fpemail"] .logo,
+  [data-legacy-page="08-fpverification"] .logo,
+  [data-legacy-page="09-newpass"] .logo,
+  [data-legacy-page="06-agreement"] .mobile-agree-hero .logo {
+    width: min(175px, 52vw) !important;
+  }
+}

@@ -261,6 +261,17 @@ export function applyAvatarToDom(photoUrl?: string) {
     }
   }
 
+  const sidebarAvatar = document.getElementById("sidebar-avatar");
+  if (sidebarAvatar) {
+    if (photoUrl) {
+      sidebarAvatar.style.backgroundImage = `url("${photoUrl}")`;
+      sidebarAvatar.classList.add("has-photo");
+    } else {
+      sidebarAvatar.style.backgroundImage = "";
+      sidebarAvatar.classList.remove("has-photo");
+    }
+  }
+
   applyTopbarAvatar(photoUrl);
 }
 

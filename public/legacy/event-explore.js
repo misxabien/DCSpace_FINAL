@@ -53,8 +53,11 @@
           statusWrap.className = 'detail-status-wrap';
           statusWrap.innerHTML = '<p id="detail-status" class="detail-status"></p>';
           var actionWrap = page.querySelector('.detail-action-wrap');
-          if (actionWrap) page.insertBefore(statusWrap, actionWrap);
-          else page.appendChild(statusWrap);
+          if (actionWrap && actionWrap.parentNode) {
+            actionWrap.parentNode.insertBefore(statusWrap, actionWrap);
+          } else {
+            page.appendChild(statusWrap);
+          }
           statusEl = statusWrap.querySelector('#detail-status');
         }
       }

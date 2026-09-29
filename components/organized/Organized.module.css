@@ -7,10 +7,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: nowrap;
 }
 
 .greeting {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: clamp(1.75rem, 3vw, 2.25rem);
   font-weight: 700;
   color: var(--blue);
@@ -21,6 +24,8 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  flex: 0 0 auto;
+  flex-shrink: 0;
 }
 
 .userName {
@@ -397,11 +402,55 @@
 }
 
 @media (max-width: 900px) {
+  .top {
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .greeting {
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tools {
+    gap: 4px;
+  }
+
+  .userName {
+    display: none;
+  }
+
+  .toolBtn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .toolBtn svg {
+    width: 17px;
+    height: 17px;
+  }
+
   .banner {
     flex-direction: column;
     align-items: flex-start;
-    margin-top: 20px;
-    padding: 24px;
+    gap: 16px;
+    margin-top: 16px;
+    margin-bottom: 28px;
+    padding: 20px 18px;
+  }
+
+  .bannerTitle {
+    font-size: 1.15rem;
+  }
+
+  .bannerText {
+    font-size: 0.9rem;
   }
 
   .bannerBtn {
@@ -423,11 +472,8 @@
 }
 
 @media (max-width: 640px) {
-  .top {
-    flex-wrap: wrap;
-  }
-
-  .userName {
-    display: none;
+  .banner {
+    margin-top: 12px;
+    padding: 18px 16px;
   }
 }
