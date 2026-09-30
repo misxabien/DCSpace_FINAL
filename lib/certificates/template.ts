@@ -65,15 +65,14 @@ function bytesFromBase64(base64: string): Uint8Array {
 
 function streamToText(stream: PDFStream | PDFRawStream): string {
   try {
-    const raw = stream as PDFRawStream;
-    const decoded = decodePDFRawStream({
-      dict: raw.dict,
-      contents: raw.getContents(),
-    });
-    return Buffer.from(decoded.decode()).toString("latin1");
+    if (stream instanceof PDFRawStream) {
+      const decoded = decodePDFRawStream(stream);
+      return Buffer.from(decoded.decode()).toString("latin1");
+    }
+    return Buffer.from(stream.getContents()).toString("latin1");
   } catch {
     try {
-      return Buffer.from((stream as PDFStream).getContents()).toString("latin1");
+      return Buffer.from(stream.getContents()).toString("latin1");
     } catch {
       return "";
     }
