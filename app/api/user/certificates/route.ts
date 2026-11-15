@@ -17,6 +17,12 @@ import {
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
   const isAdmin = !("error" in admin);
+  if (!("error" in admin)) {
+    const viewDenied = await requireAdminPermission(admin, "view-certificates");
+    if (viewDenied) {
+      return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
+    }
+  }
   const actor = isAdmin ? null : await requireSessionActor(request);
   if (!isAdmin && actor && "error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });

@@ -18,6 +18,7 @@ import { organizerOwnershipFilter } from "@/lib/events/ownership";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 
 const WRITABLE_STATUSES: EventStatus[] = [
   "draft",
@@ -64,6 +65,12 @@ export async function GET(request: Request) {
   const actor = await resolveActor(request);
   if (!actor) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  }
+  if (actor.kind === "admin") {
+    const viewDenied = await requireAdminPermission({ session: actor.session }, "view-events");
+    if (viewDenied) {
+      return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
+    }
   }
 
   try {

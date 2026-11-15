@@ -11,6 +11,10 @@ export async function GET(request: Request) {
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+  const viewDenied = await requireAdminPermission(auth, "view-users");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -20,6 +24,16 @@ export async function GET(request: Request) {
     const limit = Math.min(Number(searchParams.get("limit") || 100) || 100, 200);
 
     const filter: Record<string, unknown> = {};
+    const roleKey = String(role || "").trim().toLowerCase();
+    if (roleKey === "student" || roleKey === "faculty") {
+      const listDenied = await requireAdminPermission(
+        auth,
+        roleKey === "student" ? "view-student-users" : "view-faculty-users",
+      );
+      if (listDenied) {
+        return NextResponse.json({ error: listDenied.error }, { status: listDenied.status });
+      }
+    }
     if (role) {
       const roles = role
         .split(",")

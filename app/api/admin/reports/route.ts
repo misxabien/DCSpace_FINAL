@@ -6,6 +6,7 @@ import {
   type AdminReportCategory,
 } from "@/lib/admin/admin-reports";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { eventsCollection } from "@/lib/events/types";
 
@@ -145,6 +146,10 @@ export async function GET(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "view-reports");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   try {

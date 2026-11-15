@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { buildLiveAttendanceFeed } from "@/lib/user-server/record-attendance";
 
 /** Admin RFID scanner — records explicit Tap In or Tap Out. */
@@ -7,6 +8,10 @@ export async function GET(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "view-attendance");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   const url = new URL(request.url);

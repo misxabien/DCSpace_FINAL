@@ -62,6 +62,36 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
     );
   }, [htmlReady, data.id]);
 
+  // Hide sidebar sections the Super Admin has not granted to this admin.
+  useEffect(() => {
+    if (!htmlReady) return;
+    let cancelled = false;
+    const NAV_PERMISSION: Record<string, string> = {
+      "/admin/event13": "view-events",
+      "/admin/user27": "view-users",
+      "/admin/attendance42": "view-attendance",
+      "/admin/cert45": "view-certificates",
+      "/admin/feedback47": "view-feedback",
+      "/admin/report51": "view-reports",
+    };
+    void fetch("/api/admin/me/permissions", { cache: "no-store", credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { adminPermissions?: Record<string, boolean> | null } | null) => {
+        const perms = payload?.adminPermissions;
+        if (cancelled || !perms) return;
+        document.querySelectorAll<HTMLAnchorElement>("nav.nav a[href]").forEach((link) => {
+          const key = NAV_PERMISSION[link.getAttribute("href") || ""];
+          if (key && perms[key] === false) link.hidden = true;
+        });
+      })
+      .catch(() => {
+        /* links stay visible; the APIs still enforce permissions */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [htmlReady, data.id]);
+
   useIsomorphicLayoutEffect(() => {
     if (!htmlReady || !STAT_LOADING_PAGES.has(data.id)) return;
     const root = document.querySelector(".admin-legacy-root");

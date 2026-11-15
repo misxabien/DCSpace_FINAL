@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import {
   generateAndStoreEventReport,
   getLatestEventReport,
@@ -12,6 +13,10 @@ export async function GET(request: Request, context: RouteContext) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "view-reports");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   const { id } = await context.params;
@@ -38,6 +43,10 @@ export async function POST(request: Request, context: RouteContext) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "generate-reports");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   const { id } = await context.params;

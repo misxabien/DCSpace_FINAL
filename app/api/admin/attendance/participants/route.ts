@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { buildEventParticipantList } from "@/lib/user-server/event-participants";
 
 /** Admin participant attendance list for listp44 (registrations + taps + security flags). */
@@ -7,6 +8,10 @@ export async function GET(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "view-participants-list");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   const eventId = new URL(request.url).searchParams.get("eventId") || "";

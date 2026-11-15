@@ -6,6 +6,7 @@ import {
   type SmartReportDraft,
 } from "@/lib/admin/smart-report-export";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 
 function parseFormat(value: string): SmartExportFormat | null {
   const normalized = String(value || "").toLowerCase();
@@ -21,6 +22,10 @@ export async function POST(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "generate-reports");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   let body: {

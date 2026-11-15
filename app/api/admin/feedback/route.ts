@@ -4,6 +4,7 @@ import {
   type FeedbackAnalyticsFilters,
 } from "@/lib/admin/feedback-analytics";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 
 function parsePeriod(value: string | null): FeedbackAnalyticsFilters["period"] {
   const normalized = String(value || "").toLowerCase().replace(/\s+/g, "");
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const viewDenied = await requireAdminPermission(auth, "view-feedback");
+  if (viewDenied) {
+    return NextResponse.json({ error: viewDenied.error }, { status: viewDenied.status });
   }
 
   try {
