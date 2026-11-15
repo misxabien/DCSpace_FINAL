@@ -2,11 +2,18 @@ import { NextResponse } from "next/server";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 
 export async function GET(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
+  }
+
+  // Directory of students/faculty is for organizers inviting participants only.
+  const access = await checkOrganizerAccess(actor.email, "inviteSomeone");
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
   try {

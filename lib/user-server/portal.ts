@@ -270,3 +270,29 @@ export async function notifyAdmins(
     console.warn("[DC Space] Failed to notify admins:", details);
   }
 }
+
+/** Notify Super Admins only (e.g. admin access requests). */
+export async function notifySuperAdmins(
+  input: Omit<NotificationDoc, "email" | "userId" | "read" | "createdAt">,
+) {
+  try {
+    const db = await getUserDb();
+    const supers = await db
+      .collection("users")
+      .find({ role: "super-admin" })
+      .project({ email: 1 })
+      .toArray();
+    await Promise.all(
+      supers.map((user) =>
+        notifyUser({
+          ...input,
+          email: String(user.email || ""),
+          userId: String(user._id || ""),
+        }),
+      ),
+    );
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Unknown error";
+    console.warn("[DC Space] Failed to notify super admins:", details);
+  }
+}

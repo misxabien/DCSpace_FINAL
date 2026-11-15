@@ -6,6 +6,7 @@ import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { resetMongoConnection } from "@/lib/db/get-db";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
+import { accountBlockReason } from "@/lib/user-server/account-status";
 import { verifyPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
@@ -157,6 +158,10 @@ export async function POST(request: Request) {
     if (!user) return null;
     if (!verifyPassword(password, String(user.passwordHash || ""))) {
       return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+    }
+    const blocked = accountBlockReason(user as { role?: unknown; suspended?: unknown });
+    if (blocked) {
+      return NextResponse.json({ error: blocked }, { status: 403 });
     }
 
     const result = buildLoginSuccess(user, portal, expectedRole);

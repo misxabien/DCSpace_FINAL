@@ -76,10 +76,12 @@ function setInputValue(id: string, value: string | undefined) {
   }
 }
 
-function ensureRoleSelect(preferred: "admin" | "super-admin") {
+function ensureRoleSelect(_preferred: "admin" | "super-admin") {
   const select = document.getElementById("account-role") as HTMLSelectElement | null;
   if (!select) return;
-  if (!select.value) select.value = preferred;
+  // Super Admin accounts are pre-created only — never offer them at sign-up.
+  select.querySelectorAll('option[value="super-admin"]').forEach((option) => option.remove());
+  select.value = "admin";
   select.classList.toggle("has-value", Boolean(select.value));
 }
 
@@ -157,8 +159,8 @@ export function AdminRegisterBridge() {
         window.alert("Please complete the required basic information fields.");
         return null;
       }
-      if (selectedRole !== "admin" && selectedRole !== "super-admin") {
-        window.alert("Please select Admin or Super Admin.");
+      if (selectedRole !== "admin") {
+        window.alert("Please select Admin.");
         return null;
       }
       return writeDraft({
@@ -308,17 +310,17 @@ export function AdminRegisterBridge() {
         }
 
         try {
-          localStorage.setItem(
-            "dc_admin_role",
-            latest.role === "super-admin" ? "super-admin" : "admin",
-          );
           localStorage.removeItem("dc_admin_pending_role");
         } catch {
           /* ignore */
         }
         clearDraft();
-        window.alert(payload.message || "Account created successfully.");
-        window.location.assign("/admin/home12");
+        window.alert(
+          payload.message ||
+            "Account created. A Super Admin must approve your admin access before you can sign in.",
+        );
+        // No session yet — the account is pending Super Admin approval.
+        window.location.assign("/admin/login02");
       } catch (error) {
         window.alert(
           error instanceof Error ? error.message : "Unable to create account.",

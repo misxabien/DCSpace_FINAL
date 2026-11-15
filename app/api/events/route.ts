@@ -17,6 +17,7 @@ import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { organizerOwnershipFilter } from "@/lib/events/ownership";
 import { parseDurationToMinutes } from "@/lib/certificates/template";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 
 const WRITABLE_STATUSES: EventStatus[] = [
   "draft",
@@ -183,6 +184,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
+  // Only faculty / organization officers (and admins) may create events.
+  if (actor.kind !== "admin") {
+    const access = await checkOrganizerAccess(
+      actor.kind === "user" ? actor.email : actor.session.email,
+      "createEvents",
+    );
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+  }
+
   let body: {
     title?: string;
     description?: string;
@@ -246,8 +258,12 @@ export async function POST(request: Request) {
   const programFileBase64 = String(body.programFileBase64 || "").trim();
   const programFileVisibility =
     body.programFileVisibility === "organizers" ? "organizers" : "everyone";
+  // Organizers may only save drafts or submit for review — approval, live,
+  // completion, etc. are admin decisions (and approval needs eRoomReserve).
+  const allowedStatuses: EventStatus[] =
+    actor.kind === "admin" ? WRITABLE_STATUSES : ["draft", "pending"];
   const status: EventStatus =
-    body.status && WRITABLE_STATUSES.includes(body.status)
+    body.status && allowedStatuses.includes(body.status)
       ? body.status
       : actor.kind === "admin"
         ? "approved"

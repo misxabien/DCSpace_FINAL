@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { withCors, optionsResponse } from "@/lib/user-server/cors";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { accountBlockReason } from "@/lib/user-server/account-status";
 import { verifyPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { signAuthToken } from "@/lib/user-server/token";
@@ -35,6 +36,10 @@ export async function POST(request: Request) {
     const user = await db.collection("users").findOne({ email });
     if (!user || !verifyPassword(password, String(user.passwordHash || ""))) {
       return withCors(NextResponse.json({ error: "Invalid email or password." }, { status: 401 }));
+    }
+    const blocked = accountBlockReason(user);
+    if (blocked) {
+      return withCors(NextResponse.json({ error: blocked }, { status: 403 }));
     }
 
     const token = signAuthToken({

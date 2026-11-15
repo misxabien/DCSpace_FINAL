@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import jwt from "jsonwebtoken";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { accountBlockReason } from "@/lib/user-server/account-status";
 
 type AuthSuccess = {
   user: {
@@ -51,6 +52,10 @@ export async function requireUserAuth(request: Request): Promise<AuthSuccess | A
 
     if (!user) {
       return { error: "User not found.", status: 404 };
+    }
+    const blocked = accountBlockReason(user);
+    if (blocked) {
+      return { error: blocked, status: 403 };
     }
 
     return { user: user as AuthSuccess["user"] };

@@ -12,6 +12,7 @@ import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { findEventById } from "@/lib/events/find-event";
 import { escapeRegex } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
 
@@ -170,11 +171,70 @@ export async function PATCH(request: Request, context: RouteContext) {
     const writeDb = source === "user" ? userDb : adminDb;
 
     if (!isAdmin) {
+      const actorEmail = actor && !("error" in actor) ? actor.email : "";
       const owns =
-        existing.organizerEmail === (actor && !("error" in actor) ? actor.email : "") ||
+        existing.organizerEmail === actorEmail ||
         existing.organizerId === (actor && !("error" in actor) ? actor.userId : "");
       if (!owns) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+
+      // Organizers may postpone or cancel their own approved events (paper scope).
+      if (body.status === "postponed" || body.status === "cancelled") {
+        const allowedFrom =
+          body.status === "postponed" ? ["approved"] : ["approved", "postponed", "pending", "draft"];
+        if (!allowedFrom.includes(existing.status)) {
+          return NextResponse.json(
+            { error: `A ${existing.status} event cannot be ${body.status}.` },
+            { status: 409 },
+          );
+        }
+        const access = await checkOrganizerAccess(actorEmail, "editEvents");
+        if (!access.ok) {
+          return NextResponse.json({ error: access.error }, { status: access.status });
+        }
+        const now = new Date().toISOString();
+        const reason = String((body as { statusReason?: string }).statusReason || "").trim();
+        const changed = await eventsCollection(writeDb).findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status: body.status,
+              organizerStatusReason: reason,
+              organizerStatusChangedAt: now,
+              updatedAt: now,
+            },
+          },
+          { returnDocument: "after" },
+        );
+        if (!changed) {
+          return NextResponse.json({ error: "Event not found." }, { status: 404 });
+        }
+        const changedEvent = sanitizeEvent(changed as SpaceEvent & { _id: ObjectId });
+        void import("@/lib/user-server/portal").then(({ notifyAdmins }) =>
+          notifyAdmins({
+            title: body.status === "cancelled" ? "Event cancelled" : "Event postponed",
+            body: `${changedEvent.organizerName || actorEmail} ${body.status} ${changedEvent.title}${reason ? `: ${reason}` : "."}`,
+            type: "event-status",
+            eventId: changedEvent.id,
+            eventTitle: changedEvent.title,
+          }),
+        );
+        if (body.status === "cancelled") {
+          void import("@/lib/iroom/sync")
+            .then(({ syncEventCancellationToIroom }) =>
+              syncEventCancellationToIroom(changed as SpaceEvent & { _id: ObjectId }),
+            )
+            .catch(() => {
+              /* eRoomReserve release is best-effort */
+            });
+        }
+        return NextResponse.json({ event: changedEvent });
+      }
+
+      const access = await checkOrganizerAccess(actorEmail, "editEvents");
+      if (!access.ok) {
+        return NextResponse.json({ error: access.error }, { status: access.status });
       }
       if (!["draft", "pending", "rejected"].includes(existing.status)) {
         return NextResponse.json(
@@ -275,12 +335,22 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (body.programFileVisibility === "organizers" || body.programFileVisibility === "everyone") {
       update.programFileVisibility = body.programFileVisibility;
     }
-    if (typeof body.reservationId === "string" && body.reservationId.trim()) {
+    // Only admins may relink a reservation; otherwise an organizer could point
+    // their event at another event's approved room.
+    if (isAdmin && typeof body.reservationId === "string" && body.reservationId.trim()) {
       update.reservationId = body.reservationId.trim();
     }
 
-    // DC Space final approve requires eRoomReserve room approval first.
-    if (isAdmin && body.status === "approved") {
+    const { eventNeedsRoomReservation } = await import(
+      "@/lib/integrations/ensure-room-reservation"
+    );
+    const needsRoom = eventNeedsRoomReservation({
+      venueType: String(update.venueType ?? existing.venueType ?? ""),
+    });
+
+    // DC Space final approve requires eRoomReserve room approval first —
+    // only for on-campus events (off-campus events have no room to reserve).
+    if (isAdmin && body.status === "approved" && needsRoom) {
       const {
         findReservationForEvent,
         isRoomValidatedForEventApproval,

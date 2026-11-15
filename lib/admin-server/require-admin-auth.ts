@@ -21,7 +21,7 @@ async function liveAdminFromEmail(email: string): Promise<AdminAuthSuccess | nul
   if (!normalized) return null;
   const db = await getUserDb();
   const user = await db.collection("users").findOne({ email: normalized });
-  if (!user || !isAdminRole(String(user.role || ""))) return null;
+  if (!user || !isAdminRole(String(user.role || "")) || user.suspended === true) return null;
   return {
     session: toSessionUser({
       email: String(user.email),
@@ -52,7 +52,7 @@ async function sessionFromBearer(request: Request): Promise<AdminAuthSuccess | n
     if (payload.sub && ObjectId.isValid(payload.sub)) {
       const db = await getUserDb();
       const user = await db.collection("users").findOne({ _id: new ObjectId(payload.sub) });
-      if (!user || !isAdminRole(String(user.role || ""))) return null;
+      if (!user || !isAdminRole(String(user.role || "")) || user.suspended === true) return null;
       return {
         session: toSessionUser({
           email: String(user.email),
@@ -95,7 +95,8 @@ export async function requireAdminAuth(
       return { error: "This account is no longer an administrator.", status: 403 };
     }
   } catch {
-    return { session };
+    // Never trust the cookie alone: if the role cannot be re-checked, refuse.
+    return { error: "Unable to verify administrator account. Try again shortly.", status: 503 };
   }
 
   return { error: "This account is no longer an administrator.", status: 403 };

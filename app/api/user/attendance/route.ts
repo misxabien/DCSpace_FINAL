@@ -189,6 +189,20 @@ export async function GET(request: Request) {
 
 /** Session tap in/out — persists to MongoDB `attendance_records`. */
 export async function POST(request: Request) {
+  // Attendance is recorded only by tapping the RFID ID at the admin desk
+  // (/api/admin/attendance/scan). Self tap-in from a phone/browser would let
+  // anyone "attend" from anywhere and auto-earn a certificate, so it is off
+  // unless explicitly enabled for hardware-free demos.
+  if (process.env.ALLOW_SESSION_ATTENDANCE !== "true") {
+    return NextResponse.json(
+      {
+        error: "Attendance is recorded by tapping your RFID school ID at the event.",
+        code: "rfid_only",
+      },
+      { status: 403 },
+    );
+  }
+
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });

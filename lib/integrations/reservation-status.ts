@@ -143,26 +143,12 @@ async function linkReservationToEvents(
   );
   if (byReservation.matchedCount > 0) return;
 
-  // Fallback: attach to a pending event whose venue matches the reserved room.
-  const pending = await events.findOne(
-    {
-      status: "pending",
-      $or: [
-        { location: input.room.name },
-        { reservationRoomName: input.room.name },
-        { reservationRoomId: input.room.id },
-        { iroomRoomName: input.room.name },
-      ],
-    },
-    { sort: { updatedAt: -1 } },
+  // No room-name fallback: a reservation is only linked when eRoomReserve
+  // sends the DC Space event id, or the event already carries this reservation id.
+  // Matching by room name could attach one event's approval to another event.
+  console.warn(
+    `[DC Space] Reservation ${input.reservationId} has no linked DC Space event yet.`,
   );
-  if (pending?._id) {
-    await events.updateOne({ _id: pending._id as ObjectId }, { $set: patch });
-    await reservationStatusesCollection(statusDb).updateOne(
-      { reservationId: input.reservationId },
-      { $set: { eventId: String(pending._id) } },
-    );
-  }
 }
 
 export async function findReservationForEvent(
@@ -185,11 +171,7 @@ export async function findReservationForEvent(
     );
     if (byEvent) return byEvent;
   }
-  if (event.location) {
-    return col.findOne(
-      { "room.name": event.location },
-      { sort: { syncedAt: -1 } },
-    );
-  }
+  // Intentionally no lookup by room name — another event booked in the same
+  // room must never satisfy this event's approval check.
   return null;
 }

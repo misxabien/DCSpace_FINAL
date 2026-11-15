@@ -5,6 +5,7 @@ import { decodeSession } from "@/lib/auth/session";
 import { SESSION_COOKIE } from "@/lib/auth/types";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
+import { accountBlockReason } from "@/lib/user-server/account-status";
 
 export type SessionActor = {
   email: string;
@@ -33,6 +34,8 @@ export async function requireSessionActor(
         email: session.email.trim().toLowerCase(),
       });
       if (user) {
+        const blocked = accountBlockReason(user);
+        if (blocked) return { error: blocked, status: 403 };
         return {
           email: String(user.email || "").trim().toLowerCase(),
           name:
@@ -79,6 +82,8 @@ export async function requireSessionActor(
         _id: new ObjectId(payload.sub),
       });
       if (user) {
+        const blocked = accountBlockReason(user);
+        if (blocked) return { error: blocked, status: 403 };
         return {
           email: String(user.email || "").trim().toLowerCase(),
           name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || payload.email,

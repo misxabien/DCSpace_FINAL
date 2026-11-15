@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
@@ -16,11 +17,18 @@ const VALID_STATUSES: IroomReservationStatus[] = [
 /** IRoomReserve calls this when a reservation is approved, rejected, or cancelled. */
 export async function POST(request: Request) {
   const config = getIroomConfig();
-  if (config.webhookSecret) {
-    const provided = request.headers.get("x-iroom-secret") || "";
-    if (provided !== config.webhookSecret) {
-      return NextResponse.json({ error: "Unauthorized webhook." }, { status: 401 });
-    }
+  // Fail closed: without a configured secret anyone could mark rooms approved.
+  if (!config.webhookSecret) {
+    return NextResponse.json(
+      { error: "iRoom webhook is not configured (IROOM_WEBHOOK_SECRET)." },
+      { status: 503 },
+    );
+  }
+  const provided = request.headers.get("x-iroom-secret") || "";
+  const expected = Buffer.from(config.webhookSecret);
+  const given = Buffer.from(provided);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
+    return NextResponse.json({ error: "Unauthorized webhook." }, { status: 401 });
   }
 
   let body: Partial<IroomWebhookPayload>;

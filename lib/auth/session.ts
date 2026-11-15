@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SessionUser } from "@/lib/auth/types";
 import {
   SESSION_COOKIE,
@@ -32,17 +33,50 @@ function fromBase64Url(value: string): Uint8Array {
   return bytes;
 }
 
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+function sessionSecret(): string {
+  const secret = (process.env.SESSION_SECRET || process.env.JWT_SECRET || "").trim();
+  if (!secret) {
+    throw new Error("Missing SESSION_SECRET (or JWT_SECRET) — session cookies cannot be signed.");
+  }
+  return secret;
+}
+
+function sign(payload: string): string {
+  return toBase64Url(createHmac("sha256", sessionSecret()).update(payload).digest());
+}
+
+function signatureMatches(payload: string, signature: string): boolean {
+  const expected = Buffer.from(sign(payload));
+  const provided = Buffer.from(signature);
+  return expected.length === provided.length && timingSafeEqual(expected, provided);
+}
+
+/**
+ * Cookie format: base64url(JSON) + "." + base64url(HMAC-SHA256).
+ * The signature stops anyone from editing the cookie to impersonate
+ * another user or an admin; `exp` bounds how long a cookie stays valid.
+ */
 export function encodeSession(user: SessionUser): string {
-  const json = JSON.stringify(user);
-  return toBase64Url(new TextEncoder().encode(json));
+  const exp = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS;
+  const payload = toBase64Url(new TextEncoder().encode(JSON.stringify({ ...user, exp })));
+  return `${payload}.${sign(payload)}`;
 }
 
 export function decodeSession(value: string | undefined | null): SessionUser | null {
   if (!value) return null;
   try {
-    const json = new TextDecoder().decode(fromBase64Url(value));
-    const parsed = JSON.parse(json) as Partial<SessionUser> & { role?: string };
+    const dot = value.indexOf(".");
+    if (dot <= 0) return null;
+    const payload = value.slice(0, dot);
+    const signature = value.slice(dot + 1);
+    if (!signature || !signatureMatches(payload, signature)) return null;
+
+    const json = new TextDecoder().decode(fromBase64Url(payload));
+    const parsed = JSON.parse(json) as Partial<SessionUser> & { role?: string; exp?: number };
     if (!parsed?.email || !parsed?.role) return null;
+    if (typeof parsed.exp !== "number" || parsed.exp * 1000 < Date.now()) return null;
 
     const role = normalizeSessionRole(parsed.role);
     const isAdmin = isAdminRole(role);
@@ -63,7 +97,7 @@ export function decodeSession(value: string | undefined | null): SessionUser | n
   }
 }
 
-export function sessionCookieOptions(maxAgeSeconds = 60 * 60 * 24 * 7) {
+export function sessionCookieOptions(maxAgeSeconds = SESSION_MAX_AGE_SECONDS) {
   return {
     name: SESSION_COOKIE,
     httpOnly: true,

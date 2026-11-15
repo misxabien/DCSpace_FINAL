@@ -1,25 +1,20 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
-import { encodeSession, sessionCookieOptions } from "@/lib/auth/session";
-import { toSessionUser } from "@/lib/auth/toSessionUser";
 import { isSchoolEmail } from "@/lib/user-server/auth-helpers";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { hashPassword } from "@/lib/user-server/password";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
-import { signAuthToken } from "@/lib/user-server/token";
 import { verifyRegistrationCode } from "@/lib/user-server/verification";
 
-type AdminRegisterRole = "admin" | "super-admin";
+/** Self-registered admins wait here until a Super Admin turns on "Make Admin". */
+const PENDING_ADMIN_ROLE = "admin-pending";
 
-function normalizeRole(value: unknown): AdminRegisterRole | null {
-  const role = String(value || "")
-    .trim()
-    .toLowerCase();
-  if (role === "admin" || role === "super-admin") return role;
-  return null;
-}
-
-/** Public self-registration for Admin / Super Admin accounts. */
+/**
+ * Public self-registration for Admin accounts.
+ * - Super Admin accounts are pre-created only (never self-registered).
+ * - New admins are created as "admin-pending" and cannot sign in until a
+ *   Super Admin approves them (role → "admin").
+ */
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
@@ -43,17 +38,21 @@ export async function POST(request: Request) {
   const rfidNumber = String(body.rfidNumber || body.rfid || "").trim();
   const course = String(body.course || body.program || "").trim();
   const school = String(body.school || body.department || "").trim();
-  const role = normalizeRole(body.role);
+  const requestedRole = String(body.role || "admin").trim().toLowerCase();
 
   if (!firstName || !lastName || !studentNumber || !email || !password) {
     return NextResponse.json({ error: "Required account fields are missing." }, { status: 400 });
   }
-  if (!role) {
+  if (requestedRole === "super-admin") {
     return NextResponse.json(
-      { error: "Account role must be Admin or Super Admin." },
-      { status: 400 },
+      { error: "Super Admin accounts cannot be registered. Ask the system owner for access." },
+      { status: 403 },
     );
   }
+  if (requestedRole !== "admin") {
+    return NextResponse.json({ error: "Account role must be Admin." }, { status: 400 });
+  }
+  const role = PENDING_ADMIN_ROLE;
   if (!isSchoolEmail(email)) {
     return NextResponse.json(
       { error: "Use your school email ending in @sdca.edu.ph." },
@@ -126,43 +125,36 @@ export async function POST(request: Request) {
     const insertResult = await users.insertOne(doc);
     const savedUser = { ...doc, _id: insertResult.insertedId as ObjectId };
     const profile = sanitizeUser(savedUser);
-    const token = signAuthToken({
-      sub: savedUser._id.toString(),
-      email: savedUser.email,
-      role: savedUser.role,
-    });
-
-    const sessionUser = toSessionUser({
-      email: profile.email,
-      name: profile.fullName || profile.email,
-      role: profile.role,
-      organizationRole: profile.organizationRole,
-    });
 
     void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
       logUserActivity({
         type: "user_registered",
         actorEmail: profile.email,
         actorName: profile.fullName,
-        actorRole: profile.role,
+        actorRole: role,
         organization: profile.organizationPart,
         meta: { studentNumber: profile.studentNumber, source: "admin-self-register" },
       }),
     );
 
-    const response = NextResponse.json(
+    void import("@/lib/user-server/portal").then(({ notifySuperAdmins }) =>
+      notifySuperAdmins({
+        title: "Admin access request",
+        body: `${profile.fullName || profile.email} registered for the Admin Console. Open their account in Users and turn on Make Admin to approve.`,
+        type: "admin-access-request",
+      }),
+    );
+
+    // No session is issued: the account cannot use the Admin Console until approved.
+    return NextResponse.json(
       {
-        message: "Account created successfully.",
-        token,
+        message:
+          "Account created. A Super Admin must approve your admin access before you can sign in.",
+        pendingApproval: true,
         user: profile,
       },
       { status: 201 },
     );
-    response.cookies.set({
-      ...sessionCookieOptions(),
-      value: encodeSession(sessionUser),
-    });
-    return response;
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
