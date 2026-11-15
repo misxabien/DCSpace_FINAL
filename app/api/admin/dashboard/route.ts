@@ -15,6 +15,8 @@ import {
 } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
+import { buildDashboardCharts } from "@/lib/admin/dashboard-charts";
+import { findEventsAcrossDatabases } from "@/lib/events/events-query";
 import {
   MONGO_QUICK_TIMEOUT_MS,
   withTimeout,
@@ -48,6 +50,17 @@ function emptyDashboard(details?: string) {
     activities: [],
     attendance: [],
     feedback: [],
+    charts: {
+      monthly: {
+        labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+        counts: Array.from({ length: 12 }, () => 0),
+        peakIndex: 0,
+        peakLabel: "Jan",
+      },
+      topAttendance: [],
+      eventTypes: [],
+      range: "monthly" as const,
+    },
     window: { weekAgo: "", monthAgo: "" },
   };
 }
@@ -170,16 +183,14 @@ export async function GET(request: Request) {
         .sort({ updatedAt: -1 })
         .limit(6)
         .toArray(),
-      eventsCol
-        .find({ status: "pending" })
-        .sort({ createdAt: -1 })
-        .limit(500)
-        .toArray(),
-      eventsCol
-        .find({ status: { $in: ["approved", "live", "completed"] } })
-        .sort({ updatedAt: -1 })
-        .limit(500)
-        .toArray(),
+      findEventsAcrossDatabases(
+        { status: "pending" },
+        { sort: { createdAt: -1 }, limit: 500, lean: true, cardFields: true },
+      ),
+      findEventsAcrossDatabases(
+        { status: { $in: ["approved", "live", "completed"] } },
+        { sort: { updatedAt: -1 }, limit: 500, lean: true, cardFields: true },
+      ),
       eventsCol
         .find({ status: { $in: ["approved", "live"] } })
         .sort({ startsAt: 1 })
@@ -272,6 +283,8 @@ export async function GET(request: Request) {
       meta: a.meta || {},
     }));
 
+    const charts = await buildDashboardCharts(db);
+
     return NextResponse.json({
       generatedAt: new Date().toISOString(),
       stats: {
@@ -316,6 +329,7 @@ export async function GET(request: Request) {
         rating: row.rating ?? "",
         comment: String(row.comment || row.message || ""),
       })),
+      charts,
       window: { weekAgo, monthAgo },
     });
   } catch (error) {

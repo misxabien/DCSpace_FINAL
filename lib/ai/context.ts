@@ -101,14 +101,36 @@ export async function loadEventAiContext(eventId: string) {
   const event = found.event;
   if (!event) return null;
 
+  const eventWithCapacity = {
+    title: String(event.title || ""),
+    location: String(event.location || ""),
+    reservationStatus: String(event.reservationStatus || ""),
+    reservationRoomName: String(event.reservationRoomName || ""),
+    reservationCapacity: Number(event.reservationCapacity || 0) || null,
+    reservationId: String(event.reservationId || ""),
+  };
+
   const [registrationCount, attendanceDocs, feedbackDocs, savedCount, security] =
     await Promise.all([
     registrationsCollection(userDb).countDocuments({
       eventId,
-      status: { $in: ["joined", "approved"] },
+      status: { $in: ["joined", "approved", "pending"] },
     }),
     attendanceCollection(userDb)
-      .find({ eventId })
+      .find(
+        { eventId },
+        {
+          projection: {
+            email: 1,
+            action: 1,
+            scannedAt: 1,
+            createdAt: 1,
+            attendanceMinutes: 1,
+            qualifiedForCertificate: 1,
+            participantName: 1,
+          },
+        },
+      )
       .sort({ scannedAt: 1, createdAt: 1 })
       .limit(5000)
       .toArray(),
@@ -172,7 +194,10 @@ export async function loadEventAiContext(eventId: string) {
   const attendanceRate = registrationCount
     ? Math.round((uniqueTapIns / registrationCount) * 100)
     : 0;
-  const venueCapacity = Math.max(0, Number(event.reservationCapacity || 0));
+  const venueCapacity = Math.max(
+    0,
+    Number(eventWithCapacity.reservationCapacity || event.reservationCapacity || 0),
+  );
 
   return {
     event: {
@@ -180,7 +205,7 @@ export async function loadEventAiContext(eventId: string) {
       title: event.title,
       description: event.description || "",
       status: event.status,
-      location: event.location || "",
+      location: eventWithCapacity.location || event.location || "",
       venueType: event.venueType || "",
       category: event.category || "",
       startsAt: event.startsAt || "",
@@ -231,6 +256,8 @@ export async function loadEventAiContext(eventId: string) {
       entryRate,
       exitRate,
       predictedPeakTime: arrivalPeak.predictedPeakTime,
+      remainingCapacity:
+        venueCapacity > 0 ? Math.max(0, venueCapacity - currentlyInside) : null,
     },
     feedbackSamples: feedbackDocs
       .map((row) => String(row.comment || "").trim())

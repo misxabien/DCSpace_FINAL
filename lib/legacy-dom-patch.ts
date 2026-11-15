@@ -5,10 +5,14 @@ import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
 const HIDDEN_CLASS = "dc-legacy-hidden";
 const EMPTY_CLASS = "dc-events-empty";
 
-const HIDE_STYLE_ID = "dc-legacy-hide-style-v3";
+const HIDE_STYLE_ID = "dc-legacy-hide-style-v5";
 
 export function ensureLegacyHideStyles() {
   if (typeof document === "undefined") return;
+  // Upgrade older injected style tags so centering / hide fixes apply after soft nav.
+  ["dc-legacy-hide-style-v3", "dc-legacy-hide-style-v4"].forEach((id) => {
+    document.getElementById(id)?.remove();
+  });
   if (document.getElementById(HIDE_STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = HIDE_STYLE_ID;
@@ -36,28 +40,84 @@ export function setLegacyHidden(el: HTMLElement | null | undefined, hidden: bool
   if (!el) return;
   ensureLegacyHideStyles();
   el.classList.toggle(HIDDEN_CLASS, hidden);
+  el.classList.toggle("is-hidden", hidden);
   if (hidden) {
     el.setAttribute("hidden", "");
-    el.style.display = "none";
+    el.style.setProperty("display", "none", "important");
   } else {
     el.removeAttribute("hidden");
     el.style.removeProperty("display");
   }
 }
 
+export const STAT_CARD_SELECTORS =
+  ".stat-card, .user-stat, .fb-stat, .cert-stat, .rp-stat";
+
+const STAT_VALUE_SELECTORS =
+  ".stat-value, .value, .name, .fb-stat-body .value";
+
+export function clearStatCardLoading(card: Element) {
+  if (!(card instanceof HTMLElement)) return;
+  card.classList.remove("dc-stat-loading");
+  card.removeAttribute("aria-busy");
+}
+
+export function setStatCardsLoading(
+  root: ParentNode,
+  loading: boolean,
+  selectors = STAT_CARD_SELECTORS,
+) {
+  root.querySelectorAll<HTMLElement>(selectors).forEach((card) => {
+    if (loading) {
+      card.classList.add("dc-stat-loading");
+      card.setAttribute("aria-busy", "true");
+    } else {
+      clearStatCardLoading(card);
+    }
+  });
+
+  root.querySelectorAll<HTMLElement>(".stats, .users-stats, .cert-stats, .rp-stats, .fb-stats").forEach(
+    (section) => {
+      if (loading) section.setAttribute("aria-busy", "true");
+      else section.removeAttribute("aria-busy");
+    },
+  );
+}
+
+export function clearRemainingStatCardLoading(
+  root: ParentNode,
+  selectors = STAT_CARD_SELECTORS,
+) {
+  root.querySelectorAll<HTMLElement>(selectors).forEach((card) => {
+    if (card.classList.contains("dc-stat-loading")) {
+      clearStatCardLoading(card);
+    }
+  });
+  root.querySelectorAll<HTMLElement>(".stats, .users-stats, .cert-stats, .rp-stats, .fb-stats").forEach(
+    (section) => {
+      if (!section.querySelector(".dc-stat-loading")) {
+        section.removeAttribute("aria-busy");
+      }
+    },
+  );
+}
+
 export function setStatByLabel(
   root: ParentNode,
   label: string,
   value: string | number,
-  selectors = ".stat-card, .user-stat, .fb-stat, .cert-stat, .rp-stat",
+  selectors = STAT_CARD_SELECTORS,
 ) {
   root.querySelectorAll(selectors).forEach((card) => {
     const labelEl = card.querySelector(".stat-label, .label, .fb-stat-head span");
     if (!labelEl) return;
     const text = (labelEl.textContent || "").trim().toLowerCase();
     if (!text.includes(label.toLowerCase())) return;
-    const valueEl = card.querySelector(".stat-value, .value, .name, .fb-stat-body .value");
-    if (valueEl) valueEl.textContent = String(value);
+    const valueEl = card.querySelector(STAT_VALUE_SELECTORS);
+    if (valueEl) {
+      valueEl.textContent = String(value);
+      clearStatCardLoading(card);
+    }
   });
 }
 
@@ -200,6 +260,85 @@ export function ensureEventsFooterAtBottom(host: ParentNode | null) {
   });
 }
 
+/**
+ * Sync Asc/Desc pager labels with actually visible event rows
+ * (ignores dc-legacy-hidden / [hidden] template stubs).
+ */
+export function updateEventsPagers(root: ParentNode | null) {
+  if (!root) return;
+  const blocks = Array.from(
+    (root as Element).querySelectorAll?.(".events-block") || [],
+  ) as HTMLElement[];
+  const panels =
+    blocks.length > 0
+      ? blocks
+      : (Array.from(
+          (root as Element).querySelectorAll?.(".events-panel") || [],
+        ) as HTMLElement[]);
+
+  panels.forEach((block) => {
+    const panel = block.classList.contains("events-panel")
+      ? block
+      : block.querySelector<HTMLElement>(".events-panel") || block;
+    const items = Array.from(panel.querySelectorAll<HTMLElement>(".event-item"));
+    const visible = items.filter(
+      (el) =>
+        !el.classList.contains(HIDDEN_CLASS) &&
+        !el.classList.contains("is-hidden") &&
+        !el.hasAttribute("hidden"),
+    );
+    const pager =
+      panel.querySelector(".pager") || block.querySelector(".pager");
+    if (!pager) return;
+    const spans = pager.querySelectorAll("span");
+    const total = visible.length;
+    if (spans[0]) {
+      spans[0].textContent = `Show ${total} out of ${total} entries`;
+    }
+    if (spans[1]) {
+      spans[1].textContent = `Page ${total ? 1 : 0} of ${total ? 1 : 0}`;
+    }
+  });
+}
+
+/** Show / hide an empty-state note inside the admin notifications panel. */
+export function setNotifEmptyState(
+  list: Element | null,
+  empty: boolean,
+  copy?: { title?: string; text?: string },
+) {
+  if (!list) return;
+  ensureLegacyHideStyles();
+
+  const panel = list.closest(".notif-panel") || list.parentElement;
+  if (!panel) return;
+
+  const title = copy?.title || "No notifications";
+  const text =
+    copy?.text || "You're all caught up. New alerts will appear here when something needs your attention.";
+
+  let note = panel.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-notif-empty`);
+  if (!note) {
+    note = document.createElement("div");
+    note.className = `${EMPTY_CLASS} dc-notif-empty`;
+    note.setAttribute("role", "status");
+    note.innerHTML = `
+      <img class="${EMPTY_CLASS}__icon" src="/no-event.svg" width="96" height="96" alt="" aria-hidden="true" />
+      <h3 class="${EMPTY_CLASS}__title"></h3>
+      <p class="${EMPTY_CLASS}__text"></p>
+    `;
+    const footer = panel.querySelector(".notif-footer");
+    if (footer) panel.insertBefore(note, footer);
+    else panel.appendChild(note);
+  }
+
+  const titleEl = note.querySelector(`.${EMPTY_CLASS}__title`);
+  const textEl = note.querySelector(`.${EMPTY_CLASS}__text`);
+  if (titleEl) titleEl.textContent = title;
+  if (textEl) textEl.textContent = text;
+  setLegacyHidden(note, !empty);
+}
+
 /** Show / hide an empty-state note inside each events panel under a list host. */
 export function setEventsEmptyState(
   host: Element | null,
@@ -255,6 +394,13 @@ export function setCardRowEmptyState(
   const text = copy?.text || "Live events from the database will appear here.";
 
   let note = row.querySelector<HTMLElement>(`:scope > .${EMPTY_CLASS}.dc-card-row-empty`);
+
+  // When cards exist, drop any empty placeholder — do not leave a hidden sibling.
+  if (!empty) {
+    note?.remove();
+    return;
+  }
+
   if (!note) {
     note = document.createElement("div");
     note.className = `dc-empty-state dc-empty-state--compact ${EMPTY_CLASS} dc-card-row-empty`;
@@ -271,5 +417,5 @@ export function setCardRowEmptyState(
   const textEl = note.querySelector(`.${EMPTY_CLASS}__text`);
   if (titleEl) titleEl.textContent = title;
   if (textEl) textEl.textContent = text;
-  setLegacyHidden(note, !empty);
+  setLegacyHidden(note, false);
 }

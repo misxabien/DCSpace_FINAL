@@ -55,7 +55,13 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof AttendanceError) {
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        {
+          error: error.message,
+          code: error.code,
+          ...(error.user ? { user: error.user } : {}),
+          ...(error.lastTapInAt ? { lastTapInAt: error.lastTapInAt } : {}),
+          ...(error.lastTapOutAt ? { lastTapOutAt: error.lastTapOutAt } : {}),
+        },
         { status: error.status },
       );
     }

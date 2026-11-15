@@ -168,6 +168,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
+    console.error("[DC Space] GET /api/events failed:", details);
     return NextResponse.json(
       { error: "Failed to load events.", details },
       { status: 500 },
@@ -214,6 +215,7 @@ export async function POST(request: Request) {
     posterImageMimeType?: string;
     status?: EventStatus;
     reservationId?: string;
+    advisorEmail?: string;
   };
   try {
     body = await request.json();
@@ -289,6 +291,7 @@ export async function POST(request: Request) {
     hasPoster: Boolean(String(body.posterImageBase64 || "").trim()),
     status,
     reservationId: String(body.reservationId || "").trim() || undefined,
+    advisorEmail: String(body.advisorEmail || "").trim() || undefined,
     submittedByPortal: actor.kind === "admin" ? "admin" : "user",
     createdAt: now,
     updatedAt: now,

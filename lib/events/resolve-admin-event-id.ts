@@ -22,7 +22,7 @@ async function loadEventList() {
   if (eventListInflight) return eventListInflight;
 
   eventListInflight = (async () => {
-    const res = await fetch("/api/events?limit=80", { cache: "no-store" });
+    const res = await fetch("/api/events?limit=200", { cache: "no-store" });
     if (!res.ok) return cachedEventList?.events || [];
     const payload = (await res.json()) as { events?: ListedEvent[] };
     const events = Array.isArray(payload.events) ? payload.events : [];
@@ -47,8 +47,12 @@ export async function resolveAdminEventId(id: string, status = "") {
 
   const events = await loadEventList();
   const wanted = normalizeEventStatusParam(status);
+  // Prefer the most recently listed match for the requested status (e.g. live/ASCEND).
   const match =
-    (wanted ? events.find((event) => String(event.status || "") === wanted) : null) ||
+    (wanted
+      ? [...events].reverse().find((event) => String(event.status || "") === wanted)
+      : null) ||
+    events.find((event) => String(event.status || "") === "live") ||
     events[0];
   return String(match?.id || "");
 }

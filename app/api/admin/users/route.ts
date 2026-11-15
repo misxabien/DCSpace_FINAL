@@ -103,6 +103,7 @@ export async function GET(request: Request) {
           organizationRole?: string;
           course?: string;
           school?: string;
+          createdAt?: string;
         },
       ),
     );

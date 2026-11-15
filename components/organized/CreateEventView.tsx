@@ -270,6 +270,7 @@ export function CreateEventView() {
   const [endTime, setEndTime] = useState("");
   const [venue, setVenue] = useState("");
   const [venueType, setVenueType] = useState("");
+  const [advisorEmail, setAdvisorEmail] = useState("");
 
   const [announcements, setAnnouncements] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("everyone");
@@ -697,6 +698,7 @@ export function CreateEventView() {
       attendanceRequired: minAttendance.trim(),
       gracePeriod: gracePeriod.trim(),
       venueType: venueType.trim(),
+      advisorEmail: advisorEmail.trim(),
       announcements: announcements.trim(),
       allowedCourses: attendTags,
       speakers,
@@ -821,7 +823,7 @@ export function CreateEventView() {
         : "Parent's Consent Form"
       : "None";
 
-  const onContinue = (event: FormEvent) => {
+  const onContinue = async (event: FormEvent) => {
     event.preventDefault();
 
     if (step === 0) {
@@ -1160,6 +1162,27 @@ export function CreateEventView() {
                       </select>
                     </div>
                   </div>
+
+                  {venueType === "On Campus" ? (
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel} htmlFor="advisor-email">
+                        Faculty Adviser Email
+                      </label>
+                      <input
+                        id="advisor-email"
+                        className={styles.input}
+                        type="email"
+                        value={advisorEmail}
+                        onChange={(e) => setAdvisorEmail(e.target.value)}
+                        placeholder="advisor@sdca.edu.ph"
+                      />
+                      <span className={styles.hint}>
+                        Required for Main Campus student events in eRoomReserve. Use the exact room
+                        name above (for example, DRA HALL). A reservation is created automatically
+                        when you submit.
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>

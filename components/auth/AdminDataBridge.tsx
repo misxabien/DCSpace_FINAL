@@ -9,9 +9,21 @@ import {
   setCardRowEmptyState,
   setEventsEmptyState,
   ensureEventsFooterAtBottom,
+  updateEventsPagers,
   patchTableRows,
   setStatByLabel,
+  setStatCardsLoading,
+  clearRemainingStatCardLoading,
+  clearStatCardLoading,
 } from "@/lib/legacy-dom-patch";
+
+const STAT_LOADING_PAGES = new Set([
+  "home12",
+  "user27",
+  "cert45",
+  "report51",
+  "reportgen53",
+]);
 
 type DashboardPayload = {
   stats: {
@@ -47,6 +59,30 @@ type DashboardPayload = {
     endsAt?: string;
     timeRemaining?: string;
   }>;
+  charts?: {
+    monthly: {
+      labels: string[];
+      counts: number[];
+      peakIndex: number;
+      peakLabel: string;
+    };
+    topAttendance: Array<{
+      eventId: string;
+      title: string;
+      present: number;
+      capacity: number | null;
+      percent: number;
+      detail: string;
+    }>;
+    eventTypes: Array<{
+      key: string;
+      label: string;
+      color: string;
+      count: number;
+      percent: number;
+    }>;
+    range?: string;
+  };
   events: {
     pending: Array<{
       id: string;
@@ -57,6 +93,7 @@ type DashboardPayload = {
       status: string;
       location: string;
       startsAt: string;
+      reservationStatus?: string;
     }>;
     approved: Array<{
       id: string;
@@ -67,6 +104,7 @@ type DashboardPayload = {
       status: string;
       location: string;
       startsAt: string;
+      reservationStatus?: string;
     }>;
   };
   users: Array<{
@@ -106,7 +144,7 @@ type DashboardPayload = {
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
-  if (pathname === "/admin") return "selection01";
+  if (pathname === "/admin") return "login02";
   const part = pathname.replace(/^\/admin\/?/, "").split("/")[0] || "";
   return part;
 }
@@ -193,6 +231,8 @@ function hydrateHome(root: Element, data: DashboardPayload) {
     text: "Approved and live events happening today will appear here.",
   });
 
+  hydrateQuickCharts(root, data.charts);
+
   const patchEventTable = (
     panel: string,
     rows: Array<{
@@ -267,6 +307,147 @@ function hydrateHome(root: Element, data: DashboardPayload) {
   });
 }
 
+function hydrateQuickCharts(
+  root: Element,
+  charts: DashboardPayload["charts"] | undefined,
+) {
+  if (!charts) return;
+
+  const monthlyBox = root.querySelector<HTMLElement>('[data-chart="monthly"]');
+  if (monthlyBox) {
+    const counts = charts.monthly.counts || [];
+    const max = Math.max(1, ...counts);
+    const bars = monthlyBox.querySelectorAll<HTMLElement>(".bars span");
+    bars.forEach((bar, index) => {
+      const count = Number(counts[index] || 0);
+      const height = Math.max(8, Math.round((count / max) * 100));
+      bar.style.height = `${height}%`;
+      bar.classList.toggle("active", index === charts.monthly.peakIndex && count > 0);
+      bar.title = `${charts.monthly.labels[index] || ""}: ${count} event${count === 1 ? "" : "s"}`;
+    });
+    const caption = monthlyBox.querySelector(".chart-caption");
+    if (caption) {
+      const peakCount = counts[charts.monthly.peakIndex] || 0;
+      caption.textContent =
+        peakCount > 0
+          ? `When are events usually the busiest? Peak: ${charts.monthly.peakLabel}`
+          : "When are events usually the busiest?";
+    }
+  }
+
+  const attendanceBox = root.querySelector<HTMLElement>('[data-chart="attendance"]');
+  if (attendanceBox) {
+    const list =
+      attendanceBox.querySelector(".qc-attend-list") ||
+      attendanceBox.querySelector(".rank-list");
+    if (list) {
+      const rows = charts.topAttendance || [];
+      list.classList.add("qc-attend-list");
+      list.classList.remove("rank-list");
+      if (!rows.length) {
+        list.innerHTML =
+          '<p class="chart-caption" style="margin:8px 0 0;text-align:left;">No attendance records yet.</p>';
+      } else {
+        list.innerHTML = rows
+          .map(
+            (row) => `
+          <article class="qc-attend-row">
+            <h5 class="qc-attend-title">${escapeHtml(row.title)}</h5>
+            <p class="qc-attend-meta">${escapeHtml(row.detail)}</p>
+            <div class="qc-attend-track" role="presentation">
+              <span class="qc-attend-fill" style="width:${Math.max(6, Math.min(100, row.percent))}%"></span>
+            </div>
+          </article>`,
+          )
+          .join("");
+      }
+    }
+  }
+
+  const typesBox = root.querySelector<HTMLElement>('[data-chart="event-types"]');
+  if (typesBox) {
+    const types = charts.eventTypes || [];
+    const total = types.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const donutHost = typesBox.querySelector<HTMLElement>("[data-donut-host]");
+    const legend = typesBox.querySelector("[data-chart-legend]");
+
+    const highlight =
+      total > 0
+        ? [...types].sort((a, b) => b.count - a.count || b.percent - a.percent)[0]
+        : null;
+
+    if (donutHost) {
+      donutHost.innerHTML = buildDonutSvg(types, total, highlight?.percent || 0, highlight?.color);
+    }
+
+    if (legend) {
+      legend.innerHTML = (types.length ? types : [])
+        .map(
+          (row) =>
+            `<span><i style="background:${escapeHtml(row.color)}"></i> ${escapeHtml(row.label)}${
+              total > 0 ? ` (${row.count})` : ""
+            }</span>`,
+        )
+        .join("");
+    }
+  }
+}
+
+function buildDonutSvg(
+  types: Array<{ color: string; count: number; percent: number; label: string }>,
+  total: number,
+  labelPercent: number,
+  labelColor?: string,
+) {
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = 58;
+  const stroke = 26;
+  const circumference = 2 * Math.PI * radius;
+
+  if (total <= 0) {
+    return `
+      <svg class="qc-donut-svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+        <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#e8eef8" stroke-width="${stroke}" />
+        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" class="qc-donut-text" fill="#94a3b8">0%</text>
+      </svg>`;
+  }
+
+  let cursor = 0;
+  const arcs = types
+    .filter((row) => row.count > 0)
+    .map((row) => {
+      const length = (row.count / total) * circumference;
+      // Draw from the top (-90deg); dashoffset walks clockwise.
+      const circle = `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${escapeHtml(
+        row.color,
+      )}" stroke-width="${stroke}" stroke-linecap="butt" stroke-dasharray="${length} ${
+        circumference - length
+      }" stroke-dashoffset="${circumference - cursor}" transform="rotate(-90 ${cx} ${cy})" />`;
+      cursor += length;
+      return circle;
+    })
+    .join("");
+
+  return `
+    <svg class="qc-donut-svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+      <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#edf2f7" stroke-width="${stroke}" />
+      ${arcs}
+      <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" class="qc-donut-text" fill="${escapeHtml(
+        labelColor || "#448aff",
+      )}">${labelPercent}%</text>
+    </svg>`;
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function hydrateUsers(root: Element, data: DashboardPayload) {
   setStatByLabel(root, "Total Users", data.stats.totalUsers);
   setStatByLabel(root, "Active Users", data.stats.activeUsers);
@@ -338,6 +519,7 @@ function hydrateEvents(
     location?: string;
     dateLabel?: string;
     startsAt?: string;
+    reservationStatus?: string;
   }> | null = null,
 ) {
   type ListEvent = {
@@ -348,12 +530,39 @@ function hydrateEvents(
     status: string;
     location: string;
     startsAt?: string;
+    reservationStatus?: string;
+  };
+
+  const formatScheduleLabel = (startsAt?: string, fallback?: string) => {
+    if (startsAt) {
+      const date = new Date(startsAt);
+      if (!Number.isNaN(date.getTime())) {
+        return date.toLocaleString("en-PH", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+      }
+    }
+    if (fallback && !/^\d{4}-\d{2}-\d{2}T/.test(fallback)) return fallback;
+    return fallback || "Date TBA";
   };
 
   const emptyByTab = {
     pending: {
       title: "No events pending approval.",
       text: "When organizers submit events for review, they will appear here for validation.",
+    },
+    pendingValidated: {
+      title: "No validated reservations yet.",
+      text: "Pending events with an approved eRoomReserve reservation will appear here.",
+    },
+    pendingNewlySubmitted: {
+      title: "No newly submitted events.",
+      text: "Events submitted by organizers first appear here under Pending Approval.",
     },
     approved: {
       title: "No approved events yet.",
@@ -413,11 +622,13 @@ function hydrateEvents(
     events: ListEvent[],
     detailPath: string,
     copy: { title: string; text: string },
+    statusParam?: string,
   ) => {
     if (!panel) return;
     patchChildren(panel, "a.event-item", events, (el, event) => {
       const link = el as HTMLAnchorElement;
-      link.href = `${detailPath}?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(event.status)}`;
+      const status = statusParam || event.status;
+      link.href = `${detailPath}?id=${encodeURIComponent(event.id)}&status=${encodeURIComponent(status)}`;
       const title = el.querySelector("h3");
       const paragraphs = el.querySelectorAll("p");
       if (title) title.textContent = event.title;
@@ -432,10 +643,11 @@ function hydrateEvents(
     liveEvents?.map((event) => ({
       id: event.id,
       title: event.title,
-      dateLabel: event.dateLabel || event.startsAt || "Date TBA",
+      dateLabel: formatScheduleLabel(event.startsAt, event.dateLabel || event.startsAt),
       status: event.status,
       location: event.location || "Venue TBA",
       startsAt: event.startsAt,
+      reservationStatus: event.reservationStatus || "",
     })) || [];
 
   // When /api/events succeeded, use that list even if a status bucket is empty
@@ -443,19 +655,60 @@ function hydrateEvents(
   const pendingEvents =
     liveEvents !== null
       ? mapped.filter((event) => event.status === "pending")
-      : data.events.pending;
+      : data.events.pending.map((event) => ({
+          id: event.id,
+          title: event.title,
+          dateLabel: formatScheduleLabel(event.startsAt, event.dateLabel),
+          status: event.status,
+          location: event.location || "Venue TBA",
+          startsAt: event.startsAt,
+          reservationStatus: event.reservationStatus || "",
+        }));
   const APPROVED_STATUSES = ["approved", "live", "completed"];
   const approvedEvents =
     liveEvents !== null
       ? mapped.filter((event) => APPROVED_STATUSES.includes(event.status))
       : data.events.approved.filter((event) => APPROVED_STATUSES.includes(event.status));
 
-  fillList(
-    "pending-list",
-    pendingEvents,
-    (event) => `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=validated`,
-    emptyByTab.pending,
-  );
+  const isReservationValidated = (event: ListEvent) => {
+    const status = String(event.reservationStatus || "").toLowerCase();
+    return status === "approved" || status === "completed";
+  };
+
+  // Organizer submissions land in Newly Submitted first. After eRoomReserve
+  // validates the room, they move to Validated Reservations — still pending.
+  const pendingHost = root.querySelector("#pending-list");
+  const pendingPanels = pendingHost
+    ? Array.from(pendingHost.querySelectorAll<HTMLElement>(".events-panel"))
+    : [];
+  if (pendingPanels.length >= 2) {
+    const validatedPending = pendingEvents.filter(isReservationValidated);
+    const newlySubmitted = pendingEvents.filter((event) => !isReservationValidated(event));
+    fillPanel(
+      pendingPanels[0],
+      validatedPending,
+      "/admin/edetails14",
+      emptyByTab.pendingValidated,
+      "validated",
+    );
+    fillPanel(
+      pendingPanels[1],
+      newlySubmitted,
+      "/admin/edetails14",
+      emptyByTab.pendingNewlySubmitted,
+      "pending",
+    );
+  } else {
+    fillList(
+      "pending-list",
+      pendingEvents,
+      (event) =>
+        `/admin/edetails14?id=${encodeURIComponent(event.id)}&status=${
+          isReservationValidated(event) ? "validated" : "pending"
+        }`,
+      emptyByTab.pending,
+    );
+  }
   fillList(
     "approved-list",
     approvedEvents,
@@ -551,6 +804,8 @@ function hydrateEvents(
       emptyByTab.cancelled,
     );
   }
+
+  updateEventsPagers(root);
 }
 
 function setFbStat(root: ParentNode, label: string, value: string | number) {
@@ -626,17 +881,103 @@ function renderFeedbackProgress(root: ParentNode, progress: number) {
   });
 }
 
-function applyFeedbackEventCard(card: Element, event: {
-  eventId: string;
-  title: string;
-  responses: number;
-  target: number;
-  avgRating: number;
-  progress: number;
-  collectionStatus: "collecting" | "analysis_done" | "pending";
-}) {
-  const link = card as HTMLAnchorElement;
-  link.href = `/admin/fcollection48?eventId=${encodeURIComponent(event.eventId)}`;
+function feedbackEventCardHref(
+  pageId: string,
+  eventId: string,
+  templateHref?: string | null,
+) {
+  const q = eventId ? `?eventId=${encodeURIComponent(eventId)}` : "";
+  if (pageId === "fcollection48") return `/admin/feeddeets49${q}`;
+  if (pageId === "feedback47") return `/admin/fcollection48${q}`;
+  const base =
+    templateHref && templateHref.startsWith("/admin/")
+      ? templateHref.split("?")[0]
+      : "/admin/fcollection48";
+  return `${base}${q}`;
+}
+
+const FEEDBACK_CARD_NAV_PAGES = new Set(["feedback47", "fcollection48"]);
+const feedbackEventsHydrationCache = new Map<string, string>();
+
+function feedbackEventsFingerprint(
+  pageId: string,
+  events: Array<{ eventId: string; responses: number; progress: number; collectionStatus: string }>,
+) {
+  return `${pageId}:${events.map((e) => `${e.eventId}|${e.responses}|${e.progress}|${e.collectionStatus}`).join(";")}`;
+}
+
+function ensureFeedbackCardTemplate(grid: Element): HTMLAnchorElement | null {
+  let template = grid.querySelector<HTMLAnchorElement>("a.fb-card[data-fb-card-template]");
+  if (template) return template;
+
+  const seed = grid.querySelector<HTMLAnchorElement>("a.fb-card");
+  if (!seed) return null;
+
+  template = seed.cloneNode(true) as HTMLAnchorElement;
+  template.setAttribute("data-fb-card-template", "1");
+  template.hidden = true;
+  template.style.display = "none";
+  template.setAttribute("aria-hidden", "true");
+  template.tabIndex = -1;
+  grid.appendChild(template);
+  return template;
+}
+
+function wireFeedbackEventCardNavigation() {
+  const key = "__dcFeedbackCardNav";
+  if ((window as unknown as Record<string, boolean>)[key]) return;
+  (window as unknown as Record<string, boolean>)[key] = true;
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const pageId = document
+        .querySelector(".admin-legacy-root")
+        ?.getAttribute("data-admin-page");
+      if (!pageId || !FEEDBACK_CARD_NAV_PAGES.has(pageId)) return;
+
+      const card = (event.target as Element | null)?.closest<HTMLAnchorElement>(
+        ".fb-status-grid a.fb-card:not([data-fb-card-template])",
+      );
+      if (!card || card.hasAttribute("data-no-nav")) return;
+
+      const href = card.getAttribute("href");
+      if (!href || href === "#") return;
+      if (!(event instanceof MouseEvent)) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.location.assign(href);
+    },
+    true,
+  );
+}
+
+function applyFeedbackEventCard(
+  card: Element,
+  event: {
+    eventId: string;
+    title: string;
+    responses: number;
+    target: number;
+    avgRating: number;
+    progress: number;
+    collectionStatus: "collecting" | "analysis_done" | "pending";
+  },
+  pageId: string,
+  templateHref?: string | null,
+) {
+  const href = feedbackEventCardHref(pageId, event.eventId, templateHref);
+  if (card instanceof HTMLAnchorElement) {
+    card.setAttribute("href", href);
+    if (event.eventId) card.dataset.eventId = event.eventId;
+  } else {
+    (card as HTMLElement).dataset.eventId = event.eventId;
+    (card as HTMLElement).dataset.href = href;
+    (card as HTMLElement).style.cursor = "pointer";
+  }
 
   const badge = card.querySelector(".fb-badge");
   if (badge) {
@@ -695,15 +1036,47 @@ function hydrateFeedbackEventCards(
     progress: number;
     collectionStatus: "collecting" | "analysis_done" | "pending";
   }>,
+  pageId: string,
 ) {
+  const pageKey = `${pageId}:${root.getAttribute("data-admin-page") || "root"}`;
+  const fingerprint = feedbackEventsFingerprint(pageId, events);
+  if (feedbackEventsHydrationCache.get(pageKey) === fingerprint) return;
+  feedbackEventsHydrationCache.set(pageKey, fingerprint);
+
   root.querySelectorAll(".fb-status-grid").forEach((grid) => {
-    const template = grid.querySelector(".fb-card");
+    const template = ensureFeedbackCardTemplate(grid);
     if (!template) return;
-    grid.querySelectorAll(".fb-card").forEach((card) => card.remove());
+
+    const templateHref =
+      template.getAttribute("href") ||
+      (pageId === "fcollection48" ? "/admin/feeddeets49" : "/admin/fcollection48");
 
     if (!events.length) {
+      const liveCards = grid.querySelectorAll<HTMLAnchorElement>(
+        "a.fb-card:not([data-fb-card-template])[href]",
+      );
+      if (liveCards.length > 0) {
+        liveCards.forEach((card) => {
+          if (pageId === "fcollection48") {
+            card.setAttribute("href", "/admin/feeddeets49");
+          } else if (pageId === "feedback47") {
+            card.setAttribute("href", "/admin/fcollection48");
+          }
+        });
+        return;
+      }
+
+      grid
+        .querySelectorAll("a.fb-card:not([data-fb-card-template])")
+        .forEach((card) => card.remove());
+
       const empty = template.cloneNode(true) as HTMLElement;
+      empty.removeAttribute("data-fb-card-template");
+      empty.removeAttribute("hidden");
+      empty.removeAttribute("aria-hidden");
+      empty.style.display = "";
       empty.removeAttribute("href");
+      empty.setAttribute("data-no-nav", "1");
       const title = empty.querySelector("h3");
       if (title) title.textContent = "No feedback collected yet";
       const responses = empty.querySelector(".v");
@@ -716,12 +1089,22 @@ function hydrateFeedbackEventCards(
       return;
     }
 
+    grid
+      .querySelectorAll("a.fb-card:not([data-fb-card-template])")
+      .forEach((card) => card.remove());
+
     for (const event of events.slice(0, 6)) {
       const card = template.cloneNode(true) as HTMLElement;
-      applyFeedbackEventCard(card, event);
+      card.removeAttribute("data-fb-card-template");
+      card.removeAttribute("hidden");
+      card.removeAttribute("aria-hidden");
+      (card as HTMLElement).style.display = "";
+      applyFeedbackEventCard(card, event, pageId, templateHref);
       grid.appendChild(card);
     }
   });
+
+  wireFeedbackEventCardNavigation();
 }
 
 type FeedbackAnalyticsPayload = {
@@ -751,7 +1134,11 @@ type FeedbackAnalyticsPayload = {
   }>;
 };
 
-function hydrateFeedbackAdmin(root: Element, analytics: FeedbackAnalyticsPayload) {
+function hydrateFeedbackAdmin(
+  root: Element,
+  analytics: FeedbackAnalyticsPayload,
+  pageId: string,
+) {
   setFbStat(root, "Total Feedback", analytics.totalResponses);
   setFbStat(root, "Feedback Responses", analytics.totalResponses);
   setFbStat(
@@ -762,9 +1149,9 @@ function hydrateFeedbackAdmin(root: Element, analytics: FeedbackAnalyticsPayload
   setFbStat(root, "Response Rate", `${analytics.responseRate}%`);
 
   hydrateFeedbackCategoryRatings(root, analytics.categories);
-  hydrateFeedbackEventCards(root, analytics.events);
+  hydrateFeedbackEventCards(root, analytics.events, pageId);
 
-  const table = root.querySelector(".fd-table, .fb-table, table");
+  const table = root.querySelector(".fd-table, .fb-table, #feedback-table");
   patchTableRows(table, analytics.recent, (tr, row) => {
     const cells = tr.querySelectorAll("td");
     if (cells[0]) cells[0].textContent = row.submittedBy;
@@ -1107,22 +1494,14 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
     if (cells[3]) cells[3].textContent = workflow.distributionLabel;
     const actionCell = cells[4] || tr.querySelector("td:last-child");
     if (actionCell) {
+      actionCell.querySelectorAll("a.cert-view").forEach((el) => el.remove());
       actionCell.innerHTML = "";
-      const view = document.createElement("a");
-      view.className = "cert-view";
-      view.href = `/admin/fulld46?id=${encodeURIComponent(event.id)}`;
-      view.textContent = "View";
-      actionCell.appendChild(view);
-
-      if (event.certCount === 0 || workflow.generationLabel !== "DONE") {
-        const gen = document.createElement("button");
-        gen.type = "button";
-        gen.className = "cert-generate-btn";
-        gen.setAttribute("data-event-id", event.id);
-        gen.textContent = "Generate";
-        gen.style.marginLeft = "8px";
-        actionCell.appendChild(gen);
-      }
+      const gen = document.createElement("button");
+      gen.type = "button";
+      gen.className = "cert-generate-btn";
+      gen.setAttribute("data-event-id", event.id);
+      gen.textContent = "Generate";
+      actionCell.appendChild(gen);
     }
   });
 
@@ -1186,13 +1565,6 @@ function ensureUsersReportCategory(root: Element) {
   cats.appendChild(card);
 }
 
-function blankReportHubPlaceholders(root: Element) {
-  root.querySelectorAll(".rp-stat").forEach((card) => {
-    const valueEl = card.querySelector<HTMLElement>(".value, .name");
-    if (valueEl) valueEl.textContent = "—";
-  });
-}
-
 function hydrateReportsAdmin(
   root: Element,
   reportsPayload: {
@@ -1234,6 +1606,7 @@ function hydrateReportsAdmin(
     } else if (label.includes("most downloaded")) {
       valueEl.textContent = stats?.mostDownloaded || "—";
     }
+    clearStatCardLoading(card);
   });
 
   ensureUsersReportCategory(root);
@@ -1417,15 +1790,14 @@ export function AdminDataBridge() {
     ]);
     if (!watch.has(pageId)) return;
 
+    wireFeedbackEventCardNavigation();
+
     let cancelled = false;
+    let initialStatsLoadDone = false;
+    let runInFlight = false;
 
     const onCertAction = (event: MouseEvent) => {
       const target = event.target as Element | null;
-      const viewBtn = target?.closest<HTMLAnchorElement>(".cert-view");
-      if (viewBtn) {
-        // Let View navigate to certificate details — do not intercept.
-        return;
-      }
       const btn = target?.closest<HTMLElement>(".cert-generate-btn");
       if (!btn) return;
       const eventId = btn.getAttribute("data-event-id");
@@ -1457,18 +1829,63 @@ export function AdminDataBridge() {
 
     document.addEventListener("click", onCertAction, true);
 
-    let runInFlight = false;
-    const emptyDashboardShell = (): DashboardPayload =>
+    const run = async () => {
+      if (runInFlight || cancelled) return;
+      runInFlight = true;
+      try {
+        const root =
+          document.querySelector(".admin-legacy-root") ||
+          document.querySelector("[data-admin-page]") ||
+          document.body;
+        if (!(root instanceof Element)) return;
+
+        if (!initialStatsLoadDone && STAT_LOADING_PAGES.has(pageId)) {
+          setStatCardsLoading(root, true);
+        }
+
+        if (root.getAttribute("data-dc-blanked") !== pageId) {
+          hideLegacyDemoContent(root);
+          root.setAttribute("data-dc-blanked", pageId);
+        }
+
+        const EVENT_LIST_PAGES = new Set([
+      "event13",
+      "aed15",
+      "live16",
+      "edetails14",
+      "rr24",
+      "rejected21",
+      "postponed22",
+      "complete18",
+      "ongoing16",
+      "inactive20",
+    ]);
+
+    type LiveEventRow = {
+      id: string;
+      title: string;
+      status: string;
+      location?: string;
+      startsAt?: string;
+      reservationStatus?: string;
+      dateLabel?: string;
+    };
+
+    const emptyDashboardShell = (liveEvents: LiveEventRow[]): DashboardPayload =>
       ({
         generatedAt: new Date().toISOString(),
         stats: {
-          totalEvents: 0,
+          totalEvents: liveEvents.length,
           ongoingEvents: 0,
           totalUsers: 0,
           certificatesGenerated: 0,
           attendanceRate: 0,
           feedbackReceived: 0,
-          pendingEvents: 0,
+          pendingEvents: liveEvents.filter((e) => e.status === "pending").length,
+          approvedEvents: liveEvents.filter((e) =>
+            ["approved", "live", "completed"].includes(e.status),
+          ).length,
+          completedEvents: 0,
           facultyUsers: 0,
           newUsers: 0,
           activeUsers: 0,
@@ -1482,129 +1899,251 @@ export function AdminDataBridge() {
         feedback: [],
       }) as unknown as DashboardPayload;
 
-    const CERT_PAGES = new Set(["cert45", "certdeets46", "fulld46", "cert38"]);
+    const paintLiveEvents = (
+      liveEvents: LiveEventRow[] | null,
+      data: DashboardPayload | null,
+    ) => {
+      if (cancelled || liveEvents === null) return;
+      hydrateEvents(root, data || emptyDashboardShell(liveEvents), pageId, liveEvents);
+    };
 
-    const run = async () => {
-      if (runInFlight || cancelled) return;
-      runInFlight = true;
+    // Event list pages: fetch Mongo events FIRST and paint immediately.
+    // Do not wait on the heavy /api/admin/dashboard (often 10–60s).
+    let liveEventsPainted = false;
+    if (EVENT_LIST_PAGES.has(pageId)) {
       try {
+        const eventsRes = await fetch("/api/events?limit=500", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (eventsRes.ok) {
+          const payload = (await eventsRes.json()) as { events?: LiveEventRow[] };
+          const liveEvents = Array.isArray(payload.events) ? payload.events : [];
+          paintLiveEvents(liveEvents, null);
+          liveEventsPainted = true;
+        } else {
+          console.warn(
+            "[DC Space] /api/events failed for admin list:",
+            eventsRes.status,
+          );
+        }
+      } catch (error) {
+        console.warn("[DC Space] /api/events unavailable for admin list:", error);
+      }
+    }
+
+    const CERT_PAGES = new Set(["cert45", "certdeets46", "fulld46", "cert38"]);
+    // Certificates board: lean APIs only — paint before heavy dashboard.
+    let certsHydrated = false;
+    if (CERT_PAGES.has(pageId)) {
+      await hydrateCertificatesAdmin(root, emptyDashboardShell([]));
+      certsHydrated = true;
+      if (cancelled) return;
+      if (STAT_LOADING_PAGES.has(pageId)) {
+        initialStatsLoadDone = true;
+        clearRemainingStatCardLoading(root);
+      }
+    }
+
+    // Dashboard is optional for event list / cert pages once content already painted.
+    let data: DashboardPayload | null = null;
+    const needsDashboard =
+      pageId === "home12" ||
+      pageId === "user27" ||
+      (STAT_LOADING_PAGES.has(pageId) && pageId !== "cert45") ||
+      (EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted) ||
+      (!EVENT_LIST_PAGES.has(pageId) && !certsHydrated);
+
+    if (needsDashboard) {
+      try {
+        const dashRes = await fetch("/api/admin/dashboard", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (cancelled) {
+          if (STAT_LOADING_PAGES.has(pageId)) {
+            initialStatsLoadDone = true;
+            clearRemainingStatCardLoading(root);
+          }
+          return;
+        }
+        if (dashRes.ok) {
+          data = (await dashRes.json()) as DashboardPayload;
+        } else if (!EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted) {
+          if (STAT_LOADING_PAGES.has(pageId)) {
+            initialStatsLoadDone = true;
+            clearRemainingStatCardLoading(root);
+          }
+          return;
+        }
+      } catch {
+        if (!EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted) {
+          if (STAT_LOADING_PAGES.has(pageId)) {
+            initialStatsLoadDone = true;
+            clearRemainingStatCardLoading(root);
+          }
+          return;
+        }
+      }
+    }
+
+    if (cancelled) {
+      if (STAT_LOADING_PAGES.has(pageId)) {
+        initialStatsLoadDone = true;
+        clearRemainingStatCardLoading(root);
+      }
+      return;
+    }
+
+    // Fallback: paint from dashboard pending/approved if /api/events failed.
+    if (EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted && data) {
+      const liveEvents: LiveEventRow[] = [
+        ...(data.events.pending || []).map((event) => ({
+          id: event.id,
+          title: event.title,
+          status: event.status,
+          location: event.location,
+          startsAt: event.startsAt,
+          dateLabel: event.dateLabel,
+          reservationStatus: event.reservationStatus || "",
+        })),
+        ...(data.events.approved || []).map((event) => ({
+          id: event.id,
+          title: event.title,
+          status: event.status,
+          location: event.location,
+          startsAt: event.startsAt,
+          dateLabel: event.dateLabel,
+          reservationStatus: event.reservationStatus || "",
+        })),
+      ];
+      paintLiveEvents(liveEvents, data);
+      liveEventsPainted = true;
+    }
+
+    if (!data && !liveEventsPainted) {
+      if (STAT_LOADING_PAGES.has(pageId)) {
+        initialStatsLoadDone = true;
+        clearRemainingStatCardLoading(root);
+      }
+      return;
+    }
+
+    if (!data) {
+      // Event lists already painted; nothing else on this page needs dashboard.
+      if (STAT_LOADING_PAGES.has(pageId)) {
+        initialStatsLoadDone = true;
+        clearRemainingStatCardLoading(root);
+      }
+      return;
+    }
+
+    if (pageId === "home12") hydrateHome(root, data);
+    if (pageId === "user27") hydrateUsers(root, data);
+    if (pageId === "attendance42" || pageId === "deets43" || pageId === "eattend33" || pageId === "vattend34") {
+      hydrateAttendance(root, data);
+    }
+    if (
+      pageId === "feedback47" ||
+      pageId === "feeddeets49" ||
+      pageId === "responses50" ||
+      pageId === "scollection48" ||
+      pageId === "fcollection48"
+    ) {
+      const reloadFeedback = async () => {
+        const feedbackAnalytics = await fetchFeedbackAnalytics(feedbackFilterState);
+        if (feedbackAnalytics) hydrateFeedbackAdmin(root, feedbackAnalytics, pageId);
+      };
+      if (pageId === "feedback47") wireFeedbackFilters(root, () => void reloadFeedback());
+      await reloadFeedback();
+    }
+    if (CERT_PAGES.has(pageId) && !certsHydrated && data) {
+      await hydrateCertificatesAdmin(root, data);
+    }
+    if (pageId === "report51" || pageId === "reportgen53") {
+      const reportsRes = await fetch("/api/admin/reports", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (reportsRes.ok) {
+        const reportsData = await reportsRes.json();
+        hydrateReportsAdmin(root, reportsData);
+      }
+    }
+    if (pageId === "reportlist52") {
+      const params = new URLSearchParams(window.location.search);
+      const category = params.get("type") || "event";
+      const reportsRes = await fetch(
+        `/api/admin/reports?category=${encodeURIComponent(category)}`,
+        {
+          cache: "no-store",
+          credentials: "include",
+        },
+      );
+      if (reportsRes.ok) {
+        const reportsData = await reportsRes.json();
+        hydrateReportCategoryList(root, reportsData);
+      }
+    }
+    if (STAT_LOADING_PAGES.has(pageId)) {
+      initialStatsLoadDone = true;
+      clearRemainingStatCardLoading(root);
+    }
+      } catch {
+        /* keep original static markup */
         const root =
           document.querySelector(".admin-legacy-root") ||
           document.querySelector("[data-admin-page]") ||
           document.body;
-        if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
-          hideLegacyDemoContent(root);
-          root.setAttribute("data-dc-blanked", pageId);
+        if (root instanceof Element && STAT_LOADING_PAGES.has(pageId)) {
+          initialStatsLoadDone = true;
+          clearRemainingStatCardLoading(root);
         }
-
-        // Certificates: lean APIs first — never block on /api/admin/dashboard.
-        if (CERT_PAGES.has(pageId) && root instanceof Element) {
-          await hydrateCertificatesAdmin(root, emptyDashboardShell());
-          return;
-        }
-
-        const res = await fetch("/api/admin/dashboard", { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as DashboardPayload;
-        if (cancelled) return;
-
-        if (pageId === "home12") hydrateHome(root, data);
-        if (pageId === "user27") hydrateUsers(root, data);
-        if (
-          pageId === "event13" ||
-          pageId === "aed15" ||
-          pageId === "live16" ||
-          pageId === "edetails14" ||
-          pageId === "rr24" ||
-          pageId === "rejected21" ||
-          pageId === "postponed22" ||
-          pageId === "complete18" ||
-          pageId === "ongoing16" ||
-          pageId === "inactive20"
-        ) {
-          let liveEvents: Array<{
-            id: string;
-            title: string;
-            status: string;
-            location?: string;
-            startsAt?: string;
-          }> | null = null;
-          try {
-            const eventsRes = await fetch("/api/events?limit=500", { cache: "no-store" });
-            if (eventsRes.ok) {
-              const payload = (await eventsRes.json()) as { events?: NonNullable<typeof liveEvents> };
-              liveEvents = payload.events || [];
-            }
-          } catch {
-            /* dashboard lists still apply when live fetch fails */
-          }
-          hydrateEvents(root, data, pageId, liveEvents);
-        }
-        if (pageId === "attendance42" || pageId === "deets43" || pageId === "eattend33" || pageId === "vattend34") {
-          hydrateAttendance(root, data);
-        }
-        if (
-          pageId === "feedback47" ||
-          pageId === "feeddeets49" ||
-          pageId === "fb39" ||
-          pageId === "responses50" ||
-          pageId === "scollection48" ||
-          pageId === "fcollection48"
-        ) {
-          const reloadFeedback = async () => {
-            const feedbackAnalytics = await fetchFeedbackAnalytics(feedbackFilterState);
-            if (feedbackAnalytics) hydrateFeedbackAdmin(root, feedbackAnalytics);
-          };
-          if (pageId === "feedback47") wireFeedbackFilters(root, () => void reloadFeedback());
-          await reloadFeedback();
-        }
-        if (pageId === "report51" || pageId === "reportgen53") {
-          blankReportHubPlaceholders(root);
-          const reportsRes = await fetch("/api/admin/reports", { cache: "no-store", credentials: "include" });
-          if (reportsRes.ok) {
-            const reportsData = await reportsRes.json();
-            hydrateReportsAdmin(root, reportsData);
-          }
-        }
-        if (pageId === "reportlist52") {
-          const params = new URLSearchParams(window.location.search);
-          const category = params.get("type") || "event";
-          const reportsRes = await fetch(`/api/admin/reports?category=${encodeURIComponent(category)}`, {
-            cache: "no-store",
-            credentials: "include",
-          });
-          if (reportsRes.ok) {
-            const reportsData = await reportsRes.json();
-            hydrateReportCategoryList(root, reportsData);
-          }
-        }
-      } catch {
-        /* keep original static markup */
       } finally {
         runInFlight = false;
       }
     };
 
     const t1 = window.setTimeout(() => void run(), 50);
-    const t2 = window.setTimeout(() => void run(), 400);
+    const t2 = window.setTimeout(() => void run(), 300);
+    const onLegacyReady = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId?: string }>).detail;
+      if (detail?.pageId && detail.pageId !== pageId) return;
+      void run();
+    };
+    document.addEventListener("dc-legacy-content-ready", onLegacyReady);
+    const EVENT_LIST_POLL = new Set([
+      "event13",
+      "aed15",
+      "live16",
+      "complete18",
+      "ongoing16",
+      "inactive20",
+      "rejected21",
+      "postponed22",
+    ]);
     const pollMs =
-      pageId === "cert45"
-        ? 20000
-        : pageId === "reportgen53" ||
-            pageId === "report51" ||
-            pageId === "reportlist52" ||
-            pageId === "feedback47" ||
-            pageId === "fcollection48" ||
-            pageId === "scollection48"
-          ? 8000
+      pageId === "cert45" ||
+      pageId === "reportgen53" ||
+      pageId === "report51" ||
+      pageId === "reportlist52" ||
+      pageId === "feedback47" ||
+      pageId === "fcollection48" ||
+      pageId === "scollection48"
+        ? 4000
+        : EVENT_LIST_POLL.has(pageId)
+          ? 30000
           : 12000;
     const poll = window.setInterval(() => void run(), pollMs);
 
     return () => {
       cancelled = true;
+      feedbackEventsHydrationCache.clear();
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearInterval(poll);
+      document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
       document.removeEventListener("click", onCertAction, true);
     };
   }, [pathname]);

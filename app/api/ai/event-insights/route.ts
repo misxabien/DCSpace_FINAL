@@ -146,6 +146,7 @@ ${JSON.stringify({ event: context.event, stats: context.stats, analytics }, null
       registrations: context.stats.registrations,
       uniqueTapIns: context.stats.uniqueTapIns,
       venueCapacity: context.stats.venueCapacity,
+      remainingCapacity: context.stats.remainingCapacity,
       eventLocation: context.event.location,
       savedInterest: context.stats.savedInterest,
       feedbackCount: context.stats.feedbackCount,

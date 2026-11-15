@@ -125,6 +125,18 @@
   width: 100%;
 }
 
+/* Empty row spans the full card grid on both portals. */
+.card-row > .dc-events-empty.dc-card-row-empty {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
+  min-height: 240px;
+}
+.card-row > .dc-events-empty.dc-card-row-empty.dc-legacy-hidden,
+.card-row > .dc-events-empty.dc-card-row-empty[hidden] {
+  display: none !important;
+}
+
 .dc-empty-state--feedback {
   margin-top: 16px;
   min-height: 240px;

@@ -12,7 +12,6 @@ import {
 /** Public admin auth pages (no session required). */
 const ADMIN_PUBLIC = new Set([
   "/admin",
-  "/admin/selection01",
   "/admin/login02",
   "/admin/register03",
   "/admin/school04",
@@ -45,7 +44,7 @@ function enforceAdmin(request: NextRequest) {
 
   if (!isPublic && !user?.isAdmin) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin/selection01";
+    url.pathname = "/admin/login02";
     url.search = "";
     return NextResponse.redirect(url);
   }

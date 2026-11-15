@@ -72,6 +72,11 @@ export type SpaceEvent = {
   reservationRoomId?: string;
   reservationRoomName?: string;
   reservationCapacity?: number;
+  /** Faculty adviser email for Main Campus student on-campus events. */
+  advisorEmail?: string;
+  /** Last outbound eRoomReserve sync error (if any). */
+  reservationSyncError?: string;
+  reservationSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -135,6 +140,34 @@ function formatPosterDataUrl(base64?: string, mimeType?: string) {
   return `data:${mimeType || "image/jpeg"};base64,${raw}`;
 }
 
+/** Slim card payload for admin/organizer event lists (fast JSON). */
+export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
+  const id = doc._id?.toString?.() || String(doc._id || "");
+  const hasCertificateTemplate =
+    Boolean(doc.certificateTemplateName) || Boolean(doc.certificateTemplateBase64);
+  return {
+    id,
+    title: String(doc.title || "Untitled event"),
+    status: String(doc.status || ""),
+    location: String(doc.location || ""),
+    startsAt: String(doc.startsAt || ""),
+    endsAt: String(doc.endsAt || ""),
+    category: String(doc.category || ""),
+    department: String(doc.department || ""),
+    venueType: String(doc.venueType || ""),
+    organizerName: String(doc.organizerName || ""),
+    organizerEmail: String(doc.organizerEmail || ""),
+    reservationStatus: String(doc.reservationStatus || ""),
+    reservationId: String(doc.reservationId || ""),
+    reservationRoomName: String(doc.reservationRoomName || ""),
+    attendanceRequiredMinutes: Number(doc.attendanceRequiredMinutes || 0),
+    certificateTemplateName: String(doc.certificateTemplateName || ""),
+    hasCertificateTemplate,
+    createdAt: String(doc.createdAt || ""),
+    updatedAt: String(doc.updatedAt || ""),
+  };
+}
+
 export function sanitizeEvent(
   doc: SpaceEvent & { _id: ObjectId } & {
     date?: string;
@@ -144,11 +177,12 @@ export function sanitizeEvent(
   },
   options?: { includeMedia?: boolean; includePoster?: boolean },
 ) {
+  const id = doc._id.toString();
   const startsAt = String(doc.startsAt || "").trim() || deriveStartsAt(doc);
   const endsAt = String(doc.endsAt || "").trim() || deriveEndsAt(doc, startsAt);
 
   return {
-    id: doc._id.toString(),
+    id,
     title: doc.title,
     description: doc.description || "",
     category: doc.category || "",
@@ -224,6 +258,9 @@ export function sanitizeEvent(
     reservationRoomName: doc.reservationRoomName || "",
     reservationCapacity:
       typeof doc.reservationCapacity === "number" ? doc.reservationCapacity : null,
+    advisorEmail: doc.advisorEmail || "",
+    reservationSyncError: doc.reservationSyncError || "",
+    reservationSyncedAt: doc.reservationSyncedAt || "",
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
