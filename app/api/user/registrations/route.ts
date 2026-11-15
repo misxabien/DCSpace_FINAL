@@ -12,6 +12,7 @@ import {
   registrationsCollection,
 } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { hasPermission, type UserPermissions } from "@/lib/user-server/organizer-access";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 
 async function bumpEventRegistrationCount(eventId: string, delta: number) {
@@ -85,6 +86,19 @@ export async function POST(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
+  }
+  {
+    // Admin "Join Events" switch on the participant account.
+    const joinDb = await (await import("@/lib/user-server/get-user-db")).getUserDb();
+    const joinUser = await joinDb
+      .collection("users")
+      .findOne({ email: actor.email }, { projection: { permissions: 1 } });
+    if (!hasPermission(joinUser?.permissions as UserPermissions | undefined, "joinEvents")) {
+      return NextResponse.json(
+        { error: "An administrator has turned off event joining for your account." },
+        { status: 403 },
+      );
+    }
   }
 
   let body: { eventId?: string; eventTitle?: string; status?: string; files?: unknown };

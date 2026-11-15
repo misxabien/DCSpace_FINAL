@@ -477,6 +477,173 @@ function applyParticipantAttendanceSummary(
   }
 }
 
+type AccountControls = {
+  permissions?: Record<string, boolean>;
+  suspended?: boolean;
+  adminPermissions?: Record<string, boolean> | null;
+};
+
+/** "Admin Actions" toggle label → saved permission key. */
+const USER_SWITCHES: Record<string, string> = {
+  "Join Events": "joinEvents",
+  "Events Organized Page": "eventsOrganizedPage",
+  "Create Events": "createEvents",
+  "Edit Events": "editEvents",
+  "Invite someone": "inviteSomeone",
+  "See who attended": "seeWhoAttended",
+  "Review files submitted": "reviewFilesSubmitted",
+  "Review attendance status": "reviewAttendanceStatus",
+};
+
+function setToggle(btn: HTMLElement, on: boolean) {
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+async function patchUser(id: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error || "Unable to save changes.");
+  return payload;
+}
+
+function permissionKeyFromLabel(label: string) {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Persist the user page "Admin Actions" (participant switches, Suspend,
+ * Delete) and the Super Admin "System Permissions" checklist. Clicks are
+ * intercepted in the capture phase so the legacy visual-only handlers
+ * never flip a switch the server rejected.
+ */
+function wireAccountControls(id: string, user: AdminUser & AccountControls, viewerIsSuper: boolean) {
+  const panel = document.getElementById("participant-actions");
+  const targetIsAdmin = user.role === "admin" || user.role === "super-admin";
+  const canEdit = !targetIsAdmin || viewerIsSuper;
+
+  // Reflect saved state.
+  panel?.querySelectorAll<HTMLElement>(".toggle[aria-label]").forEach((btn) => {
+    const key = USER_SWITCHES[btn.getAttribute("aria-label") || ""];
+    if (key) setToggle(btn, user.permissions?.[key] !== false);
+  });
+  document
+    .querySelectorAll<HTMLElement>('.toggle[aria-label="Suspend Account"]')
+    .forEach((btn) => setToggle(btn, user.suspended === true));
+  const statusValue = document.getElementById("account-status-value");
+  if (statusValue) statusValue.textContent = user.suspended ? "Suspended" : "Active";
+
+  const permsSection = document.getElementById("admin-system-permissions");
+  const showPerms = viewerIsSuper && user.role === "admin";
+  if (permsSection) permsSection.hidden = !showPerms;
+  if (showPerms) {
+    document.querySelectorAll<HTMLInputElement>("#perms-list .perm-check").forEach((check) => {
+      const label = check.closest(".perm-row")?.querySelector(".perm-label")?.textContent || "";
+      const key = permissionKeyFromLabel(label);
+      // No saved permissions yet = full access (matches the server default).
+      check.checked = user.adminPermissions ? user.adminPermissions[key] !== false : true;
+      const status = check.closest(".perm-row")?.querySelector(".perm-status");
+      if (status) {
+        status.textContent = check.checked ? "ALLOWED" : "NOT ALLOWED";
+        status.classList.toggle("denied", !check.checked);
+        status.classList.toggle("allowed", check.checked);
+      }
+    });
+  }
+
+  if (document.body.dataset.dcAccountControls === id) return;
+  document.body.dataset.dcAccountControls = id;
+
+  document.addEventListener(
+    "click",
+    async (event) => {
+      const target = event.target as Element | null;
+      const btn = target?.closest<HTMLElement>("#participant-actions .toggle[aria-label]");
+      const delYes = target?.closest<HTMLElement>("#delete-account-yes");
+      if (!btn && !delYes) return;
+
+      if (delYes) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!canEdit) {
+          window.alert("Only a Super Admin can delete administrator accounts.");
+          return;
+        }
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          window.alert(payload.error || "Unable to delete account.");
+          return;
+        }
+        window.alert(`${user.fullName}'s account was deleted.`);
+        window.location.assign("/admin/user27");
+        return;
+      }
+
+      const label = btn!.getAttribute("aria-label") || "";
+      if (label === "Make Admin") return; // handled by the Make Admin wiring
+      const key = USER_SWITCHES[label];
+      if (!key && label !== "Suspend Account") return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!canEdit) {
+        window.alert("Only a Super Admin can change administrator accounts.");
+        return;
+      }
+      const next = !btn!.classList.contains("on");
+      setToggle(btn!, next);
+      try {
+        if (label === "Suspend Account") {
+          await patchUser(id, { suspended: next });
+          if (statusValue) statusValue.textContent = next ? "Suspended" : "Active";
+        } else {
+          await patchUser(id, { permissions: { [key]: next } });
+        }
+      } catch (error) {
+        setToggle(btn!, !next);
+        window.alert(error instanceof Error ? error.message : "Unable to save changes.");
+      }
+    },
+    true,
+  );
+
+  // System Permissions: save the whole checklist after any change (incl. Allow All).
+  let permsTimer: number | undefined;
+  const savePerms = () => {
+    window.clearTimeout(permsTimer);
+    permsTimer = window.setTimeout(async () => {
+      const map: Record<string, boolean> = {};
+      document.querySelectorAll<HTMLInputElement>("#perms-list .perm-check").forEach((check) => {
+        const label = check.closest(".perm-row")?.querySelector(".perm-label")?.textContent || "";
+        const key = permissionKeyFromLabel(label);
+        if (key) map[key] = check.checked;
+      });
+      try {
+        await patchUser(id, { adminPermissions: map });
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Unable to save permissions.");
+      }
+    }, 400);
+  };
+  if (showPerms) {
+    document.getElementById("perms-list")?.addEventListener("change", savePerms);
+    document.getElementById("perms-allow-all")?.addEventListener("click", savePerms);
+  }
+}
+
 async function hydrateUserInfo() {
   const id = new URLSearchParams(window.location.search).get("id");
   if (!id) return;
@@ -578,6 +745,8 @@ async function hydrateUserInfo() {
       });
     }
   }
+
+  wireAccountControls(id, user as AdminUser & AccountControls, viewerIsSuper);
 
   const editBtn = document.getElementById("edit-personal-info");
   const saveBtn = document.getElementById("save-personal-info");

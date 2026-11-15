@@ -3,6 +3,8 @@ import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { logUserActivity, feedbackCollection } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { registrationsCollection } from "@/lib/user-server/portal";
+import { findEventById } from "@/lib/events/find-event";
 
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -87,14 +89,62 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Rating must be 1–5." }, { status: 400 });
   }
 
+  const rawType = String(body.type || "General Feedback").trim() || "General Feedback";
+  const isSystem = rawType.toLowerCase() === "system" || rawType.toLowerCase() === "system feedback";
+  const eventId = isSystem ? "" : String(body.eventId || "").trim();
+
+  // Event surveys: phase comes from the event itself — mid-event while it is
+  // live, post-event once completed — and only registered participants answer.
+  let phase: "mid-event" | "post-event" | "" = "";
+  let eventTitle = String(body.eventName || "").trim();
+  if (eventId) {
+    const { event } = await findEventById(eventId).catch(() => ({ event: null }));
+    if (!event) {
+      return NextResponse.json({ error: "Event not found." }, { status: 404 });
+    }
+    eventTitle = String(event.title || eventTitle);
+    if (event.status === "live") phase = "mid-event";
+    else if (event.status === "completed") phase = "post-event";
+    else {
+      return NextResponse.json(
+        { error: "Event surveys open once the event is live (mid-event) or completed (post-event)." },
+        { status: 409 },
+      );
+    }
+    const db = await getUserDb();
+    const registered = await registrationsCollection(db).findOne({
+      eventId,
+      email: actor.email,
+      status: { $in: ["joined", "approved"] },
+    });
+    if (!registered) {
+      return NextResponse.json(
+        { error: "Only registered participants can answer this event survey." },
+        { status: 403 },
+      );
+    }
+    const already = await feedbackCollection(db).findOne({ eventId, email: actor.email, phase });
+    if (already) {
+      return NextResponse.json(
+        { error: `You already submitted the ${phase} survey for this event.` },
+        { status: 409 },
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   const doc = {
     title,
-    type: String(body.type || "General Feedback").trim() || "General Feedback",
+    type: isSystem ? "System Feedback" : rawType,
+    /** "event" | "system" | "general" — Super Admin reviews "system". */
+    category: isSystem ? "system" : eventId ? "event" : "general",
+    phase,
+    /** Workflow for system feedback: new → reviewing → resolved / archived. */
+    status: isSystem ? "new" : "",
     rating,
     comment: String(body.comment || "").trim(),
-    eventId: String(body.eventId || "").trim(),
-    eventTitle: String(body.eventName || "").trim(),
+    eventId,
+    eventTitle,
     email: actor.email,
     userName: actor.name,
     userId: actor.userId || "",

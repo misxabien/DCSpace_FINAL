@@ -1131,8 +1131,98 @@ type FeedbackAnalyticsPayload = {
     dateLabel: string;
     rating: number;
     comment: string;
+    phase?: string;
+  }>;
+  systemFeedback?: Array<{
+    id: string;
+    title: string;
+    submittedBy: string;
+    dateLabel: string;
+    rating: number;
+    comment: string;
+    status: string;
   }>;
 };
+
+const SYSTEM_FEEDBACK_STATUSES = ["new", "reviewing", "resolved", "archived"] as const;
+
+/**
+ * Super Admin "System Feedback": render every system report (not just the
+ * 3 placeholder cards) with a status control (Reviewing / Resolved / Archived).
+ */
+function hydrateSystemFeedback(
+  root: Element,
+  rows: NonNullable<FeedbackAnalyticsPayload["systemFeedback"]>,
+) {
+  const grid = root.querySelector<HTMLElement>(".fb-system-grid");
+  if (!grid) return;
+  if (!rows.length) {
+    grid.innerHTML = buildEmptyStateMarkup(
+      {
+        title: "No system feedback yet",
+        description: "Reports users submit about DC Space itself will appear here.",
+      },
+      { compact: true, extraClass: "dc-empty-state--inline" },
+    );
+    return;
+  }
+  const stars = (rating: number) =>
+    Array.from({ length: 5 }, (_, i) => (i < Math.round(rating) ? "★" : "☆")).join("");
+  grid.innerHTML = rows
+    .map(
+      (row) => `<article class="fb-sys-card" data-system-feedback-id="${escapeHtml(row.id)}">
+  <div class="k">${escapeHtml(row.dateLabel)}</div>
+  <h3>${escapeHtml(row.title)}</h3>
+  <div class="meta"><span class="k">SUBMITTED BY</span><span class="v">${escapeHtml(row.submittedBy)}</span></div>
+  <div class="fb-stars"><span class="stars" aria-label="${row.rating} out of 5">${stars(row.rating)}</span><span class="score">${row.rating}/5</span></div>
+  ${row.comment ? `<p class="fb-sys-comment">${escapeHtml(row.comment)}</p>` : ""}
+  <label class="fb-sys-status"><span class="k">STATUS</span>
+    <select data-system-feedback-status aria-label="Status for ${escapeHtml(row.title)}">
+      ${SYSTEM_FEEDBACK_STATUSES.map(
+        (status) =>
+          `<option value="${status}"${status === row.status ? " selected" : ""}>${status.charAt(0).toUpperCase() + status.slice(1)}</option>`,
+      ).join("")}
+    </select>
+  </label>
+</article>`,
+    )
+    .join("");
+
+  grid.querySelectorAll<HTMLSelectElement>("select[data-system-feedback-status]").forEach((select) => {
+    select.dataset.previous = select.value;
+  });
+
+  if (grid.dataset.dcStatusWired === "1") return;
+  grid.dataset.dcStatusWired = "1";
+  grid.addEventListener("change", async (event) => {
+    const select = (event.target as Element | null)?.closest<HTMLSelectElement>(
+      "select[data-system-feedback-status]",
+    );
+    const card = select?.closest<HTMLElement>("[data-system-feedback-id]");
+    if (!select || !card) return;
+    const previous = select.dataset.previous || "";
+    select.disabled = true;
+    try {
+      const res = await fetch(
+        `/api/admin/feedback/${encodeURIComponent(card.dataset.systemFeedbackId || "")}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: select.value }),
+        },
+      );
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || "Unable to update status.");
+      select.dataset.previous = select.value;
+    } catch (error) {
+      if (previous) select.value = previous;
+      window.alert(error instanceof Error ? error.message : "Unable to update status.");
+    } finally {
+      select.disabled = false;
+    }
+  });
+}
 
 function hydrateFeedbackAdmin(
   root: Element,
@@ -1150,6 +1240,7 @@ function hydrateFeedbackAdmin(
 
   hydrateFeedbackCategoryRatings(root, analytics.categories);
   hydrateFeedbackEventCards(root, analytics.events, pageId);
+  if (analytics.systemFeedback) hydrateSystemFeedback(root, analytics.systemFeedback);
 
   const table = root.querySelector(".fd-table, .fb-table, #feedback-table");
   patchTableRows(table, analytics.recent, (tr, row) => {

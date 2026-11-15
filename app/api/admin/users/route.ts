@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 
@@ -122,6 +123,10 @@ export async function POST(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const permissionDenied = await requireAdminPermission(auth, "add-users-manually");
+  if (permissionDenied) {
+    return NextResponse.json({ error: permissionDenied.error }, { status: permissionDenied.status });
   }
 
   let body: Record<string, unknown>;

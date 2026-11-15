@@ -7,6 +7,7 @@ import {
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { eventsCollection } from "@/lib/events/types";
 import {
   createCertificateDoc,
@@ -97,6 +98,10 @@ export async function POST(request: Request) {
   const auth = await requireAdminAuth(request);
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const permissionDenied = await requireAdminPermission(auth, "generate-certificates");
+  if (permissionDenied) {
+    return NextResponse.json({ error: permissionDenied.error }, { status: permissionDenied.status });
   }
 
   let body: {

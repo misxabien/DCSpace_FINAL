@@ -6,6 +6,7 @@ import { attendanceCollection } from "@/lib/user-server/activity";
 import { eventOwnedBy } from "@/lib/events/ownership";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -14,7 +15,12 @@ export async function GET(request: Request, context: RouteContext) {
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
-
+  {
+    const access = await checkOrganizerAccess(actor.email, "seeWhoAttended");
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+  }
   const { id } = await context.params;
   if (!ObjectId.isValid(id)) {
     return NextResponse.json({ error: "Invalid event id." }, { status: 400 });

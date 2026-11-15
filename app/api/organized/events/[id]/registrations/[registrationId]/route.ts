@@ -4,6 +4,7 @@ import { eventsCollection } from "@/lib/events/types";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 
 type RouteContext = { params: Promise<{ id: string; registrationId: string }> };
 
@@ -12,7 +13,12 @@ export async function PATCH(request: Request, context: RouteContext) {
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
-
+  {
+    const access = await checkOrganizerAccess(actor.email, "reviewFilesSubmitted");
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+  }
   const { id, registrationId } = await context.params;
   if (!ObjectId.isValid(id) || !ObjectId.isValid(registrationId)) {
     return NextResponse.json({ error: "Invalid id." }, { status: 400 });

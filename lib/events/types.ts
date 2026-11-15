@@ -52,6 +52,10 @@ export type SpaceEvent = {
   posterImageMimeType?: string;
   /** True when a poster blob exists (survives list projections that omit base64). */
   hasPoster?: boolean;
+  /** Organizer lets registered participants upload event photos. */
+  allowParticipantPhotos?: boolean;
+  /** Admin asked the organizer to revise a pending submission. */
+  revisionRequested?: boolean;
   status: EventStatus;
   organizerId?: string;
   organizerEmail?: string;
@@ -246,6 +250,8 @@ export function sanitizeEvent(
     submittedByPortal: doc.submittedByPortal || "user",
     reviewedByEmail: doc.reviewedByEmail || "",
     reviewNote: doc.reviewNote || "",
+    revisionRequested: doc.revisionRequested === true,
+    allowParticipantPhotos: doc.allowParticipantPhotos === true,
     iroomReservationId: doc.iroomReservationId || "",
     iroomStatus: doc.iroomStatus || "none",
     iroomRoomId: doc.iroomRoomId || "",

@@ -8,6 +8,9 @@ import { requireSessionActor } from "@/lib/user-server/session-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/** ~5 MB of base64 image data — keeps a single photo from bloating MongoDB. */
+const MAX_PHOTO_DATA_URL = 7_000_000;
+
 async function requireOrganizer(eventId: string, email: string, userId?: string) {
   const userDb = await getUserDb();
   const adminDb = await getAdminDb();
@@ -42,7 +45,10 @@ export async function GET(request: Request, context: RouteContext) {
         id: String(doc._id),
         dataUrl: String(doc.dataUrl || ""),
         uploadedAt: String(doc.createdAt || ""),
+        uploadedByEmail: String(doc.uploadedByEmail || ""),
+        source: String(doc.source || "organizer"),
       })),
+      allowParticipantPhotos: owned.event.allowParticipantPhotos === true,
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
@@ -72,6 +78,9 @@ export async function POST(request: Request, context: RouteContext) {
   if (!dataUrl.startsWith("data:image/")) {
     return NextResponse.json({ error: "An image data URL is required." }, { status: 400 });
   }
+  if (dataUrl.length > MAX_PHOTO_DATA_URL) {
+    return NextResponse.json({ error: "Photo is too large (max 5 MB)." }, { status: 413 });
+  }
 
   try {
     const now = new Date().toISOString();
@@ -95,4 +104,39 @@ export async function POST(request: Request, context: RouteContext) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to save photo.", details }, { status: 500 });
   }
+}
+
+/** Organizer turns participant photo uploads on/off for their event. */
+export async function PATCH(request: Request, context: RouteContext) {
+  const actor = await requireSessionActor(request);
+  if ("error" in actor) {
+    return NextResponse.json({ error: actor.error }, { status: actor.status });
+  }
+  const { id } = await context.params;
+  const owned = await requireOrganizer(id, actor.email, actor.userId);
+  if ("error" in owned) {
+    return NextResponse.json({ error: owned.error }, { status: owned.status });
+  }
+
+  let body: { allowParticipantPhotos?: boolean };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  if (typeof body.allowParticipantPhotos !== "boolean") {
+    return NextResponse.json({ error: "allowParticipantPhotos must be true or false." }, { status: 400 });
+  }
+
+  const adminDb = await getAdminDb();
+  await eventsCollection(adminDb).updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $set: {
+        allowParticipantPhotos: body.allowParticipantPhotos,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  );
+  return NextResponse.json({ allowParticipantPhotos: body.allowParticipantPhotos });
 }

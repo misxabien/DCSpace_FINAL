@@ -13,6 +13,7 @@ import { findEventById } from "@/lib/events/find-event";
 import { escapeRegex } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
+import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
 
@@ -256,9 +257,36 @@ export async function PATCH(request: Request, context: RouteContext) {
         if (!REVIEW_STATUSES.includes(body.status)) {
           return NextResponse.json({ error: "Invalid status." }, { status: 400 });
         }
+        // "Request Revisions" = admin keeps a pending event pending with a note.
+        const isRevisionRequest =
+          body.status === "pending" &&
+          existing.status === "pending" &&
+          typeof body.reviewNote === "string";
+        const permissionKey =
+          body.status === "approved"
+            ? "approve-events"
+            : body.status === "rejected"
+              ? "reject-events"
+              : isRevisionRequest
+                ? "request-revisions"
+                : null;
+        if (permissionKey && !("error" in admin)) {
+          const denied = await requireAdminPermission(admin, permissionKey);
+          if (denied) {
+            return NextResponse.json({ error: denied.error }, { status: denied.status });
+          }
+        }
         update.status = body.status;
+        if (isRevisionRequest) {
+          update.revisionRequested = true;
+          update.revisionRequestedAt = new Date().toISOString();
+        } else {
+          update.revisionRequested = false;
+        }
       } else if (body.status === "pending" || body.status === "draft") {
         update.status = body.status;
+        // Organizer resubmitted after a revision request.
+        if (body.status === "pending") update.revisionRequested = false;
       } else {
         return NextResponse.json({ error: "Organizers cannot set that status." }, { status: 403 });
       }
@@ -447,7 +475,9 @@ export async function PATCH(request: Request, context: RouteContext) {
                 ? "event_completed"
                 : body.status === "postponed"
                   ? "event_postponed"
-                  : null;
+                  : update.revisionRequested === true
+                    ? "event_revision_requested"
+                    : null;
       if (type) {
         void import("@/lib/user-server/activity").then(({ logUserActivity }) =>
           logUserActivity({
@@ -465,12 +495,17 @@ export async function PATCH(request: Request, context: RouteContext) {
             notifyUser({
               email: event.organizerEmail,
               title:
-                body.status === "approved"
-                  ? "Event approved"
-                  : body.status === "rejected"
-                    ? "Event rejected"
-                    : `Event ${body.status}`,
-              body: `${event.title} is now ${body.status}.`,
+                update.revisionRequested === true
+                  ? "Revision requested"
+                  : body.status === "approved"
+                    ? "Event approved"
+                    : body.status === "rejected"
+                      ? "Event rejected"
+                      : `Event ${body.status}`,
+              body:
+                update.revisionRequested === true
+                  ? `An admin requested changes to ${event.title}${body.reviewNote ? `: ${body.reviewNote}` : "."} Edit and resubmit it from Events Organized.`
+                  : `${event.title} is now ${body.status}.`,
               type: "event-status",
               eventId: event.id,
               eventTitle: event.title,

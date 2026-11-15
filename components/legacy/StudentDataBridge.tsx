@@ -910,6 +910,26 @@ export function StudentDataBridge() {
       if (!form || form.dataset.dcWired === "1") return;
       form.dataset.dcWired = "1";
 
+      // Event surveys arrive with ?eventId=…; the server decides mid- vs post-event.
+      const params = new URLSearchParams(window.location.search);
+      const surveyEventId = String(params.get("eventId") || "").trim();
+      const surveyEventTitle = String(params.get("eventTitle") || "").trim();
+      const typeSelect = document.getElementById("feedback-type") as HTMLSelectElement | null;
+      if (typeSelect && !typeSelect.querySelector('option[value="system"]')) {
+        const option = document.createElement("option");
+        option.value = "system";
+        option.textContent = "System Feedback (report a DC Space issue)";
+        typeSelect.appendChild(option);
+      }
+      if (surveyEventId && typeSelect) {
+        typeSelect.value = "event";
+        typeSelect.classList.add("has-value");
+        const intro = document.querySelector(".sign-intro__subtitle");
+        if (intro && surveyEventTitle) {
+          intro.textContent = `Feedback for ${surveyEventTitle}. How was your experience?`;
+        }
+      }
+
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -935,7 +955,16 @@ export function StudentDataBridge() {
           const res = await fetch("/api/user/feedback", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, type, rating, comment, media }),
+            body: JSON.stringify({
+              title,
+              type,
+              rating,
+              comment,
+              media,
+              ...(surveyEventId && type !== "system"
+                ? { eventId: surveyEventId, eventName: surveyEventTitle }
+                : {}),
+            }),
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));

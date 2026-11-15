@@ -25,6 +25,7 @@ export type SanitizedEvent = {
   posterImage?: string;
   hasPoster?: boolean;
   reviewNote?: string;
+  allowParticipantPhotos?: boolean;
   createdAt?: string;
   updatedAt?: string;
   conceptPaperName?: string;
@@ -71,6 +72,8 @@ export type LegacyCardEvent = {
   organizerEmail: string;
   reviewNote: string;
   dbStatus: string;
+  /** Organizer lets registered participants share event photos. */
+  allowParticipantPhotos?: boolean;
   attachmentFiles: Array<{ label: string; fileName: string; url: string }>;
 };
 
@@ -308,6 +311,7 @@ export function mapDbEventToCard(
     organizerEmail: String(e.organizerEmail || ""),
     reviewNote: e.reviewNote || "",
     dbStatus: e.status || "",
+    allowParticipantPhotos: e.allowParticipantPhotos === true,
     attachmentFiles: buildAttachmentFiles(e),
   };
 }

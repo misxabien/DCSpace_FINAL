@@ -37,6 +37,18 @@ export type FeedbackAnalytics = {
     dateLabel: string;
     rating: number;
     comment: string;
+    phase: string;
+    category: string;
+    status: string;
+  }>;
+  systemFeedback: Array<{
+    id: string;
+    title: string;
+    submittedBy: string;
+    dateLabel: string;
+    rating: number;
+    comment: string;
+    status: string;
   }>;
 };
 
@@ -308,6 +320,27 @@ export async function loadFeedbackAnalytics(
       dateLabel: formatDateLabel(String(row.createdAt || "")),
       rating: Number(row.rating || 0),
       comment: String(row.comment || ""),
+      phase: String((row as Record<string, unknown>).phase || ""),
+      category: String((row as Record<string, unknown>).category || ""),
+      status: String((row as Record<string, unknown>).status || ""),
     })),
+    /** Every system-related report (Super Admin review list), newest first. */
+    systemFeedback: feedbackDocs
+      .filter((row) => {
+        const r = row as Record<string, unknown>;
+        return r.category === "system" || String(r.type || "").toLowerCase().startsWith("system");
+      })
+      .map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          id: String(r._id || ""),
+          title: String(r.title || "Feedback"),
+          submittedBy: String(r.userName || r.email || "User"),
+          dateLabel: formatDateLabel(String(r.createdAt || "")),
+          rating: Number(r.rating || 0),
+          comment: String(r.comment || ""),
+          status: String(r.status || "new"),
+        };
+      }),
   };
 }

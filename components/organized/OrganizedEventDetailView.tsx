@@ -24,6 +24,28 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [invitations, setInvitations] = useState<InvitationListEntry[]>([]);
   const [photos, setPhotos] = useState<EventGalleryPhoto[]>([]);
+  const [allowParticipantPhotos, setAllowParticipantPhotos] = useState(false);
+  const [savingPhotoSetting, setSavingPhotoSetting] = useState(false);
+
+  const toggleParticipantPhotos = async () => {
+    const next = !allowParticipantPhotos;
+    setSavingPhotoSetting(true);
+    setAllowParticipantPhotos(next);
+    try {
+      const res = await fetch(`/api/organized/events/${encodeURIComponent(event.id)}/gallery`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ allowParticipantPhotos: next }),
+      });
+      if (!res.ok) throw new Error("save failed");
+    } catch {
+      setAllowParticipantPhotos(!next);
+      window.alert("Could not update the photo upload setting. Please try again.");
+    } finally {
+      setSavingPhotoSetting(false);
+    }
+  };
 
   const loadDetailData = async () => {
     try {
@@ -58,8 +80,12 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
         setInvitations([]);
       }
       if (galleryRes.ok) {
-        const payload = (await galleryRes.json()) as { photos?: EventGalleryPhoto[] };
+        const payload = (await galleryRes.json()) as {
+          photos?: EventGalleryPhoto[];
+          allowParticipantPhotos?: boolean;
+        };
         setPhotos(payload.photos || []);
+        setAllowParticipantPhotos(payload.allowParticipantPhotos === true);
       } else {
         setPhotos([]);
       }
@@ -272,6 +298,16 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
       </section>
 
       {invitations.length > 0 ? <InvitationListSection entries={invitations} /> : null}
+
+      <label className={styles.participantPhotoSetting}>
+        <input
+          type="checkbox"
+          checked={allowParticipantPhotos}
+          disabled={savingPhotoSetting}
+          onChange={() => void toggleParticipantPhotos()}
+        />
+        <span>Allow registered participants to upload event photos</span>
+      </label>
 
       <EventGallerySection photos={photos} />
 

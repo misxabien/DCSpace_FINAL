@@ -6,6 +6,7 @@ import { usersCollection } from "@/lib/db/user-collections";
 import { invitationsCollection, notifyUser } from "@/lib/user-server/portal";
 import { eventOwnedBy } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -26,7 +27,12 @@ export async function GET(request: Request, context: RouteContext) {
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
-  const { id } = await context.params;
+  {
+    const access = await checkOrganizerAccess(actor.email, "inviteSomeone");
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+  }  const { id } = await context.params;
   const owned = await requireOrganizer(id, actor.email, actor.userId);
   if ("error" in owned) {
     return NextResponse.json({ error: owned.error }, { status: owned.status });
@@ -67,7 +73,12 @@ export async function POST(request: Request, context: RouteContext) {
   if ("error" in actor) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
-  const { id } = await context.params;
+  {
+    const access = await checkOrganizerAccess(actor.email, "inviteSomeone");
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+  }  const { id } = await context.params;
   const owned = await requireOrganizer(id, actor.email, actor.userId);
   if ("error" in owned) {
     return NextResponse.json({ error: owned.error }, { status: owned.status });

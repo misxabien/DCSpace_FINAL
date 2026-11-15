@@ -11,6 +11,8 @@ export type ActivityType =
   | "event_live"
   | "event_completed"
   | "event_postponed"
+  | "event_revision_requested"
+  | "account_updated"
   | "attendance_recorded"
   | "feedback_submitted"
   | "certificate_generated";
