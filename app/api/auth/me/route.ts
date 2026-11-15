@@ -4,6 +4,7 @@ import { liveAdminFromEmail } from "@/lib/admin-server/require-admin-auth";
 import { decodeSession, encodeSession, sessionCookieOptions } from "@/lib/auth/session";
 import { SESSION_COOKIE, isAdminRole } from "@/lib/auth/types";
 import { toSessionUser } from "@/lib/auth/toSessionUser";
+import { accountBlockReason } from "@/lib/user-server/account-status";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
 
@@ -34,11 +35,19 @@ export async function GET() {
           lastName: 1,
           role: 1,
           organizationRole: 1,
+          permissions: 1,
+          suspended: 1,
         },
       },
     );
     if (!doc) {
       return NextResponse.json({ user: cookieUser });
+    }
+    if (accountBlockReason(doc)) {
+      // Suspended / pending accounts lose their session immediately.
+      const response = NextResponse.json({ user: null });
+      response.cookies.set({ ...sessionCookieOptions(0), value: "" });
+      return response;
     }
 
     const live = toSessionUser({
@@ -46,6 +55,7 @@ export async function GET() {
       name: `${doc.firstName || ""} ${doc.lastName || ""}`.trim() || String(doc.email),
       role: String(doc.role || ""),
       organizationRole: String(doc.organizationRole || ""),
+      permissions: (doc.permissions || null) as { eventsOrganizedPage?: boolean } | null,
     });
 
     meCache.set(cacheKey, { at: Date.now(), user: live });

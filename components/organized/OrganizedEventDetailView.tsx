@@ -96,7 +96,9 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
   };
 
   useEffect(() => {
-    void loadDetailData();
+    // Defer the first load so state updates happen in a callback, not the effect body.
+    const timer = window.setTimeout(() => void loadDetailData(), 0);
+    return () => window.clearTimeout(timer);
   }, [event.id]);
 
   useEffect(() => {

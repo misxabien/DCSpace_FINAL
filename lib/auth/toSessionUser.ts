@@ -8,11 +8,15 @@ export function toSessionUser(input: {
   name: string;
   role?: string | null;
   organizationRole?: string | null;
+  /** Admin "Admin Actions" switches; eventsOrganizedPage=false hides Events Organized. */
+  permissions?: { eventsOrganizedPage?: boolean } | null;
 }): SessionUser {
   const role = normalizeSessionRole(input.role);
   const isAdmin = isAdminRole(role);
+  const organizerPageAllowed = input.permissions?.eventsOrganizedPage !== false;
   const isOrganizer =
     !isAdmin &&
+    organizerPageAllowed &&
     (role === "organizer" ||
       isOrganizerProfile({
         role: input.role,

@@ -102,6 +102,7 @@ function buildLoginSuccess(
       sanitized.email,
     role: sanitized.role,
     organizationRole: sanitized.organizationRole,
+    permissions: (user as { permissions?: { eventsOrganizedPage?: boolean } }).permissions || null,
   });
 
   const denied = applyPortalRules(sessionUser, portal, expectedRole);

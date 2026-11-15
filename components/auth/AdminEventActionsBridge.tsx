@@ -616,6 +616,60 @@ function ensureStatusButtons(actions: Element, status: string) {
  * Wires admin event detail Approve/Reject/Live/Postpone/Complete to Mongo.
  * Also fills detail fields when ?id= is present.
  */
+/**
+ * Review-note dialog (replaces window.prompt) styled like the Make Admin /
+ * Delete Account confirm boxes. Resolves the note text, or null on "Go back".
+ */
+function openReviewNoteModal(options: {
+  title: string;
+  message: string;
+  placeholder: string;
+  confirmLabel: string;
+  danger: boolean;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(40,48,70,0.45);";
+    const confirmBg = options.danger ? "#ef4444" : "#448aff";
+    overlay.innerHTML = `
+      <div style="width:min(460px,100%);background:#fff;border-radius:10px;padding:32px 28px 26px;box-shadow:0 12px 40px rgba(28,49,82,0.18);font-family:var(--font, Montserrat, sans-serif);text-align:center;">
+        <h2 data-note-title style="margin:0 0 10px;font-size:20px;font-weight:700;color:#1f2937;"></h2>
+        <p data-note-message style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#6b7280;"></p>
+        <textarea data-note-input rows="4" style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid rgba(68,138,255,0.35);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;outline:none;"></textarea>
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:18px;flex-wrap:wrap;">
+          <button type="button" data-note-back style="min-width:120px;padding:11px 20px;border-radius:8px;border:1px solid #448aff;background:#fff;color:#448aff;font:inherit;font-weight:600;cursor:pointer;">Go back</button>
+          <button type="button" data-note-confirm style="min-width:140px;padding:11px 20px;border-radius:8px;border:none;background:${confirmBg};color:#fff;font:inherit;font-weight:700;cursor:pointer;"></button>
+        </div>
+      </div>`;
+    overlay.querySelector("[data-note-title]")!.textContent = options.title;
+    overlay.querySelector("[data-note-message]")!.textContent = options.message;
+    const input = overlay.querySelector<HTMLTextAreaElement>("[data-note-input]")!;
+    input.placeholder = options.placeholder;
+    const confirmBtn = overlay.querySelector<HTMLButtonElement>("[data-note-confirm]")!;
+    confirmBtn.textContent = options.confirmLabel;
+
+    const close = (value: string | null) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(null);
+    };
+    overlay.querySelector("[data-note-back]")!.addEventListener("click", () => close(null));
+    confirmBtn.addEventListener("click", () => close(input.value.trim()));
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(null);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+    input.focus();
+  });
+}
+
 export function AdminEventActionsBridge() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -723,15 +777,33 @@ export function AdminEventActionsBridge() {
         (isApprove ? "approved" : isReject ? "rejected" : "pending");
       let reviewNote = "";
       if (isReject || isRevisions || status === "cancelled") {
-        reviewNote =
-          window.prompt(
-            isReject
-              ? "Rejection reason (optional):"
-              : status === "cancelled"
-                ? "Cancellation note (optional):"
-                : "Revision notes (optional):",
-            "",
-          ) || "";
+        const note = await openReviewNoteModal(
+          isReject
+            ? {
+                title: "Reject Event?",
+                message: "The organizer will be notified. Add a reason so they know what to fix.",
+                placeholder: "Rejection reason (optional)",
+                confirmLabel: "Yes, reject",
+                danger: true,
+              }
+            : status === "cancelled"
+              ? {
+                  title: "Cancel Event?",
+                  message: "This event will be cancelled and participants will no longer be able to join.",
+                  placeholder: "Cancellation note (optional)",
+                  confirmLabel: "Yes, cancel event",
+                  danger: true,
+                }
+              : {
+                  title: "Request Revisions?",
+                  message: "The event stays pending. The organizer will see your notes and can resubmit.",
+                  placeholder: "What should the organizer change?",
+                  confirmLabel: "Send request",
+                  danger: false,
+                },
+        );
+        if (note === null) return; // admin pressed Go back
+        reviewNote = note;
       }
 
       const original = btn.textContent || "";

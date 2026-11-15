@@ -112,10 +112,12 @@ export function LegacyContent({
 }) {
   // Legacy HTML is patched client-side (profile name, event grids). Defer innerHTML
   // until mount so server HTML and the first client render stay identical.
-  const [mounted, setMounted] = useState(false);
+  // Track which page id has mounted, so switching pages resets "mounted"
+  // without a synchronous setState inside the effect.
+  const [mountedId, setMountedId] = useState<string | null>(null);
+  const mounted = mountedId === data.id;
   useEffect(() => {
-    setMounted(false);
-    const frame = window.requestAnimationFrame(() => setMounted(true));
+    const frame = window.requestAnimationFrame(() => setMountedId(data.id));
     return () => window.cancelAnimationFrame(frame);
   }, [data.id]);
 
