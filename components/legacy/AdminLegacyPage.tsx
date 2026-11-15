@@ -3562,6 +3562,56 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
   margin-bottom: 12px !important;
 }
 
+/* Event Report / Event Photo Archive — same card, spacing and type scale as
+   "Post Event Feedback Summary" (reviewer comment). */
+[data-admin-legacy] .dc-addon-card {
+  background: #fff !important;
+  border: 1px solid rgba(68, 138, 255, 0.2) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 14px rgba(68, 138, 255, 0.1) !important;
+  padding: 14px 16px 16px !important;
+}
+[data-admin-legacy] .dc-addon-card .dc-addon-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+[data-admin-legacy] .dc-addon-card .meta-label {
+  margin: 8px 0 0 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  color: #8a94a6 !important;
+  text-transform: uppercase !important;
+}
+[data-admin-legacy] .dc-addon-card .meta-label:first-child {
+  margin-top: 0 !important;
+}
+[data-admin-legacy] .dc-addon-card .meta-value {
+  margin: 2px 0 0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #1a1a1a !important;
+}
+[data-admin-legacy] .dc-addon-card .action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 8px 16px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(68, 138, 255, 0.35) !important;
+  background: #eef4ff !important;
+  color: #1357c9 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease !important;
+}
+[data-admin-legacy] .dc-addon-card .action-btn:hover {
+  background: #dce8ff !important;
+}
+
 /* deets43 Event Name — same size as Event Information (font-xl / 18px) */
 [data-admin-legacy] #event-info-section #event-name,
 [data-admin-legacy] #event-info-section .detail-top h3,
@@ -3906,6 +3956,48 @@ body.is-super-admin .sa-actions-card .action-row.sa-only-row {
 }
 @media (max-width: 820px) {
   [data-admin-page="manages28"] .school-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* managef29 (faculty school picker) — same square cards as students, no search/filter */
+[data-admin-page="managef29"] .stu-search,
+[data-admin-page="managef29"] .search-bar,
+[data-admin-page="manages28"] .stu-search {
+  display: none !important;
+}
+[data-admin-page="managef29"] .school-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+[data-admin-page="managef29"] .school-card,
+[data-admin-page="managef29"] a.school-card {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  aspect-ratio: 1 / 1.12 !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  height: auto !important;
+  padding: 18px 14px !important;
+  box-sizing: border-box !important;
+}
+[data-admin-page="managef29"] .school-card .badge,
+[data-admin-page="managef29"] .school-card svg.badge {
+  width: 64px !important;
+  height: 84px !important;
+  margin: 0 0 8px !important;
+}
+@media (max-width: 1100px) {
+  [data-admin-page="managef29"] .school-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+@media (max-width: 820px) {
+  [data-admin-page="managef29"] .school-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }

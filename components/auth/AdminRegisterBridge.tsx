@@ -61,6 +61,33 @@ function pendingRole(searchParams: URLSearchParams): "admin" | "super-admin" {
   return "admin";
 }
 
+/** Same program → school mapping as the student sign-up (03-schooldetails). */
+const PROGRAM_TO_SCHOOL: Record<string, string> = {
+  BSA: "SASE",
+  BSAIS: "SASE",
+  "BS PSYCH": "SASE",
+  BEED: "SASE",
+  BSED: "SASE",
+  BSIT: "SCEMC",
+  BMMA: "SCEMC",
+  "BA COMM": "SCEMC",
+  BSBA: "SIHTM",
+  "BSBA-FM": "SIHTM",
+  "BSBA-MM": "SIHTM",
+  "BSBA-HRDM": "SIHTM",
+  "BSBA-OM": "SIHTM",
+  BSTM: "SIHTM",
+  BSHM: "SIHTM",
+  "BSHM-CLO": "SIHTM",
+  "BSHM-CAKO": "SIHTM",
+  BSN: "SNAHS",
+  BSPT: "SNAHS",
+  BSRT: "SNAHS",
+  "BS PHARM": "SMLS",
+  BSMLS: "SMLS",
+  "BS BIO": "SMLS",
+};
+
 function setInputValue(id: string, value: string | undefined) {
   if (!value) return;
   const el = document.getElementById(id) as
@@ -130,6 +157,15 @@ export function AdminRegisterBridge() {
     if (pageId === "school04") {
       setInputValue("program", draft.program);
       setInputValue("department", draft.department);
+      // Picking a program fills in its school/department automatically.
+      const programSelect = document.getElementById("program") as HTMLSelectElement | null;
+      if (programSelect && programSelect.dataset.dcAutoSchool !== "1") {
+        programSelect.dataset.dcAutoSchool = "1";
+        programSelect.addEventListener("change", () => {
+          const school = PROGRAM_TO_SCHOOL[programSelect.value];
+          if (school) setInputValue("department", school);
+        });
+      }
     }
     if (pageId === "acc05") {
       setInputValue("rfid", draft.rfid);

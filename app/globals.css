@@ -1715,3 +1715,13 @@ a[href="/notifications"][aria-label*="Notification" i].has-unread::after {
 .notif-unread-dot[hidden] {
   display: none !important;
 }
+
+/* Feedback Details: use the full content width (reviewer: avoid empty right side). */
+.main .detail-panel {
+  max-width: none !important;
+  width: 100%;
+}
+.main .detail-panel .detail-comment {
+  width: 100%;
+  box-sizing: border-box;
+}

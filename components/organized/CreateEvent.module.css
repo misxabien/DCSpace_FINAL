@@ -12,7 +12,7 @@
 .stepper {
   margin: 20px auto 36px;
   width: 100%;
-  max-width: 920px;
+  max-width: none;
   overflow: visible;
 }
 
