@@ -5,7 +5,7 @@ import {
   insertEventGalleryPhoto,
   listEventGalleryPhotos,
 } from "@/lib/events/event-gallery";
-import { eventsCollection } from "@/lib/events/types";
+import { findEventById } from "@/lib/events/find-event";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -26,7 +26,8 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const event = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    // Events live in the admin DB after the split; gallery photos stay in the user DB.
+    const { event } = await findEventById(id);
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }
@@ -69,7 +70,8 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const db = await getUserDb();
-    const event = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+    // Events live in the admin DB after the split; gallery photos stay in the user DB.
+    const { event } = await findEventById(id);
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }

@@ -10,7 +10,7 @@ export type EventGalleryPhotoDoc = {
   archived?: boolean;
   archivedAt?: string;
   archivedByEmail?: string;
-  source?: "admin" | "organizer";
+  source?: "admin" | "organizer" | "participant";
   caption?: string;
 };
 
@@ -28,7 +28,10 @@ export function sanitizeGalleryPhoto(
     uploadedByEmail: String(doc.uploadedByEmail || ""),
     archived: Boolean(doc.archived),
     archivedAt: String(doc.archivedAt || ""),
-    source: (doc.source === "admin" ? "admin" : "organizer") as "admin" | "organizer",
+    source: (doc.source === "admin" || doc.source === "participant" ? doc.source : "organizer") as
+      | "admin"
+      | "organizer"
+      | "participant",
     caption: String(doc.caption || ""),
   };
 }

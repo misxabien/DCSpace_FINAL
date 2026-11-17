@@ -1,7 +1,6 @@
 import { ObjectId } from "mongodb";
-import { eventsCollection } from "@/lib/events/types";
+import { findEventById } from "@/lib/events/find-event";
 import { attendanceCollection } from "@/lib/user-server/activity";
-import { getUserDb } from "@/lib/user-server/get-user-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { attendanceSecurityCollection } from "@/lib/user-server/attendance-security";
 
@@ -171,8 +170,8 @@ export async function buildEventParticipantList(eventId: string) {
     return { participants: [] as EventParticipantRow[] };
   }
 
-  const db = await getUserDb();
-  const event = await eventsCollection(db).findOne({ _id: new ObjectId(id) });
+  // Events live in the admin DB after the split; registrations/taps stay in the user DB.
+  const { event, userDb: db } = await findEventById(id);
   if (!event) {
     return { participants: [] as EventParticipantRow[] };
   }

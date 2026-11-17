@@ -1,7 +1,53 @@
 import { NextResponse } from "next/server";
 import { loadCampusAiContext } from "@/lib/ai/context";
-import { generateGeminiJson, geminiErrorResponse } from "@/lib/ai/gemini";
+import { generateGeminiJson, isGeminiConfigured } from "@/lib/ai/gemini";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
+
+type Insight = { title: string; body: string; tone: string };
+type CampusContext = Awaited<ReturnType<typeof loadCampusAiContext>>;
+
+/** Rule-based insights from the live DB snapshot, used when Gemini is off or fails. */
+function fallbackInsights(context: CampusContext): Insight[] {
+  const t = context.totals;
+  const items: Insight[] = [];
+  items.push(
+    t.pending > 0
+      ? {
+          title: "Pending approvals",
+          body: `${t.pending} event request(s) are waiting for review.`,
+          tone: t.pending >= 5 ? "red" : "yellow",
+        }
+      : { title: "Approvals clear", body: "No event requests are waiting for review.", tone: "blue" },
+  );
+  items.push(
+    t.live > 0
+      ? {
+          title: "Live now",
+          body: `${t.live} event(s) are live. Keep the RFID desk open for tap-in and tap-out.`,
+          tone: "blue",
+        }
+      : { title: "No live events", body: "No events are live right now.", tone: "blue" },
+  );
+  items.push({
+    title: "Attendance records",
+    body: `${t.attendanceCount} RFID attendance record(s) across ${t.completed} completed event(s).`,
+    tone: "blue",
+  });
+  items.push(
+    t.completed > 0 && t.feedbackCount === 0
+      ? {
+          title: "Feedback missing",
+          body: "Completed events have no survey feedback yet. Remind participants to answer.",
+          tone: "yellow",
+        }
+      : {
+          title: "Feedback",
+          body: `${t.feedbackCount} feedback response(s) from ${t.userCount} registered user(s).`,
+          tone: "blue",
+        },
+  );
+  return items;
+}
 
 export async function GET(request: Request) {
   const auth = await requireAdminAuth(request);
@@ -9,8 +55,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
+  const context = await loadCampusAiContext(10);
+  if (!isGeminiConfigured()) {
+    return NextResponse.json({ items: fallbackInsights(context), aiAvailable: false });
+  }
+
   try {
-    const context = await loadCampusAiContext(10);
     const result = await generateGeminiJson<{
       items?: Array<{ title?: string; body?: string; tone?: string }>;
     }>(
@@ -35,12 +85,12 @@ ${JSON.stringify(context, null, 2)}`,
           .slice(0, 4)
       : [];
 
-    return NextResponse.json({ items });
+    return NextResponse.json({
+      items: items.length ? items : fallbackInsights(context),
+      aiAvailable: items.length > 0,
+    });
   } catch (error) {
-    const mapped = geminiErrorResponse(error);
-    return NextResponse.json(
-      { error: mapped.error, details: "details" in mapped ? mapped.details : undefined, code: "code" in mapped ? mapped.code : undefined },
-      { status: mapped.status },
-    );
+    console.error("[home-insights] Gemini failed, using rule-based insights", error);
+    return NextResponse.json({ items: fallbackInsights(context), aiAvailable: false });
   }
 }

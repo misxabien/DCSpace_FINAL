@@ -14,6 +14,7 @@ import {
   type ActivityDoc,
 } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { getAdminDb } from "@/lib/db/get-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { buildDashboardCharts } from "@/lib/admin/dashboard-charts";
 import { findEventsAcrossDatabases } from "@/lib/events/events-query";
@@ -123,7 +124,8 @@ export async function GET(request: Request) {
     );
 
     const usersCol = db.collection("users");
-    const eventsCol = eventsCollection(db);
+    // Events are stored in the admin DB after the user/admin split.
+    const eventsCol = eventsCollection(await getAdminDb());
     const activitiesCol = activitiesCollection(db);
     const attendanceCol = attendanceCollection(db);
     const feedbackCol = feedbackCollection(db);

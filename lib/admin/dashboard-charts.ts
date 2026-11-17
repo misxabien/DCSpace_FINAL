@@ -1,4 +1,5 @@
 import type { Db } from "mongodb";
+import { getAdminDb } from "@/lib/db/get-db";
 import { eventsCollection } from "@/lib/events/types";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { registrationsCollection } from "@/lib/user-server/portal";
@@ -110,11 +111,8 @@ function emptyCharts(): DashboardCharts {
 export async function buildDashboardCharts(userDb: Db): Promise<DashboardCharts> {
   const charts = emptyCharts();
   const year = new Date().getFullYear();
-  const adminName = process.env.MONGODB_ADMIN_DB_NAME?.trim();
-  const adminDb =
-    adminName && adminName !== userDb.databaseName
-      ? userDb.client.db(adminName)
-      : userDb;
+  // Same admin DB resolution as the rest of the app (defaults to dcspace_admin).
+  const adminDb = await getAdminDb();
 
   const [adminEvents, userEvents, attendanceDocs, registrationDocs] = await Promise.all([
     eventsCollection(adminDb)
