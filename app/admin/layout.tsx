@@ -3,7 +3,7 @@ import { AdminAuthClient } from "@/components/auth/AdminAuthClient";
 
 export const metadata: Metadata = {
   title: "DC Space | Admin",
-  description: "DC Space Administrator Console",
+  description: "DC SPACE: AI-driven Event Intelligence Platform for Predictive Crowd Management and Adaptive Event Optimization — Administrator Console",
 };
 
 export default function AdminLayout({

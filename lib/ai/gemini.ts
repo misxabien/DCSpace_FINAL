@@ -32,6 +32,7 @@ const FREE_TIER_MODELS = [
   "gemini-3.5-flash",
   "gemini-3.5-flash-lite",
   "gemini-flash-lite-latest",
+  "gemini-3.1-flash-lite",
 ];
 
 export type GeminiGenerateOptions = {
@@ -96,7 +97,16 @@ function isUnavailableModel(status: number, message: string) {
   );
 }
 
-async function generateContent(model: string, prompt: string, temperature: number) {
+/** Per-model request timeout, and the total budget across all fallback models. */
+const MODEL_TIMEOUT_MS = 15_000;
+const TOTAL_BUDGET_MS = 40_000;
+
+async function generateContent(
+  model: string,
+  prompt: string,
+  temperature: number,
+  timeoutMs = MODEL_TIMEOUT_MS,
+) {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new GeminiConfigError(
@@ -106,7 +116,7 @@ async function generateContent(model: string, prompt: string, temperature: numbe
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 18_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -187,12 +197,22 @@ export async function generateGeminiJson<T extends GeminiJson>(
 
   const models = getGeminiModelCandidates();
   const temperature = options.temperature ?? 0.4;
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
   let lastError: unknown;
 
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const remaining = deadline - Date.now();
+      if (remaining < 2_000) {
+        throw lastError instanceof Error ? lastError : new Error("Gemini request timed out.");
+      }
       try {
-        const text = await generateContent(model, prompt, temperature);
+        const text = await generateContent(
+          model,
+          prompt,
+          temperature,
+          Math.min(MODEL_TIMEOUT_MS, remaining),
+        );
         const parsed = extractJson(text) as T;
         if (options.cacheKey) cacheSet(options.cacheKey, parsed);
         return parsed;
@@ -210,6 +230,9 @@ export async function generateGeminiJson<T extends GeminiJson>(
         const message = error instanceof Error ? error.message : "";
         if (isUnavailableModel(status, message)) break;
         if (status === 400 || status === 401 || status === 403) throw error;
+        // Overloaded (503 "high demand") or timed out: try the next model right away
+        // instead of waiting on the same busy one.
+        if (status === 503 || /timed out|high demand|overloaded/i.test(message)) break;
         if (attempt === 0 && (status >= 500 || status === 0)) {
           await sleep(800);
           continue;

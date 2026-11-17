@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "DC Space",
-  description: "DC Space student events platform",
+  description: "DC SPACE: AI-driven Event Intelligence Platform for Predictive Crowd Management and Adaptive Event Optimization",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },

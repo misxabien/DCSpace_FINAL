@@ -578,7 +578,8 @@ export async function PATCH(request: Request, context: RouteContext) {
               generatedByEmail: actorEmail,
               generatedByName: actorName,
               trigger: "status_completed",
-              db: writeDb,
+              // Reports, gallery photos and the Reports list all live in the user DB
+              // (same as the manual "Generate report" button), not the event's DB.
             }),
           )
           .catch((error) => {
