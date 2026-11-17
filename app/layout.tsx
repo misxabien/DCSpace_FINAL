@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { SoftNavEnhancer } from "@/components/motion/SoftNavEnhancer";
 import { TopLoadingBarHost } from "@/components/navigation/TopLoadingBarHost";
@@ -8,14 +8,33 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "DC Space",
   description: "DC SPACE: AI-driven Event Intelligence Platform for Predictive Crowd Management and Adaptive Event Optimization",
+  applicationName: "DC Space",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "DC Space",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
       { url: "/icon.png", type: "image/png" },
     ],
     shortcut: "/favicon.ico",
     apple: [{ url: "/apple-icon.png", type: "image/png" }],
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#448aff",
 };
 
 export default function RootLayout({

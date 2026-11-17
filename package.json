@@ -12,7 +12,10 @@
     "seed:events": "node scripts/seed-events-admin.mjs",
     "seed:attendance": "node scripts/seed-attendance-demo.mjs",
     "test:attendance": "node scripts/test-attendance-flow.mjs",
-    "test:mongo": "node scripts/test-mongo.mjs"
+    "test:mongo": "node scripts/test-mongo.mjs",
+    "mobile:sync": "npm --prefix mobile run sync",
+    "mobile:android": "npm --prefix mobile run open:android",
+    "mobile:ios": "npm --prefix mobile run open:ios"
   },
   "dependencies": {
     "framer-motion": "^13.0.0",

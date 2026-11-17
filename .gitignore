@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/mobile/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -44,3 +45,12 @@ next-env.d.ts
 # pubmat / marketing assets (keep outside repo)
 /public/assets/pubmat/
 /public/assets/domini-xode-logo.png
+
+# Capacitor / Android local build junk
+/mobile/android/.gradle/
+/mobile/android/app/build/
+/mobile/android/build/
+/mobile/android/local.properties
+/mobile/android/captures/
+/mobile/ios/App/Pods/
+/mobile/ios/DerivedData/
