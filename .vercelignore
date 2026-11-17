@@ -1,0 +1,4 @@
+# Capacitor native projects are not part of the Next.js web deploy
+mobile/node_modules
+mobile/android
+mobile/ios
