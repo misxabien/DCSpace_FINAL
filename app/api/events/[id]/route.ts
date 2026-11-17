@@ -547,6 +547,25 @@ export async function PATCH(request: Request, context: RouteContext) {
                 payload,
               );
 
+              // Live: registered participants receive the mid-event survey.
+              if (body.status === "live") {
+                const participants = await registrationsCollection(userDb)
+                  .find({ eventId: event.id, status: { $in: ["joined", "approved"] } })
+                  .project({ email: 1 })
+                  .limit(2000)
+                  .toArray();
+                await notifyUsers(
+                  participants.map((row) => String(row.email || "")),
+                  {
+                    title: "Mid-event survey is open",
+                    body: `How is ${event.title} going so far? Tap to answer the quick mid-event survey.`,
+                    type: "survey-mid",
+                    eventId: event.id,
+                    eventTitle: event.title,
+                  },
+                );
+              }
+
               let org = String(event.department || "").trim();
               if (!org && event.organizerEmail) {
                 const organizer = await usersCollection(userDb).findOne(
@@ -566,6 +585,34 @@ export async function PATCH(request: Request, context: RouteContext) {
             },
           );
         }
+      }
+
+      // Completed: registered participants receive the post-event survey.
+      if (body.status === "completed") {
+        void import("@/lib/user-server/portal")
+          .then(async ({ notifyUsers, registrationsCollection }) => {
+            const { getUserDb } = await import("@/lib/user-server/get-user-db");
+            const userDb = await getUserDb();
+            const participants = await registrationsCollection(userDb)
+              .find({ eventId: event.id, status: { $in: ["joined", "approved"] } })
+              .project({ email: 1 })
+              .limit(2000)
+              .toArray();
+            await notifyUsers(
+              participants.map((row) => String(row.email || "")),
+              {
+                title: "Post-event survey",
+                body: `${event.title} has ended. Tap to rate the event and share your feedback.`,
+                type: "survey-post",
+                eventId: event.id,
+                eventTitle: event.title,
+              },
+            );
+          })
+          .catch((error) => {
+            const details = error instanceof Error ? error.message : "Unknown error";
+            console.error("[DC Space] Post-event survey notification failed:", details);
+          });
       }
 
       // Feature #8: auto-generate PDF report when event is marked completed.

@@ -452,6 +452,7 @@ function notifIconClass(type: string) {
   if (type === "invitation") return "notif-item__icon notif-item__icon--cyan";
   if (type === "certificate") return "notif-item__icon notif-item__icon--gold";
   if (type === "event-status") return "notif-item__icon notif-item__icon--red";
+  if (type.startsWith("survey-")) return "notif-item__icon notif-item__icon--cyan";
   return "notif-item__icon notif-item__icon--blue";
 }
 
@@ -548,6 +549,8 @@ function wireStudentNotificationClicks() {
     if (!btn) return;
     const id = btn.getAttribute("data-notif-id");
     const eventId = btn.getAttribute("data-event-id");
+    const notifType = btn.getAttribute("data-notif-type") || "";
+    const eventTitle = btn.getAttribute("data-event-title") || "";
     const wasUnread =
       btn.classList.contains("is-highlighted") ||
       (btn.getAttribute("data-filter-tags") || "").includes("unread");
@@ -559,6 +562,13 @@ function wireStudentNotificationClicks() {
     const finish = () => {
       void updateStudentNotifBadge();
       window.dispatchEvent(new CustomEvent("dc-notifications-rendered"));
+      if (eventId && notifType.startsWith("survey-")) {
+        // Mid-/post-event survey: open the survey form for this event directly.
+        const qs = new URLSearchParams({ eventId });
+        if (eventTitle) qs.set("eventTitle", eventTitle);
+        window.location.assign(`/feedback/sign?${qs.toString()}`);
+        return;
+      }
       if (eventId) {
         window.location.assign(`/events/explore?id=${encodeURIComponent(eventId)}`);
       }
@@ -1341,6 +1351,7 @@ export function StudentDataBridge() {
             body: string;
             type: string;
             eventId?: string;
+            eventTitle?: string;
             read: boolean;
             createdAt: string;
           }>;
@@ -1372,7 +1383,7 @@ export function StudentDataBridge() {
               const tags = item.read ? "all recent" : "all recent unread";
               const search = escapeHtml(`${item.title} ${item.body}`.toLowerCase());
               return `<li>
-                <button type="button" class="notif-item${highlighted}" data-notif-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId || "")}" data-filter-tags="${tags}" data-search="${search}">
+                <button type="button" class="notif-item${highlighted}" data-notif-id="${escapeHtml(item.id)}" data-event-id="${escapeHtml(item.eventId || "")}" data-notif-type="${escapeHtml(item.type || "")}" data-event-title="${escapeHtml(item.eventTitle || "")}" data-filter-tags="${tags}" data-search="${search}">
                   <span class="${notifIconClass(item.type)}" aria-hidden="true">
                     <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
                   </span>

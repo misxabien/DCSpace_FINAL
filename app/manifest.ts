@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "DC Space",
     short_name: "DC Space",
     description:
-      "AI-assisted RFID system for event tracking and certificate issuance.",
+      "DC SPACE: AI-driven Event Intelligence Platform for Predictive Crowd Management and Adaptive Event Optimization",
     start_url: "/login",
     scope: "/",
     display: "standalone",
