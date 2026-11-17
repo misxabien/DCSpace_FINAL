@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { OrganizedEventHeader } from "@/components/organized/OrganizedEventHeader";
 import { FileAction } from "@/components/organized/FileAction";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
@@ -27,10 +27,11 @@ export function OrganizedParticipantView({
   participant: ParticipantDetail;
 }) {
   const [participant, setParticipant] = useState(initialParticipant);
-
-  useEffect(() => {
+  const [sourceParticipant, setSourceParticipant] = useState(initialParticipant);
+  if (sourceParticipant !== initialParticipant) {
+    setSourceParticipant(initialParticipant);
     setParticipant(initialParticipant);
-  }, [initialParticipant]);
+  }
 
   const onFileStatusChange = (fileId: string, status: FileSubmissionStatus) => {
     setParticipant((current) => ({

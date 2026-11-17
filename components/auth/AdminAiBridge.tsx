@@ -461,12 +461,15 @@ async function hydrateEventPage(root: ParentNode, eventId: string, live = false)
   }
 
   try {
-    // Live pages always re-fetch so new student joins update crowd prediction numbers.
+    // Live pages re-fetch on every poll so crowd numbers stay current. The numbers are
+    // recomputed server-side each time; the Gemini narrative is cached by a key that
+    // includes those live stats, so it refreshes when attendance changes without
+    // calling Gemini on every poll.
     const res = await fetch("/api/ai/event-insights", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ eventId, refresh: live }),
+      body: JSON.stringify({ eventId }),
     });
     const payload = await res.json().catch(() => ({}));
     root.querySelectorAll(".ai-conclusion-box").forEach((box) => {
@@ -1116,14 +1119,18 @@ export function AdminAiBridge() {
       document.querySelector("[data-admin-page]") ||
       document.body;
     let cancelled = false;
+    // Gemini can take 10s+; never start a new poll while the previous one is running.
+    let running = false;
 
     const run = async () => {
-      if (cancelled) return;
+      if (cancelled || running) return;
+      running = true;
       try {
-        const eventId = await resolveAdminEventId(
-          searchParams.get("id") || "",
-          searchParams.get("status") || "",
-        );
+        // Only event detail pages need an event; skip the event-list lookup elsewhere
+        // (dashboard, reports, sign-in pages).
+        const eventId = EVENT_DETAIL_PAGES.has(pageId)
+          ? await resolveAdminEventId(searchParams.get("id") || "", searchParams.get("status") || "")
+          : "";
         if (EVENT_DETAIL_PAGES.has(pageId) && eventId) {
           const insightsPromise = hydrateEventPage(root, eventId, pageId === "live16");
           if (pageId === "live16") {
@@ -1162,6 +1169,8 @@ export function AdminAiBridge() {
         }
       } catch {
         /* live data still hydrates elsewhere */
+      } finally {
+        running = false;
       }
     };
 

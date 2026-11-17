@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BOTTOM_NAV,
@@ -61,17 +61,26 @@ function MenuIcon() {
   );
 }
 
+const noopSubscribe = () => () => {};
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isOrganizer, logout } = useAuth();
   // Keep first paint identical on server + client (auth cache only exists in the browser).
-  const [hydrated, setHydrated] = useState(false);
+  // false on the server and during hydration, true afterwards (no extra effect render).
+  const hydrated = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
+  // Close the mobile drawer whenever the route changes.
+  const [navPathname, setNavPathname] = useState(pathname);
+  if (navPathname !== pathname) {
+    setNavPathname(pathname);
+    setMobileOpen(false);
+  }
 
   useEffect(() => {
     const { photoUrl } = readCachedAccountImages();
@@ -80,10 +89,6 @@ export function Sidebar() {
 
   const navItems = hydrated ? getNavItemsForRole(isOrganizer) : STUDENT_NAV_ITEMS;
   useSidebarCollapse();
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     document.body.classList.toggle("is-mobile-nav-open", mobileOpen);

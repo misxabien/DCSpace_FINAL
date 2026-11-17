@@ -2,7 +2,7 @@
  * Seeds RFID tags + live event registrations for attendance testing.
  * Usage: node scripts/seed-attendance-demo.mjs
  */
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient } from "mongodb";
 import { loadEnv } from "./load-env.mjs";
 
 loadEnv();

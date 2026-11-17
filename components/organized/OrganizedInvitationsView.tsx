@@ -67,6 +67,8 @@ export function OrganizedInvitationsView({ event }: { event: OrganizedEventDetai
   }, [applyInvitationState, event.id]);
 
   useEffect(() => {
+    // Fetch from the API on mount; state updates happen after the requests resolve.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadInviteData();
   }, [loadInviteData]);
 

@@ -8,7 +8,7 @@ import {
   type EventStatus,
   type SpaceEvent,
 } from "@/lib/events/types";
-import { getAdminDb, getUserDb } from "@/lib/db/get-db";
+import { getUserDb } from "@/lib/db/get-db";
 import { findEventById } from "@/lib/events/find-event";
 import { escapeRegex } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";

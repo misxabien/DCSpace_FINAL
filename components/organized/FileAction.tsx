@@ -40,11 +40,11 @@ function FileAction({
   };
 
   useLayoutEffect(() => {
-    if (!open) {
-      setMenuStyle(null);
-      return;
-    }
+    // Closed: the menu is not rendered, so a stale position is harmless and is
+    // re-measured below before paint the next time it opens.
+    if (!open) return;
 
+    // Measure the trigger before paint so the portal menu never flashes in the wrong spot.
     updateMenuPosition();
 
     const onReposition = () => updateMenuPosition();

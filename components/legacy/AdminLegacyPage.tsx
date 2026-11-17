@@ -65,6 +65,12 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
   // Hide sidebar sections the Super Admin has not granted to this admin.
   useEffect(() => {
     if (!htmlReady) return;
+    // Sign-in / sign-up pages have no admin session and no sidebar to filter.
+    const SIGNED_OUT_PAGES = new Set([
+      "login02", "register03", "school04", "verify06", "pass07",
+      "agreement08", "fp09", "fpv10", "fpp11", "acc1", "acc05",
+    ]);
+    if (SIGNED_OUT_PAGES.has(data.id)) return;
     let cancelled = false;
     const NAV_PERMISSION: Record<string, string> = {
       "/admin/event13": "view-events",

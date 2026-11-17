@@ -17,10 +17,15 @@ export function ChangePasswordModal() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Close the modal whenever the route changes.
+  const [modalPathname, setModalPathname] = useState(pathname);
+  if (modalPathname !== pathname) {
+    setModalPathname(pathname);
+    setOpen(false);
+  }
 
   useEffect(() => {
     if (pathname !== "/profile") {
-      setOpen(false);
       return;
     }
 

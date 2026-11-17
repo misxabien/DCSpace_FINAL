@@ -1,4 +1,4 @@
-import type { Db, ObjectId } from "mongodb";
+import type { Db } from "mongodb";
 import { ObjectId as MongoObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
 

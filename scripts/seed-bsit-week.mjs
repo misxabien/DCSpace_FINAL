@@ -5,7 +5,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient } from "mongodb";
 
 function loadEnv() {
   const envPath = resolve(process.cwd(), ".env");

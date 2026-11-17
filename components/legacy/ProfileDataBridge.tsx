@@ -148,11 +148,20 @@ function applyProfile(profile: UserProfile) {
 
 export function ProfileDataBridge() {
   const { user } = useAuth();
+  // Depend on primitives: AuthProvider hands out a new user object on every
+  // "dcspace-profile-updated" event, which used to restart this effect in a loop.
+  const userName = user?.name || "";
+  const userRole = user?.role || "";
 
   useEffect(() => {
     let cancelled = false;
+    // applyProfile() itself fires "dcspace-profile-updated"; ignore events while a
+    // load is in progress so the page does not refetch itself forever.
+    let inFlight = false;
 
     const run = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const profileRes = await fetch("/api/user/profile", {
           cache: "no-store",
@@ -207,11 +216,13 @@ export function ProfileDataBridge() {
         if (session?.user) {
           applyProfile(session.user);
           wireProfileSave();
-        } else if (user?.name) {
-          setText(".main__user-name", user.name);
-          setInputValue("#profile-name", user.name);
-          setInputValue("#profile-org-position", user.role || "Student");
+        } else if (userName) {
+          setText(".main__user-name", userName);
+          setInputValue("#profile-name", userName);
+          setInputValue("#profile-org-position", userRole || "Student");
         }
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -311,7 +322,7 @@ export function ProfileDataBridge() {
       window.removeEventListener("dcspace-profile-updated", onProfileUpdated);
       window.removeEventListener("focus", onProfileUpdated);
     };
-  }, [user]);
+  }, [userName, userRole]);
 
   return null;
 }

@@ -90,6 +90,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Sync with browser-only storage + /api/auth/me after mount, so server HTML and the
+    // first client render stay identical.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 
@@ -98,17 +101,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onProfileUpdated = () => {
       const cached = readCachedAuthUser();
       if (!cached) return;
-      setUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              name: cached.name || prev.name,
-              role: cached.role || prev.role,
-              isOrganizer: cached.isOrganizer,
-              isAdmin: cached.isAdmin,
-            }
-          : cached,
-      );
+      setUser((prev) => {
+        if (!prev) return cached;
+        const next = {
+          ...prev,
+          name: cached.name || prev.name,
+          role: cached.role || prev.role,
+          isOrganizer: cached.isOrganizer,
+          isAdmin: cached.isAdmin,
+        };
+        // Keep the same object when nothing changed, so consumers do not re-run effects.
+        const unchanged =
+          next.name === prev.name &&
+          next.role === prev.role &&
+          next.isOrganizer === prev.isOrganizer &&
+          next.isAdmin === prev.isAdmin;
+        return unchanged ? prev : next;
+      });
     };
     window.addEventListener("dcspace-profile-updated", onProfileUpdated);
     return () => window.removeEventListener("dcspace-profile-updated", onProfileUpdated);

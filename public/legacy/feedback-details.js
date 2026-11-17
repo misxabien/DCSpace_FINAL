@@ -61,6 +61,8 @@
     var params = new URLSearchParams(window.location.search);
     var id = params.get("id") || "1";
     var feedback = DCFeedback.getFeedbackById(id);
+    // Live items arrive from MongoDB via StudentDataBridge, which calls this again.
+    if (!feedback) return;
 
     document.title = "DC Space — " + feedback.title;
 
