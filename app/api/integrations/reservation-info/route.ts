@@ -74,8 +74,15 @@ export async function POST(request: Request) {
   }
 
   const eventIdRaw = body.eventId ?? body.dcSpaceEventId;
-  const eventId =
+  let eventId =
     typeof eventIdRaw === "string" && eventIdRaw.trim() ? eventIdRaw.trim() : "";
+  // Recover event id from provisional ids created by DC Space (dcspace-<eventId>).
+  if (!eventId) {
+    const {
+      eventIdFromProvisionalReservationId,
+    } = await import("@/lib/integrations/reservation-status");
+    eventId = eventIdFromProvisionalReservationId(String(body.reservationId || ""));
+  }
 
   try {
     const db = await getUserDb();
