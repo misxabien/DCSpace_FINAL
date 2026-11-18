@@ -4,15 +4,17 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   bucketCategory,
+  eventBelongsToUserOrganization,
   eventTimingBucket,
   mapDbEventToCard,
   resolveEventImageUrl,
+  thematicCategory,
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
 import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
-import { authFetch } from "@/lib/user-api";
+import { authFetch, readAuthSession } from "@/lib/user-api";
 import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
 import { showAppToast } from "@/lib/ui/app-toast";
 import { startSmartPoll } from "@/lib/client/smart-poll";
@@ -687,16 +689,43 @@ export function StudentDataBridge() {
             .map((row) => String(row.eventId || "")),
         );
 
+        const sessionUser = readAuthSession()?.user;
+        const userOrganization = String(sessionUser?.organizationPart || "").trim();
+        const userCourse = String(sessionUser?.course || "").trim();
+
+        const orgHeading = document.getElementById("org-heading");
+        if (orgHeading) {
+          orgHeading.textContent = userOrganization
+            ? `${userOrganization} Events`
+            : "Your Organization Events";
+        }
+
         let live: LegacyCardEvent[] = events
           .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
           .map((event) => {
-            const card = mapDbEventToCard(event, bucketCategory(event));
             const timing = eventTimingBucket(event.startsAt, event.status);
+            const theme = thematicCategory(event);
+            const matchesOrg = eventBelongsToUserOrganization(
+              event,
+              userOrganization,
+              userCourse,
+            );
+
+            // "Your Organization Events" is membership-based (org/course),
+            // not every campus org/social/party event.
+            let displayCategory = bucketCategory(event);
+            if (theme === "organization" && !matchesOrg) {
+              displayCategory =
+                timing === "today" ? "today" : timing === "past" ? "past" : "upcoming";
+            }
+
+            const card = mapDbEventToCard(event, displayCategory);
             const tags = [card.category];
             // Always tag calendar buckets so Happening Today / Upcoming still
             // show them even when the card uses a thematic category.
             if (timing === "today" && !tags.includes("today")) tags.push("today");
             if (timing === "upcoming" && !tags.includes("upcoming")) tags.push("upcoming");
+            if (matchesOrg && !tags.includes("organization")) tags.push("organization");
             if (invited.has(card.id)) tags.push("invited");
             if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
             const status = joined.get(card.id);

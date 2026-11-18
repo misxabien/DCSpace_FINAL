@@ -292,8 +292,8 @@
       description: 'Technology and innovation events will appear here when they become available.'
     },
     'row-org': {
-      title: 'No organization events yet.',
-      description: 'Organization activities will appear here once they are published.'
+      title: 'No events for your organization yet.',
+      description: 'Events from your course or organization will appear here when they are published.'
     },
     'attendance-today-grid': {
       title: 'No attendance events today.',
