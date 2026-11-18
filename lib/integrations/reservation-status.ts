@@ -182,14 +182,21 @@ async function linkReservationToEvents(
       { $set: patch },
     );
     // If the event exists, also fill location only when empty.
-    if (result.matchedCount > 0) {
+    if (result.matchedCount > 0 && input.room.name) {
       await events.updateOne(
         {
           _id: new MongoObjectId(eventId),
-          $or: [{ location: { $exists: false } }, { location: "" }, { location: null }],
+          $or: [
+            { location: { $exists: false } },
+            { location: "" },
+            { location: { $type: "null" } },
+          ],
         },
         { $set: { location: input.room.name } },
       );
+      return eventId;
+    }
+    if (result.matchedCount > 0) {
       return eventId;
     }
   }
