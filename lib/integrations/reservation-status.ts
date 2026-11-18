@@ -226,8 +226,9 @@ async function linkReservationToEvents(
       .find({
         status: "pending",
         $or: [
-          { reservationStatus: { $in: ["pending", "", null] } },
+          { reservationStatus: { $in: ["pending", ""] } },
           { reservationStatus: { $exists: false } },
+          { reservationStatus: { $type: "null" } },
         ],
         reservationId: { $regex: /^dcspace-[a-f\d]{24}$/i },
       })
@@ -269,13 +270,19 @@ async function linkReservationToEvents(
 
     if (best) {
       await events.updateOne({ _id: new MongoObjectId(best.id) }, { $set: patch });
-      await events.updateOne(
-        {
-          _id: new MongoObjectId(best.id),
-          $or: [{ location: { $exists: false } }, { location: "" }, { location: null }],
-        },
-        { $set: { location: input.room.name } },
-      );
+      if (input.room.name) {
+        await events.updateOne(
+          {
+            _id: new MongoObjectId(best.id),
+            $or: [
+              { location: { $exists: false } },
+              { location: "" },
+              { location: { $type: "null" } },
+            ],
+          },
+          { $set: { location: input.room.name } },
+        );
+      }
       return best.id;
     }
   }
