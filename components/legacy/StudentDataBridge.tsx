@@ -14,6 +14,7 @@ import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
 import { authFetch } from "@/lib/user-api";
 import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
+import { showAppToast } from "@/lib/ui/app-toast";
 import { startSmartPoll } from "@/lib/client/smart-poll";
 
 declare global {
@@ -1454,7 +1455,11 @@ export function StudentDataBridge() {
           status: files?.length ? "pending" : "joined",
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        duplicate?: boolean;
+        registration?: { status?: string };
+      };
       if (!res.ok) {
         throw new Error(data.error || "Failed to join event.");
       }
@@ -1471,16 +1476,22 @@ export function StudentDataBridge() {
         actionBtn.textContent = "Joining…";
       }
       try {
-        await joinEvent(eventId, String(detail.eventTitle || ""));
+        const result = await joinEvent(eventId, String(detail.eventTitle || ""));
         if (actionBtn) {
           actionBtn.textContent = "Registration Successful";
           actionBtn.className = "detail-action detail-action--joined";
+        }
+        if (result.duplicate) {
+          showAppToast("You've already joined this event.", "info");
+        } else {
+          showAppToast("You've joined this event.", "success");
         }
         invalidatePortalCache();
         void injectEvents();
         window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "Failed to join event.");
+        const message = error instanceof Error ? error.message : "Failed to join event.";
+        showAppToast(message, "error");
         if (actionBtn) {
           actionBtn.disabled = false;
           actionBtn.textContent = "Join This Event";
@@ -1513,14 +1524,24 @@ export function StudentDataBridge() {
             status: "pending",
           });
         }
-        await joinEvent(eventId, String(detail.eventTitle || ""), files);
+        const result = await joinEvent(eventId, String(detail.eventTitle || ""), files);
         if (submitBtn) {
           submitBtn.textContent = "Registration Pending";
           submitBtn.disabled = true;
           submitBtn.className = "detail-action detail-action--pending";
         }
+        if (result.duplicate) {
+          showAppToast("You've already joined this event.", "info");
+        } else {
+          showAppToast("Registration submitted. You've joined this event.", "success");
+        }
+        invalidatePortalCache();
+        void injectEvents();
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "Failed to submit registration.");
+        showAppToast(
+          error instanceof Error ? error.message : "Failed to submit registration.",
+          "error",
+        );
       }
     };
 
