@@ -86,7 +86,6 @@ export function useLegacyScripts(
           await loadScript(script.value);
         } else {
           try {
-            // eslint-disable-next-line no-new-func
             new Function(script.value)();
           } catch (err) {
             console.warn("Legacy inline script error:", err);

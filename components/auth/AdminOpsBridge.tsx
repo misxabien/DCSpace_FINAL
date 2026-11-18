@@ -9,6 +9,7 @@ import {
   ensureEventsFooterAtBottom,
   setNotifEmptyState,
 } from "@/lib/legacy-dom-patch";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
@@ -3659,19 +3660,19 @@ export function AdminOpsBridge() {
       pageIdFromPath(pathname) === "rfid17"
         ? 5000
         : pageIdFromPath(pathname) === "notif1"
-          ? 4000
-          : 12000;
-    const poll = window.setInterval(() => void run(), pollMs);
-    const badgePoll = window.setInterval(() => {
+          ? 10000
+          : 20000;
+    const stopPoll = startSmartPoll(run, pollMs);
+    const stopBadgePoll = startSmartPoll(() => {
       if (pageIdFromPath(pathname) === "notif1") return;
-      void updateAdminNotifBadge();
-    }, 4000);
+      return updateAdminNotifBadge();
+    }, 15000);
     return () => {
       cancelled = true;
       document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
       window.cancelAnimationFrame(t1);
-      window.clearInterval(poll);
-      window.clearInterval(badgePoll);
+      stopPoll();
+      stopBadgePoll();
       if (pageIdFromPath(pathname) === "rfid17") {
         rfidScannerWired = false;
       }

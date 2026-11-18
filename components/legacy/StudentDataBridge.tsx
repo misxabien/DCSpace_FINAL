@@ -14,6 +14,7 @@ import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
 import { authFetch } from "@/lib/user-api";
 import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 declare global {
   interface Window {
@@ -219,15 +220,38 @@ function titleForMissingEvent(
   return "Event";
 }
 
+/**
+ * Short-lived cache for /api/events/:id so page refresh loops do not refetch the
+ * same event documents every few seconds. Concurrent callers share one request.
+ */
+const eventFetchCache = new Map<string, { at: number; promise: Promise<SanitizedEvent | null> }>();
+const FULL_EVENT_TTL_MS = 20_000;
+const LIGHT_EVENT_TTL_MS = 5 * 60_000;
+
+function fetchEventDoc(eventId: string, light: boolean): Promise<SanitizedEvent | null> {
+  const key = `${light ? "light" : "full"}:${eventId}`;
+  const ttl = light ? LIGHT_EVENT_TTL_MS : FULL_EVENT_TTL_MS;
+  const hit = eventFetchCache.get(key);
+  if (hit && Date.now() - hit.at < ttl) return hit.promise;
+  const promise = authFetch(
+    `/api/events/${encodeURIComponent(eventId)}${light ? "?light=1" : ""}`,
+    { cache: "no-store" },
+  )
+    .then(async (res) =>
+      res.ok ? ((await res.json()) as { event?: SanitizedEvent }).event ?? null : null,
+    )
+    .catch(() => null);
+  eventFetchCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
 /** Load full Mongo event fields (description, poster, requirements) for detail pages. */
 async function ensureFullEventInList(eventId: string): Promise<LegacyCardEvent | null> {
   if (!window.DCEvents || !eventId) return null;
   try {
-    const res = await authFetch(`/api/events/${encodeURIComponent(eventId)}`, {
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const payload = (await res.json()) as { event?: SanitizedEvent };
+    const fullEvent = await fetchEventDoc(eventId, false);
+    {
+      const payload = { event: fullEvent };
       if (payload.event) {
         const card = mapDbEventToCard(payload.event, bucketCategory(payload.event));
         const list = Array.isArray(window.DCEvents.list)
@@ -343,16 +367,6 @@ function refreshLegacyEventViews(pathname: string) {
       }
     });
   }
-}
-
-function formatClock(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function formatAttendanceStamp(iso: string) {
@@ -761,12 +775,9 @@ export function StudentDataBridge() {
             const resolved = await Promise.all(
               needsPosterMeta.map(async (event) => {
                 try {
-                  const res = await authFetch(
-                    `/api/events/${encodeURIComponent(String(event.id))}?light=1`,
-                    { cache: "no-store" },
-                  );
-                  if (!res.ok) return event;
-                  const payload = (await res.json()) as { event?: SanitizedEvent };
+                  // Cached: events without a poster are not re-asked on every refresh.
+                  const lightEvent = await fetchEventDoc(String(event.id), true);
+                  const payload = { event: lightEvent };
                   if (!payload.event) return event;
                   const imageUrl = resolveEventImageUrl(payload.event);
                   const merged = mapDbEventToCard(
@@ -1544,17 +1555,16 @@ export function StudentDataBridge() {
     const t1 = window.setTimeout(runWithSavedSync, 80);
     const t2 = window.setTimeout(runWithSavedSync, 400);
     const t3 = window.setTimeout(runWithSavedSync, 900);
-    // Attendance details: poll Mongo tap logs near real-time.
+    // Attendance details: poll Mongo tap logs near real-time; everything else calmer.
+    // Polls pause while the tab/app is hidden and refresh when it comes back.
     const pollMs = pathname.startsWith("/attendance/details")
-      ? 1000
+      ? 3000
       : pathname.startsWith("/attendance")
-        ? 3000
+        ? 5000
         : pathname === "/notifications"
           ? 10_000
-          : pathname === "/home" || pathname.startsWith("/events")
-            ? 5000
-            : 8000;
-    const poll = window.setInterval(run, pollMs);
+          : 15_000;
+    const stopPoll = startSmartPoll(run, pollMs);
 
     const onFocusRefresh = () => {
       void injectEvents();
@@ -1577,7 +1587,7 @@ export function StudentDataBridge() {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
-      window.clearInterval(poll);
+      stopPoll();
       window.removeEventListener("dc-saved-changed", onSavedChanged);
       window.removeEventListener("dc-events-ready", onEventsReady);
       window.removeEventListener("dc-join-event", onJoinEvent as EventListener);

@@ -16,6 +16,7 @@ import {
   clearRemainingStatCardLoading,
   clearStatCardLoading,
 } from "@/lib/legacy-dom-patch";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 const STAT_LOADING_PAGES = new Set([
   "home12",
@@ -2222,18 +2223,18 @@ export function AdminDataBridge() {
       pageId === "feedback47" ||
       pageId === "fcollection48" ||
       pageId === "scollection48"
-        ? 4000
+        ? 10000
         : EVENT_LIST_POLL.has(pageId)
           ? 30000
-          : 12000;
-    const poll = window.setInterval(() => void run(), pollMs);
+          : 20000;
+    const stopPoll = startSmartPoll(run, pollMs);
 
     return () => {
       cancelled = true;
       feedbackEventsHydrationCache.clear();
       window.clearTimeout(t1);
       window.clearTimeout(t2);
-      window.clearInterval(poll);
+      stopPoll();
       document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
       document.removeEventListener("click", onCertAction, true);
     };

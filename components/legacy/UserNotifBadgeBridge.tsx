@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 function notifBellTargets(): HTMLElement[] {
   return Array.from(
@@ -76,7 +77,7 @@ export function UserNotifBadgeBridge() {
 
   useEffect(() => {
     void refreshUserNotifBadge();
-    const poll = window.setInterval(() => void refreshUserNotifBadge(), 12_000);
+    const stopPoll = startSmartPoll(refreshUserNotifBadge, 15_000);
     const onFocus = () => void refreshUserNotifBadge();
     const onVisible = () => {
       if (document.visibilityState === "visible") void refreshUserNotifBadge();
@@ -94,7 +95,7 @@ export function UserNotifBadgeBridge() {
     const t2 = window.setTimeout(() => void refreshUserNotifBadge(), 800);
 
     return () => {
-      window.clearInterval(poll);
+      stopPoll();
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.removeEventListener("focus", onFocus);

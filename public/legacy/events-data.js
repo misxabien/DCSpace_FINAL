@@ -167,7 +167,7 @@
     return section;
   }
 
-  function fillListSection(id, title, items, emptyLabel) {
+  function fillListSection(id, title, items) {
     var values = Array.isArray(items) ? items.filter(Boolean) : [];
     if (!values.length) return;
     var section = ensureExtraSection(id, title);

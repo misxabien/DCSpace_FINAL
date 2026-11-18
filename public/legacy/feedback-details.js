@@ -1,12 +1,4 @@
 (function () {
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
   function renderStars(rating) {
     var html = "";
     for (var i = 1; i <= 5; i++) {

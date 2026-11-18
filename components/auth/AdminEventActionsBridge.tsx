@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { resolveAdminEventId } from "@/lib/events/resolve-admin-event-id";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 type LiveEvent = {
   id: string;
@@ -747,7 +748,7 @@ export function AdminEventActionsBridge() {
     };
 
     void load();
-    const poll = window.setInterval(() => void load(), 8000);
+    const stopPoll = startSmartPoll(load, 10000);
 
     const onClick = async (event: MouseEvent) => {
       const target = event.target as Element | null;
@@ -846,9 +847,9 @@ export function AdminEventActionsBridge() {
       document.removeEventListener("click", onClick, true);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
-      window.clearInterval(poll);
+      stopPoll();
     };
-  }, [pathname, queryId]);
+  }, [pathname, queryId, statusParam]);
 
   return null;
 }

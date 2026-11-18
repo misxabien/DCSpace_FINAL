@@ -35,9 +35,6 @@
     '/admin': 'admin-home12.html'
   };
 
-  var HELP_BUTTON_SELECTOR =
-    '.tool-btn--help, .icon-btn.help, [aria-label="Help"], [aria-label="Tutorial"]';
-
   function resolvePageName() {
     var path = window.location.pathname.replace(/\/$/, '');
     if (!path || path === '/') return '09-home.html';

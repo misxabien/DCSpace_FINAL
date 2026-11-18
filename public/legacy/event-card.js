@@ -32,7 +32,7 @@
       if (!raw) return [];
       var parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed.map(String) : [];
-    } catch (e) {
+    } catch (_e) {
       return [];
     }
   }
@@ -178,7 +178,7 @@
     }
     try {
       window.dispatchEvent(new CustomEvent('dc-navigate', { detail: { href: url } }));
-    } catch (e) {
+    } catch (_e) {
       /* ignore */
     }
     // Always navigate — SoftNavEnhancer soft-routes same-origin location.assign.
@@ -487,7 +487,7 @@
     var scope = root || document;
     var cards = scope.querySelectorAll('.event-card');
 
-    cards.forEach(function (card, index) {
+    cards.forEach(function (card) {
       if (card.getAttribute('data-event-id')) {
         attachCardNavigation(
           card,

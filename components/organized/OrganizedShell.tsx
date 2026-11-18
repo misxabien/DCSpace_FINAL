@@ -10,6 +10,7 @@ import { useProfileHydration } from "@/components/legacy/useProfileHydration";
 import { UserDisplayNameBridge } from "@/components/legacy/UserDisplayNameBridge";
 import { resolveUserDisplayName } from "@/lib/user-api";
 import styles from "@/components/organized/Organized.module.css";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 export type OrganizedEvent = {
   id: string;
@@ -228,13 +229,13 @@ export function useOrganizedEvents() {
     };
 
     void sync();
-    const timer = window.setInterval(() => void sync(), 30_000);
+    const stopPoll = startSmartPoll(sync, 30_000);
     window.addEventListener("dc-organized-changed", sync);
     window.addEventListener("storage", sync);
     return () => {
       cancelled = true;
       inFlight?.abort();
-      window.clearInterval(timer);
+      stopPoll();
       window.removeEventListener("dc-organized-changed", sync);
       window.removeEventListener("storage", sync);
     };

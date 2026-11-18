@@ -9,6 +9,7 @@ import {
   setLegacyHidden,
 } from "@/lib/legacy-dom-patch";
 import { resolveAdminEventId } from "@/lib/events/resolve-admin-event-id";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 type EventInsights = {
   expectedAttendees: number;
@@ -1178,16 +1179,16 @@ export function AdminAiBridge() {
     const timer2 = window.setTimeout(() => void run(), 400);
     const pollMs =
       pageId === "live16"
-        ? 2500
+        ? 4000
         : pageId === "reportgen53" || EVENT_DETAIL_PAGES.has(pageId)
-          ? 4000
+          ? 10000
           : 0;
-    const poll = pollMs ? window.setInterval(() => void run(), pollMs) : 0;
+    const stopPoll = pollMs ? startSmartPoll(run, pollMs) : null;
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
       window.clearTimeout(timer2);
-      if (poll) window.clearInterval(poll);
+      stopPoll?.();
     };
   }, [pathname, searchParams]);
 

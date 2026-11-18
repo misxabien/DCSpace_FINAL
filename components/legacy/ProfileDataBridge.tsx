@@ -9,6 +9,7 @@ import {
   safeSetLocalStorage,
 } from "@/lib/profile-images";
 import { readAuthSession, saveAuthSession, syncProfileToLegacyStorage, type UserProfile } from "@/lib/user-api";
+import { startSmartPoll } from "@/lib/client/smart-poll";
 
 type AttendanceRow = {
   eventTitle?: string;
@@ -307,7 +308,8 @@ export function ProfileDataBridge() {
 
     const t1 = window.setTimeout(run, 120);
     const t2 = window.setTimeout(run, 500);
-    const poll = window.setInterval(() => void run(), 5000);
+    // Profile data rarely changes; focus / profile-updated events refresh it sooner.
+    const stopPoll = startSmartPoll(run, 30000);
     const onProfileUpdated = () => {
       void run();
     };
@@ -318,7 +320,7 @@ export function ProfileDataBridge() {
       cancelled = true;
       window.clearTimeout(t1);
       window.clearTimeout(t2);
-      window.clearInterval(poll);
+      stopPoll();
       window.removeEventListener("dcspace-profile-updated", onProfileUpdated);
       window.removeEventListener("focus", onProfileUpdated);
     };
