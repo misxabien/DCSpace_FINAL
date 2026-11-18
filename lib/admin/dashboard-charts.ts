@@ -114,28 +114,33 @@ export async function buildDashboardCharts(userDb: Db): Promise<DashboardCharts>
   // Same admin DB resolution as the rest of the app (defaults to dcspace_admin).
   const adminDb = await getAdminDb();
 
+  // Keep chart scans bounded so /api/admin/dashboard stays snappy.
   const [adminEvents, userEvents, attendanceDocs, registrationDocs] = await Promise.all([
     eventsCollection(adminDb)
       .find({})
       .project({ title: 1, category: 1, startsAt: 1, status: 1 })
-      .limit(2000)
+      .sort({ updatedAt: -1 })
+      .limit(400)
       .toArray(),
     adminDb === userDb
       ? Promise.resolve([])
       : eventsCollection(userDb)
           .find({})
           .project({ title: 1, category: 1, startsAt: 1, status: 1 })
-          .limit(2000)
+          .sort({ updatedAt: -1 })
+          .limit(400)
           .toArray(),
     attendanceCollection(userDb)
       .find({ action: { $in: ["in", "out"] } })
       .project({ eventId: 1, eventTitle: 1, email: 1, action: 1 })
-      .limit(5000)
+      .sort({ createdAt: -1 })
+      .limit(1500)
       .toArray(),
     registrationsCollection(userDb)
       .find({})
       .project({ eventId: 1 })
-      .limit(5000)
+      .sort({ createdAt: -1 })
+      .limit(1500)
       .toArray(),
   ]);
 

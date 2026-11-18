@@ -2106,7 +2106,7 @@ async function hydrateCertificateDetails() {
         attendanceRequiredMinutes?: number;
         attachments?: { certificateTemplate?: string };
       }>;
-    }>("/api/events?hasCertificateTemplate=1&limit=500"),
+    }>("/api/events?hasCertificateTemplate=1&limit=150"),
     eventId
       ? fetchJson<{
           attendance: Array<{
@@ -3251,7 +3251,7 @@ async function resolveListp44EventId(): Promise<string> {
   if (!eventName || eventName.toLowerCase() === "event name") return "";
 
   const data = await fetchJson<{ events: Array<{ id: string; title: string }> }>(
-    "/api/events?limit=500",
+    "/api/events?limit=150",
   );
   const target = eventName.toLowerCase();
   const match = (data?.events || []).find(
