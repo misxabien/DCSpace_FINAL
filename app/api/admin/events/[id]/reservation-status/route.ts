@@ -37,7 +37,9 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const denied = await requireAdminPermission(auth, "approve-events");
-  if (denied) return denied;
+  if (denied) {
+    return NextResponse.json({ error: denied.error }, { status: denied.status });
+  }
 
   const { id } = await context.params;
   if (!ObjectId.isValid(id)) {
