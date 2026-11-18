@@ -2244,7 +2244,7 @@ async function hydrateCertificateDetails() {
       status: "Not issued",
       downloadUrl: "",
     };
-    if (row.action === "in" || row.action === "out") existing.eligible = true;
+    // Eligible only after tap-out + minimum attendance time.
     if (row.qualifiedForCertificate) existing.eligible = true;
     if (row.participantName) existing.userName = String(row.participantName);
     byEmail.set(email, existing);
@@ -2334,11 +2334,22 @@ async function hydrateCertificateDetails() {
                 return;
               }
               if (label.includes("generate")) {
+                if (!row.eligible && !label.includes("regenerate")) {
+                  window.alert(
+                    `${row.userName} is not eligible yet. They must tap out and meet the minimum attendance time.`,
+                  );
+                  return;
+                }
                 const regenerate = label.includes("regenerate");
                 const payload = await issueOne(row.email, row.userName, regenerate);
+                const blocked = Array.isArray(payload.ineligible)
+                  ? payload.ineligible[0]
+                  : null;
                 window.alert(
                   payload.message ||
-                    `Certificate issued for ${row.userName} — ${eventTitle}.`,
+                    (blocked?.reason
+                      ? blocked.reason
+                      : `Certificate issued for ${row.userName} — ${eventTitle}.`),
                 );
                 window.location.reload();
               }

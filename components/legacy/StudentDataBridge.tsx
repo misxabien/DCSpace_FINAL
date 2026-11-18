@@ -1355,7 +1355,8 @@ export function StudentDataBridge() {
             downloadUrl?: string;
           }>;
         };
-        const certs = data.certificates || [];
+        // Only certificates returned for the signed-in user (API-enforced).
+        const certs = (data.certificates || []).filter((cert) => Boolean(cert.id));
         if (!window.DCCertificates) return;
         window.DCCertificates.list = certs;
         const certTargets: Array<{ id: string; category: string }> = [

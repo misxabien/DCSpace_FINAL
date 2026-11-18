@@ -24,6 +24,7 @@ export type StoredCertificateDoc = {
   generatedPdfMimeType?: string;
   qualificationSource?: string;
   attendanceMinutes?: number;
+  layoutVersion?: number;
 };
 
 export function certificateDownloadUrl(id: string) {
@@ -77,6 +78,7 @@ export async function createCertificateDoc(input: {
     }.pdf`,
     qualificationSource: input.qualificationSource,
     attendanceMinutes: input.attendanceMinutes,
+    layoutVersion: 2,
   };
   const result = await certificatesCollection(input.db).insertOne({
     ...doc,

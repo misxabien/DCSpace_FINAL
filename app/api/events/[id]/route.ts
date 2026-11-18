@@ -16,6 +16,7 @@ import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
+import { parseDurationToMinutes } from "@/lib/certificates/template";
 
 const REVIEW_STATUSES: EventStatus[] = [
   "pending",
@@ -300,9 +301,17 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (typeof body.startsAt === "string") update.startsAt = body.startsAt.trim();
     if (typeof body.endsAt === "string") update.endsAt = body.endsAt.trim();
     if (typeof body.attendanceRequired === "string") {
-      update.attendanceRequired = body.attendanceRequired.trim();
+      const attendanceRequired = body.attendanceRequired.trim();
+      update.attendanceRequired = attendanceRequired;
+      const minutes = parseDurationToMinutes(attendanceRequired);
+      update.attendanceRequiredMinutes = minutes && minutes > 0 ? minutes : 0;
     }
-    if (typeof body.gracePeriod === "string") update.gracePeriod = body.gracePeriod.trim();
+    if (typeof body.gracePeriod === "string") {
+      const gracePeriod = body.gracePeriod.trim();
+      update.gracePeriod = gracePeriod;
+      const graceMinutes = parseDurationToMinutes(gracePeriod);
+      update.gracePeriodMinutes = graceMinutes && graceMinutes > 0 ? graceMinutes : 0;
+    }
     if (typeof body.venueType === "string") update.venueType = body.venueType.trim();
     if (typeof body.announcements === "string") update.announcements = body.announcements.trim();
     if (typeof body.department === "string") update.department = body.department.trim();

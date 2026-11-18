@@ -13,6 +13,10 @@ import {
   createCertificateDoc,
   certificateDownloadUrl,
 } from "@/lib/user-server/certificates";
+import {
+  getCertificateEligibility,
+  resolveRequiredAttendanceMinutes,
+} from "@/lib/user-server/certificate-eligibility";
 
 export async function GET(request: Request) {
   const admin = await requireAdminAuth(request);
@@ -24,8 +28,13 @@ export async function GET(request: Request) {
     }
   }
   const actor = isAdmin ? null : await requireSessionActor(request);
-  if (!isAdmin && actor && "error" in actor) {
-    return NextResponse.json({ error: actor.error }, { status: actor.status });
+  if (!isAdmin) {
+    if (!actor || "error" in actor) {
+      return NextResponse.json(
+        { error: (actor && "error" in actor && actor.error) || "Authentication required." },
+        { status: (actor && "error" in actor && actor.status) || 401 },
+      );
+    }
   }
 
   try {
@@ -35,8 +44,9 @@ export async function GET(request: Request) {
     const email = searchParams.get("email");
     const filter: Record<string, unknown> = {};
     if (eventId) filter.eventId = eventId;
+    // Students only ever see their own certificates.
     if (!isAdmin && actor && !("error" in actor)) {
-      filter.email = actor.email;
+      filter.email = actor.email.trim().toLowerCase();
     } else if (isAdmin && email) {
       filter.email = email.trim().toLowerCase();
     }
@@ -149,6 +159,7 @@ export async function POST(request: Request) {
     }
 
     const regenerate = Boolean(body.regenerate);
+    const requiredMinutes = resolveRequiredAttendanceMinutes(event);
     const requestedEmails = Array.isArray(body.emails)
       ? body.emails.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
       : [];
@@ -185,9 +196,9 @@ export async function POST(request: Request) {
         });
       }
     } else {
-      // Bulk: attendees who tapped in (prefer those with a profile name).
+      // Bulk: only participants who already tapped out (eligibility checked below).
       const attendees = await attendanceCollection(userDb)
-        .find({ eventId, action: "in" })
+        .find({ eventId, action: "out" })
         .sort({ createdAt: 1 })
         .toArray();
       const seen = new Set<string>();
@@ -215,7 +226,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "No recipients found. Select a participant or record attendance for this event first.",
+            "No recipients found. Select a participant who has tapped out, or record attendance first.",
         },
         { status: 400 },
       );
@@ -223,7 +234,23 @@ export async function POST(request: Request) {
 
     const created = [];
     const skipped = [];
+    const ineligible = [];
     for (const target of targets) {
+      const eligibility = await getCertificateEligibility({
+        userDb,
+        eventId,
+        email: target.email,
+        requiredMinutes,
+      });
+      if (!eligibility.eligible) {
+        ineligible.push({
+          email: target.email,
+          userName: target.userName,
+          reason: eligibility.reason,
+        });
+        continue;
+      }
+
       const existing = await certificatesCollection(userDb).findOne({
         eventId,
         email: target.email,
@@ -255,6 +282,7 @@ export async function POST(request: Request) {
         },
         generatedBy: auth.session,
         qualificationSource: "admin",
+        attendanceMinutes: eligibility.attendanceMinutes,
       });
 
       // Enrich stored certificate with school identity fields for admin tables.
@@ -277,13 +305,22 @@ export async function POST(request: Request) {
       });
     }
 
+    const parts = [
+      `Issued ${created.length} certificate(s) for "${event.title}".`,
+    ];
+    if (skipped.length) parts.push(`${skipped.length} already had a certificate.`);
+    if (ineligible.length) {
+      parts.push(
+        `${ineligible.length} skipped (need tap-out + minimum ${requiredMinutes || "—"} min).`,
+      );
+    }
+
     return NextResponse.json(
       {
         certificates: created,
         skipped,
-        message: `Issued ${created.length} certificate(s) for "${event.title}".${
-          skipped.length ? ` ${skipped.length} already had a certificate.` : ""
-        }`,
+        ineligible,
+        message: parts.join(" "),
       },
       { status: created.length ? 201 : 200 },
     );
