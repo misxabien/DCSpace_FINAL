@@ -343,7 +343,7 @@
       description: 'Technology and innovation events will appear here when they become available.'
     },
     organization: {
-      title: 'No organization events yet.',
+      title: 'No events for your organization yet.',
       description: 'Organization activities will appear here once they are published.'
     },
     invited: {
