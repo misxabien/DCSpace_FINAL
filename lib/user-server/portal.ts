@@ -111,6 +111,30 @@ export async function notifyOrganizationMembers(
   }
 }
 
+/** Notify every non-admin account when an event is published campus-wide. */
+export async function notifyAllCampusUsers(
+  input: Omit<NotificationDoc, "email" | "userId" | "read" | "createdAt">,
+) {
+  try {
+    const db = await getUserDb();
+    const members = await usersCollection(db)
+      .find({
+        role: { $nin: ["admin", "super-admin"] },
+        email: { $exists: true, $nin: [null, ""] },
+      })
+      .project({ email: 1 })
+      .limit(2000)
+      .toArray();
+    await notifyUsers(
+      members.map((user) => String(user.email || "")),
+      input,
+    );
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Unknown error";
+    console.warn("[DC Space] Failed to notify campus users:", details);
+  }
+}
+
 /**
  * Ensure invitation / certificate rows also appear as notifications
  * (covers older data created before notifyUser was wired everywhere).

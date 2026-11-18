@@ -279,6 +279,10 @@
       title: 'No events happening today.',
       description: 'There are no campus events scheduled for today. Check back later or explore other categories.'
     },
+    'row-upcoming': {
+      title: 'No upcoming events yet.',
+      description: 'Approved campus events will appear here for every account as soon as an admin publishes them.'
+    },
     'row-academic': {
       title: 'No academic events yet.',
       description: 'Academic events will appear here once they are published for your campus.'

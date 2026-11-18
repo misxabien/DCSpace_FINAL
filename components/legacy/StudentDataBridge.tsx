@@ -68,6 +68,7 @@ const EVENT_GRID_CONFIG: Array<{
   detailContext: string;
 }> = [
   { id: "row-today", category: "today", limit: 4, detailContext: "explore" },
+  { id: "row-upcoming", category: "upcoming", limit: 4, detailContext: "explore" },
   { id: "row-academic", category: "academic", limit: 4, detailContext: "explore" },
   { id: "row-tech", category: "tech", limit: 4, detailContext: "explore" },
   { id: "row-org", category: "organization", limit: 4, detailContext: "explore" },
@@ -97,7 +98,8 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
     return { category: "joined-past", detailContext: "joined" };
   }
   if (pathname.startsWith("/events/upcoming")) {
-    return { category: "joined-upcoming", detailContext: "joined" };
+    // Public catalog of approved/live upcoming events (all accounts).
+    return { category: "upcoming", detailContext: "explore" };
   }
   if (pathname.startsWith("/events/today")) {
     return { category: "joined-today", detailContext: "joined" };
@@ -630,7 +632,11 @@ export function StudentDataBridge() {
           eventTitle?: string;
         }> = [];
 
-        const forcePortal = pathname.startsWith("/attendance") || pathname === "/home";
+        // Events/home need fresh public catalog so admin approvals appear quickly.
+        const forcePortal =
+          pathname.startsWith("/attendance") ||
+          pathname === "/home" ||
+          pathname.startsWith("/events");
         const portal = await fetchPortalData(forcePortal);
         if (portal?.events) {
           events = portal.events;
@@ -1567,7 +1573,15 @@ export function StudentDataBridge() {
     const stopPoll = startSmartPoll(run, pollMs);
 
     const onFocusRefresh = () => {
-      void injectEvents();
+      if (
+        pathname.startsWith("/events") ||
+        pathname === "/home" ||
+        pathname.startsWith("/attendance")
+      ) {
+        void fetchPortalData(true).then(() => injectEvents());
+      } else {
+        void injectEvents();
+      }
       if (pathname.startsWith("/attendance")) {
         void injectAttendanceRfid();
       }
