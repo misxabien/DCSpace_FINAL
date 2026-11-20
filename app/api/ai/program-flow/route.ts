@@ -95,8 +95,29 @@ ${JSON.stringify(
       const result = await generateGeminiJson<{ activities?: unknown; notes?: unknown }>(prompt, {
         cacheKey: `program-flow:${title}:${body.eventType || ""}:${body.startDate || ""}:${body.startTime || ""}:${body.endTime || ""}:${body.venue || ""}`,
       });
+      // The schedule times are computed below, so drop any times the AI wrote into names
+      // (e.g. "08:00-08:30 — Registration" or "Registration (08:00-08:30)").
+      const timeRange =
+        /\(?\s*\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?\s*(?:-|–|—|to)\s*\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?\s*\)?/gi;
       activities = Array.isArray(result.activities)
-        ? result.activities.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
+        ? result.activities
+            .map((item) =>
+              typeof item === "object" && item !== null
+                ? String((item as Record<string, unknown>).activity ?? (item as Record<string, unknown>).name ?? (item as Record<string, unknown>).title ?? "")
+                : String(item),
+            )
+            .map((name) =>
+              name
+                .replace(timeRange, " ")
+                // a single clock time at the start/end, e.g. "08:00 Opening" or "Opening (8:00 AM)"
+                .replace(/^\(?\s*\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?\s*\)?/i, "")
+                .replace(/\(?\s*\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?\s*\)?$/i, "")
+                .replace(/^[\s:–—-]+|[\s:–—-]+$/g, "")
+                .replace(/\s{2,}/g, " ")
+                .trim(),
+            )
+            .filter(Boolean)
+            .slice(0, 12)
         : [];
       notes = String(result.notes || "").trim();
     } catch (error) {
