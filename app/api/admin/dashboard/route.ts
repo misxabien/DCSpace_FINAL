@@ -22,8 +22,12 @@ import {
   MONGO_QUICK_TIMEOUT_MS,
   withTimeout,
 } from "@/lib/user-server/with-timeout";
+import { EVENT_LIST_EXCLUDE_BLOBS } from "@/lib/events/events-query";
+import { getTtlCache, setTtlCache } from "@/lib/server/ttl-cache";
 
 const DASHBOARD_TIMEOUT_MS = Math.max(MONGO_QUICK_TIMEOUT_MS, 8_000);
+const DASHBOARD_CACHE_TTL_MS = 20_000;
+const DASHBOARD_CACHE_KEY = "admin:dashboard:v2";
 
 function emptyDashboard(details?: string) {
   return {
@@ -116,6 +120,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
+  const cached = getTtlCache<Record<string, unknown>>(DASHBOARD_CACHE_KEY);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: { "Cache-Control": "private, max-age=10" },
+    });
+  }
+
   try {
     const db = await withTimeout(
       getUserDb(),
@@ -171,7 +182,7 @@ export async function GET(request: Request) {
       usersCol
         .find({ role: { $nin: ["admin", "super-admin"] } })
         .sort({ createdAt: -1 })
-        .limit(500)
+        .limit(100)
         .toArray(),
       eventsCol.countDocuments({}),
       eventsCol.countDocuments({ status: "pending" }),
@@ -179,22 +190,28 @@ export async function GET(request: Request) {
       eventsCol.countDocuments({ status: "approved" }),
       eventsCol.countDocuments({ status: "completed" }),
       eventsCol
-        .find({
-          status: { $in: ["pending", "postponed", "rejected"] },
-        })
+        .find(
+          {
+            status: { $in: ["pending", "postponed", "rejected"] },
+          },
+          { projection: EVENT_LIST_EXCLUDE_BLOBS },
+        )
         .sort({ updatedAt: -1 })
         .limit(6)
         .toArray(),
       findEventsAcrossDatabases(
         { status: "pending" },
-        { sort: { createdAt: -1 }, limit: 500, lean: true, cardFields: true },
+        { sort: { createdAt: -1 }, limit: 80, lean: true, cardFields: true },
       ),
       findEventsAcrossDatabases(
         { status: { $in: ["approved", "live", "completed"] } },
-        { sort: { updatedAt: -1 }, limit: 500, lean: true, cardFields: true },
+        { sort: { updatedAt: -1 }, limit: 80, lean: true, cardFields: true },
       ),
       eventsCol
-        .find({ status: { $in: ["approved", "live"] } })
+        .find(
+          { status: { $in: ["approved", "live"] } },
+          { projection: EVENT_LIST_EXCLUDE_BLOBS },
+        )
         .sort({ startsAt: 1 })
         .limit(40)
         .toArray(),
@@ -287,7 +304,7 @@ export async function GET(request: Request) {
 
     const charts = await buildDashboardCharts(db);
 
-    return NextResponse.json({
+    const payload = {
       generatedAt: new Date().toISOString(),
       stats: {
         totalEvents,
@@ -333,6 +350,10 @@ export async function GET(request: Request) {
       })),
       charts,
       window: { weekAgo, monthAgo },
+    };
+    setTtlCache(DASHBOARD_CACHE_KEY, payload, DASHBOARD_CACHE_TTL_MS);
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "private, max-age=10" },
     });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";

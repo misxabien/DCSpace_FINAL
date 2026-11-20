@@ -143,23 +143,14 @@ export async function GET(request: Request) {
         .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
         .slice(0, limit);
     } else {
-      const docsAdmin = await eventsCollection(adminDb)
-        .find(filter, { projection: EVENT_LIST_PROJECTION })
-        .sort({ updatedAt: -1 })
-        .limit(limit)
-        .toArray();
-      const docsUser = await eventsCollection(userDb)
-        .find(filter, { projection: EVENT_LIST_PROJECTION })
-        .sort({ updatedAt: -1 })
-        .limit(limit)
-        .toArray();
-      const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
-      for (const doc of [...docsUser, ...docsAdmin]) {
-        byId.set(String(doc._id), doc as SpaceEvent & { _id: ObjectId });
-      }
-      docs = [...byId.values()]
-        .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
-        .slice(0, limit);
+      // Admin lists: slim card projection across DBs (avoid multi‑MB blobs).
+      const { findEventsAcrossDatabases } = await import("@/lib/events/events-query");
+      docs = await findEventsAcrossDatabases(filter, {
+        sort: { updatedAt: -1 },
+        limit,
+        lean: true,
+        cardFields: true,
+      });
     }
 
     return NextResponse.json({

@@ -11,6 +11,7 @@ import {
 } from "@/lib/user-server/attendance-security";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { createCertificateDoc } from "@/lib/user-server/certificates";
+import { resolveRequiredAttendanceMinutes } from "@/lib/user-server/certificate-eligibility";
 
 export type AttendanceAction = "in" | "out";
 
@@ -429,7 +430,7 @@ export async function recordAttendanceTap(
     if (tapInAt) {
       const durationMs = new Date(now).getTime() - new Date(tapInAt).getTime();
       const attendanceMinutes = Math.max(0, Math.round(durationMs / 60000));
-      const requiredMinutes = Number(event.attendanceRequiredMinutes || 0);
+      const requiredMinutes = resolveRequiredAttendanceMinutes(event);
       const qualifiedForCertificate =
         requiredMinutes > 0 && attendanceMinutes >= requiredMinutes;
       doc.pairedTapInId = String(lastRecord._id || "");

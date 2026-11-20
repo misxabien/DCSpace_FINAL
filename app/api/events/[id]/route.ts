@@ -16,6 +16,7 @@ import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
+import { parseDurationToMinutes } from "@/lib/certificates/template";
 
 const REVIEW_STATUSES: EventStatus[] = [
   "pending",
@@ -300,9 +301,17 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (typeof body.startsAt === "string") update.startsAt = body.startsAt.trim();
     if (typeof body.endsAt === "string") update.endsAt = body.endsAt.trim();
     if (typeof body.attendanceRequired === "string") {
-      update.attendanceRequired = body.attendanceRequired.trim();
+      const attendanceRequired = body.attendanceRequired.trim();
+      update.attendanceRequired = attendanceRequired;
+      const minutes = parseDurationToMinutes(attendanceRequired);
+      update.attendanceRequiredMinutes = minutes && minutes > 0 ? minutes : 0;
     }
-    if (typeof body.gracePeriod === "string") update.gracePeriod = body.gracePeriod.trim();
+    if (typeof body.gracePeriod === "string") {
+      const gracePeriod = body.gracePeriod.trim();
+      update.gracePeriod = gracePeriod;
+      const graceMinutes = parseDurationToMinutes(gracePeriod);
+      update.gracePeriodMinutes = graceMinutes && graceMinutes > 0 ? graceMinutes : 0;
+    }
     if (typeof body.venueType === "string") update.venueType = body.venueType.trim();
     if (typeof body.announcements === "string") update.announcements = body.announcements.trim();
     if (typeof body.department === "string") update.department = body.department.trim();
@@ -513,22 +522,16 @@ export async function PATCH(request: Request, context: RouteContext) {
           );
         }
 
-        // Students: new/updated public events show up in Notifications.
+        // Students: published events appear for every account + in Notifications.
         if (body.status === "approved" || body.status === "live") {
           void import("@/lib/user-server/portal").then(
             async ({
-              notifyOrganizationMembers,
+              notifyAllCampusUsers,
               notifyUsers,
               registrationsCollection,
             }) => {
               const { getUserDb } = await import("@/lib/user-server/get-user-db");
-              const { usersCollection } = await import("@/lib/db/user-collections");
               const userDb = await getUserDb();
-              const regs = await registrationsCollection(userDb)
-                .find({ eventId: event.id })
-                .project({ email: 1 })
-                .limit(500)
-                .toArray();
               const payload = {
                 title:
                   body.status === "live"
@@ -542,10 +545,7 @@ export async function PATCH(request: Request, context: RouteContext) {
                 eventId: event.id,
                 eventTitle: event.title,
               };
-              await notifyUsers(
-                regs.map((row) => String(row.email || "")),
-                payload,
-              );
+              await notifyAllCampusUsers(payload);
 
               // Live: registered participants receive the mid-event survey.
               if (body.status === "live") {
@@ -564,23 +564,6 @@ export async function PATCH(request: Request, context: RouteContext) {
                     eventTitle: event.title,
                   },
                 );
-              }
-
-              let org = String(event.department || "").trim();
-              if (!org && event.organizerEmail) {
-                const organizer = await usersCollection(userDb).findOne(
-                  {
-                    email: {
-                      $regex: `^${String(event.organizerEmail).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
-                      $options: "i",
-                    },
-                  },
-                  { projection: { organizationPart: 1 } },
-                );
-                org = String(organizer?.organizationPart || "").trim();
-              }
-              if (org) {
-                await notifyOrganizationMembers(org, payload);
               }
             },
           );

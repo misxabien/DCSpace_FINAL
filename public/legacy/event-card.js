@@ -279,6 +279,10 @@
       title: 'No events happening today.',
       description: 'There are no campus events scheduled for today. Check back later or explore other categories.'
     },
+    'row-upcoming': {
+      title: 'No upcoming events yet.',
+      description: 'Approved campus events will appear here for every account as soon as an admin publishes them.'
+    },
     'row-academic': {
       title: 'No academic events yet.',
       description: 'Academic events will appear here once they are published for your campus.'
@@ -288,8 +292,8 @@
       description: 'Technology and innovation events will appear here when they become available.'
     },
     'row-org': {
-      title: 'No organization events yet.',
-      description: 'Organization activities will appear here once they are published.'
+      title: 'No events for your organization yet.',
+      description: 'Events from your course or organization will appear here when they are published.'
     },
     'attendance-today-grid': {
       title: 'No attendance events today.',
@@ -339,7 +343,7 @@
       description: 'Technology and innovation events will appear here when they become available.'
     },
     organization: {
-      title: 'No organization events yet.',
+      title: 'No events for your organization yet.',
       description: 'Organization activities will appear here once they are published.'
     },
     invited: {

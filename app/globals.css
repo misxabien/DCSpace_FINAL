@@ -1725,3 +1725,105 @@ a[href="/notifications"][aria-label*="Notification" i].has-unread::after {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* Global student toast (join confirmation, etc.) */
+.dc-app-toast-host {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  z-index: 1200;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.dc-app-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #b7dfc4;
+  background: #f1faf4;
+  box-shadow: 0 12px 36px rgba(26, 42, 74, 0.16);
+  animation: dcAppToastIn 0.22s ease-out;
+}
+
+.dc-app-toast__icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+.dc-app-toast__message {
+  margin: 0;
+  flex: 1;
+  color: #1b5e20;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.dc-app-toast__close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #1b5e20;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.dc-app-toast__close:hover {
+  color: #0d3d12;
+}
+
+.dc-app-toast--error {
+  border-color: #e8c4c4;
+  background: #fcf3f3;
+}
+
+.dc-app-toast--error .dc-app-toast__icon {
+  background: #a92323;
+}
+
+.dc-app-toast--error .dc-app-toast__message,
+.dc-app-toast--error .dc-app-toast__close {
+  color: #a92323;
+}
+
+.dc-app-toast--info {
+  border-color: #c5d7f7;
+  background: #eef4ff;
+}
+
+.dc-app-toast--info .dc-app-toast__icon {
+  background: var(--blue);
+}
+
+.dc-app-toast--info .dc-app-toast__message,
+.dc-app-toast--info .dc-app-toast__close {
+  color: #1e3a6e;
+}
+
+@keyframes dcAppToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -172,6 +172,93 @@ export function thematicCategory(e: SanitizedEvent): string {
   return "";
 }
 
+function normalizeOrgToken(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Expand course codes into searchable aliases (bma → bmma, etc.). */
+export function courseMatchAliases(course?: string | null) {
+  const raw = normalizeOrgToken(course || "");
+  if (!raw) return [] as string[];
+  const aliases = new Set<string>([raw, raw.replace(/\s+/g, "")]);
+  if (raw === "bma" || raw === "bmma" || raw.includes("multimedia")) {
+    aliases.add("bma");
+    aliases.add("bmma");
+    aliases.add("multimedia arts");
+    aliases.add("media arts");
+    aliases.add("red concepts");
+  }
+  if (raw === "bsit" || raw.includes("information technology")) {
+    aliases.add("bsit");
+    aliases.add("information technology");
+    aliases.add("domini xode");
+  }
+  if (raw === "bacomm" || raw === "ba comm" || raw.includes("communication")) {
+    aliases.add("ba comm");
+    aliases.add("bacomm");
+    aliases.add("communication");
+  }
+  return [...aliases].filter(Boolean);
+}
+
+function haystackIncludesNeedle(haystack: string, needle: string) {
+  if (!haystack || !needle) return false;
+  if (haystack.includes(needle)) return true;
+  const compactHay = haystack.replace(/\s+/g, "");
+  const compactNeedle = needle.replace(/\s+/g, "");
+  return Boolean(compactNeedle) && compactHay.includes(compactNeedle);
+}
+
+/**
+ * True when an event belongs to the signed-in student's organization or course
+ * (e.g. Red Concepts / BMMA), so "Your Organization Events" stays personal.
+ */
+export function eventBelongsToUserOrganization(
+  event: Pick<
+    SanitizedEvent,
+    | "title"
+    | "category"
+    | "department"
+    | "organizerName"
+    | "collaboratingDepartments"
+    | "audienceSchools"
+    | "allowedCourses"
+  >,
+  organizationPart?: string | null,
+  course?: string | null,
+) {
+  const org = normalizeOrgToken(organizationPart || "");
+  const needles = [
+    ...(org ? [org] : []),
+    ...courseMatchAliases(course),
+  ].filter((value, index, list) => list.indexOf(value) === index);
+
+  if (!needles.length) return false;
+
+  const haystack = normalizeOrgToken(
+    [
+      event.title,
+      event.category,
+      event.department,
+      event.organizerName,
+      ...(Array.isArray(event.collaboratingDepartments)
+        ? event.collaboratingDepartments
+        : []),
+      ...(Array.isArray(event.audienceSchools) ? event.audienceSchools : []),
+      ...(Array.isArray(event.allowedCourses) ? event.allowedCourses : []),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return needles.some((needle) => haystackIncludesNeedle(haystack, needle));
+}
+
 export function bucketCategory(e: SanitizedEvent): string {
   const theme = thematicCategory(e);
   const timing = eventTimingBucket(e.startsAt, e.status);

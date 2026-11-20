@@ -730,7 +730,7 @@ async function hydrateReportEvents(root: ParentNode) {
   const list = root.querySelector(".rg-list");
   if (!list) return;
 
-  const res = await fetch("/api/events?limit=500", {
+  const res = await fetch("/api/events?limit=150", {
     cache: "no-store",
     credentials: "include",
   });
@@ -1175,19 +1175,18 @@ export function AdminAiBridge() {
       }
     };
 
-    const timer = window.setTimeout(() => void run(), 50);
-    const timer2 = window.setTimeout(() => void run(), 400);
+    // One quick paint; avoid a second immediate Gemini/list fetch that stacks work.
+    const timer = window.setTimeout(() => void run(), 80);
     const pollMs =
       pageId === "live16"
-        ? 4000
+        ? 5000
         : pageId === "reportgen53" || EVENT_DETAIL_PAGES.has(pageId)
-          ? 10000
+          ? 15000
           : 0;
     const stopPoll = pollMs ? startSmartPoll(run, pollMs) : null;
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
-      window.clearTimeout(timer2);
       stopPoll?.();
     };
   }, [pathname, searchParams]);

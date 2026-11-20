@@ -4,16 +4,19 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   bucketCategory,
+  eventBelongsToUserOrganization,
   eventTimingBucket,
   mapDbEventToCard,
   resolveEventImageUrl,
+  thematicCategory,
   type LegacyCardEvent,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
 import { setSavedEventIds, getSavedEventIds } from "@/lib/savedEvents";
 import { fetchPortalData, readCachedPortalData, invalidatePortalCache } from "@/lib/portal-data-client";
-import { authFetch } from "@/lib/user-api";
+import { authFetch, readAuthSession } from "@/lib/user-api";
 import { EMPTY_STATE_ICON } from "@/lib/ui/empty-state";
+import { showAppToast } from "@/lib/ui/app-toast";
 import { startSmartPoll } from "@/lib/client/smart-poll";
 
 declare global {
@@ -68,6 +71,7 @@ const EVENT_GRID_CONFIG: Array<{
   detailContext: string;
 }> = [
   { id: "row-today", category: "today", limit: 4, detailContext: "explore" },
+  { id: "row-upcoming", category: "upcoming", limit: 4, detailContext: "explore" },
   { id: "row-academic", category: "academic", limit: 4, detailContext: "explore" },
   { id: "row-tech", category: "tech", limit: 4, detailContext: "explore" },
   { id: "row-org", category: "organization", limit: 4, detailContext: "explore" },
@@ -97,7 +101,8 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
     return { category: "joined-past", detailContext: "joined" };
   }
   if (pathname.startsWith("/events/upcoming")) {
-    return { category: "joined-upcoming", detailContext: "joined" };
+    // Public catalog of approved/live upcoming events (all accounts).
+    return { category: "upcoming", detailContext: "explore" };
   }
   if (pathname.startsWith("/events/today")) {
     return { category: "joined-today", detailContext: "joined" };
@@ -630,7 +635,11 @@ export function StudentDataBridge() {
           eventTitle?: string;
         }> = [];
 
-        const forcePortal = pathname.startsWith("/attendance") || pathname === "/home";
+        // Events/home need fresh public catalog so admin approvals appear quickly.
+        const forcePortal =
+          pathname.startsWith("/attendance") ||
+          pathname === "/home" ||
+          pathname.startsWith("/events");
         const portal = await fetchPortalData(forcePortal);
         if (portal?.events) {
           events = portal.events;
@@ -680,16 +689,43 @@ export function StudentDataBridge() {
             .map((row) => String(row.eventId || "")),
         );
 
+        const sessionUser = readAuthSession()?.user;
+        const userOrganization = String(sessionUser?.organizationPart || "").trim();
+        const userCourse = String(sessionUser?.course || "").trim();
+
+        const orgHeading = document.getElementById("org-heading");
+        if (orgHeading) {
+          orgHeading.textContent = userOrganization
+            ? `${userOrganization} Events`
+            : "Your Organization Events";
+        }
+
         let live: LegacyCardEvent[] = events
           .filter((event) => ["approved", "live", "completed"].includes(event.status || ""))
           .map((event) => {
-            const card = mapDbEventToCard(event, bucketCategory(event));
             const timing = eventTimingBucket(event.startsAt, event.status);
+            const theme = thematicCategory(event);
+            const matchesOrg = eventBelongsToUserOrganization(
+              event,
+              userOrganization,
+              userCourse,
+            );
+
+            // "Your Organization Events" is membership-based (org/course),
+            // not every campus org/social/party event.
+            let displayCategory = bucketCategory(event);
+            if (theme === "organization" && !matchesOrg) {
+              displayCategory =
+                timing === "today" ? "today" : timing === "past" ? "past" : "upcoming";
+            }
+
+            const card = mapDbEventToCard(event, displayCategory);
             const tags = [card.category];
             // Always tag calendar buckets so Happening Today / Upcoming still
             // show them even when the card uses a thematic category.
             if (timing === "today" && !tags.includes("today")) tags.push("today");
             if (timing === "upcoming" && !tags.includes("upcoming")) tags.push("upcoming");
+            if (matchesOrg && !tags.includes("organization")) tags.push("organization");
             if (invited.has(card.id)) tags.push("invited");
             if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
             const status = joined.get(card.id);
@@ -1319,7 +1355,8 @@ export function StudentDataBridge() {
             downloadUrl?: string;
           }>;
         };
-        const certs = data.certificates || [];
+        // Only certificates returned for the signed-in user (API-enforced).
+        const certs = (data.certificates || []).filter((cert) => Boolean(cert.id));
         if (!window.DCCertificates) return;
         window.DCCertificates.list = certs;
         const certTargets: Array<{ id: string; category: string }> = [
@@ -1448,7 +1485,11 @@ export function StudentDataBridge() {
           status: files?.length ? "pending" : "joined",
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        duplicate?: boolean;
+        registration?: { status?: string };
+      };
       if (!res.ok) {
         throw new Error(data.error || "Failed to join event.");
       }
@@ -1465,16 +1506,22 @@ export function StudentDataBridge() {
         actionBtn.textContent = "Joining…";
       }
       try {
-        await joinEvent(eventId, String(detail.eventTitle || ""));
+        const result = await joinEvent(eventId, String(detail.eventTitle || ""));
         if (actionBtn) {
           actionBtn.textContent = "Registration Successful";
           actionBtn.className = "detail-action detail-action--joined";
+        }
+        if (result.duplicate) {
+          showAppToast("You've already joined this event.", "info");
+        } else {
+          showAppToast("You've joined this event.", "success");
         }
         invalidatePortalCache();
         void injectEvents();
         window.dispatchEvent(new CustomEvent("dcspace-profile-updated"));
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "Failed to join event.");
+        const message = error instanceof Error ? error.message : "Failed to join event.";
+        showAppToast(message, "error");
         if (actionBtn) {
           actionBtn.disabled = false;
           actionBtn.textContent = "Join This Event";
@@ -1507,14 +1554,24 @@ export function StudentDataBridge() {
             status: "pending",
           });
         }
-        await joinEvent(eventId, String(detail.eventTitle || ""), files);
+        const result = await joinEvent(eventId, String(detail.eventTitle || ""), files);
         if (submitBtn) {
           submitBtn.textContent = "Registration Pending";
           submitBtn.disabled = true;
           submitBtn.className = "detail-action detail-action--pending";
         }
+        if (result.duplicate) {
+          showAppToast("You've already joined this event.", "info");
+        } else {
+          showAppToast("Registration submitted. You've joined this event.", "success");
+        }
+        invalidatePortalCache();
+        void injectEvents();
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : "Failed to submit registration.");
+        showAppToast(
+          error instanceof Error ? error.message : "Failed to submit registration.",
+          "error",
+        );
       }
     };
 
@@ -1567,7 +1624,15 @@ export function StudentDataBridge() {
     const stopPoll = startSmartPoll(run, pollMs);
 
     const onFocusRefresh = () => {
-      void injectEvents();
+      if (
+        pathname.startsWith("/events") ||
+        pathname === "/home" ||
+        pathname.startsWith("/attendance")
+      ) {
+        void fetchPortalData(true).then(() => injectEvents());
+      } else {
+        void injectEvents();
+      }
       if (pathname.startsWith("/attendance")) {
         void injectAttendanceRfid();
       }

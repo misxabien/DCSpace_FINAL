@@ -1385,7 +1385,7 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
   try {
     // Templated events only + lean cert metadata (no PDF blobs).
     const [eventsRes, certsRes, attendRes] = await Promise.all([
-      fetch("/api/events?hasCertificateTemplate=1&limit=500", {
+      fetch("/api/events?hasCertificateTemplate=1&limit=150", {
         cache: "no-store",
         credentials: "include",
       }),
@@ -2004,7 +2004,7 @@ export function AdminDataBridge() {
     let liveEventsPainted = false;
     if (EVENT_LIST_PAGES.has(pageId)) {
       try {
-        const eventsRes = await fetch("/api/events?limit=500", {
+        const eventsRes = await fetch("/api/events?limit=150", {
           cache: "no-store",
           credentials: "include",
         });
@@ -2040,12 +2040,15 @@ export function AdminDataBridge() {
 
     // Dashboard is optional for event list / cert pages once content already painted.
     let data: DashboardPayload | null = null;
+    // Event list / cert pages already painted — skip heavy dashboard unless needed.
     const needsDashboard =
       pageId === "home12" ||
       pageId === "user27" ||
-      (STAT_LOADING_PAGES.has(pageId) && pageId !== "cert45") ||
+      (STAT_LOADING_PAGES.has(pageId) &&
+        pageId !== "cert45" &&
+        !EVENT_LIST_PAGES.has(pageId)) ||
       (EVENT_LIST_PAGES.has(pageId) && !liveEventsPainted) ||
-      (!EVENT_LIST_PAGES.has(pageId) && !certsHydrated);
+      (!EVENT_LIST_PAGES.has(pageId) && !certsHydrated && pageId !== "home12");
 
     if (needsDashboard) {
       try {
