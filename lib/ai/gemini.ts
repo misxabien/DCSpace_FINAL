@@ -98,8 +98,8 @@ function isUnavailableModel(status: number, message: string) {
 }
 
 /** Per-model request timeout, and the total budget across all fallback models. */
-const MODEL_TIMEOUT_MS = 15_000;
-const TOTAL_BUDGET_MS = 40_000;
+const MODEL_TIMEOUT_MS = 25_000;
+const TOTAL_BUDGET_MS = 55_000;
 
 async function generateContent(
   model: string,

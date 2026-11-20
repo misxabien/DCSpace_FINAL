@@ -7,6 +7,27 @@ import {
 } from "@/lib/ai/program-flow-pdf";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
+/** Standard SDCA event flow used when Gemini is busy or unavailable. */
+function fallbackActivities(eventType: string): string[] {
+  const type = eventType.toLowerCase();
+  const core = /seminar|talk|lecture|forum|webinar|symposium/.test(type)
+    ? ["Introduction of the resource speaker", "Talk / lecture proper", "Open forum (Q&A)"]
+    : /workshop|training|bootcamp|hackathon/.test(type)
+      ? ["Overview of the workshop", "Hands-on session", "Presentation of outputs"]
+      : /assembly|meeting|orientation|oath/.test(type)
+        ? ["Presentation of agenda", "Main program proper", "Open forum and announcements"]
+        : ["Main program proper", "Activities and presentations", "Open forum (Q&A)"];
+  return [
+    "Arrival and registration (RFID tap-in)",
+    "Opening prayer and Philippine National Anthem",
+    "Welcome remarks",
+    ...core,
+    "Mid-event survey",
+    "Awarding of certificates and closing remarks",
+    "Photo opportunity and RFID tap-out",
+  ];
+}
+
 export async function POST(request: Request) {
   const actor = await requireSessionActor(request);
   if ("error" in actor) {
@@ -67,17 +88,26 @@ ${JSON.stringify(
   )}`;
 
   try {
-    const result = await generateGeminiJson<{ activities?: unknown; notes?: unknown }>(prompt, {
-      cacheKey: `program-flow:${title}:${body.eventType || ""}:${body.startDate || ""}:${body.startTime || ""}:${body.endTime || ""}:${body.venue || ""}`,
-    });
-    const activities = Array.isArray(result.activities)
-      ? result.activities.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
-      : [];
+    let activities: string[] = [];
+    let notes = "";
+    let aiAvailable = true;
+    try {
+      const result = await generateGeminiJson<{ activities?: unknown; notes?: unknown }>(prompt, {
+        cacheKey: `program-flow:${title}:${body.eventType || ""}:${body.startDate || ""}:${body.startTime || ""}:${body.endTime || ""}:${body.venue || ""}`,
+      });
+      activities = Array.isArray(result.activities)
+        ? result.activities.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
+        : [];
+      notes = String(result.notes || "").trim();
+    } catch (error) {
+      console.warn("[DC Space] Gemini program flow unavailable, using standard flow.", error);
+    }
     if (!activities.length) {
-      return NextResponse.json({ error: "Gemini did not return activities." }, { status: 502 });
+      aiAvailable = false;
+      activities = fallbackActivities(String(body.eventType || ""));
+      notes = "Standard program flow (AI suggestions were unavailable) — edit the activities as needed.";
     }
 
-    const notes = String(result.notes || "").trim();
     const timedActivities = normalizeTimedActivities(
       activities,
       body.startTime || "08:00",
@@ -100,6 +130,7 @@ ${JSON.stringify(
       activities: timedActivities.map(formatTimedActivityLabel),
       notes,
       pdf,
+      aiAvailable,
     });
   } catch (error) {
     const mapped = geminiErrorResponse(error);
