@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadCampusAiContext } from "@/lib/ai/context";
-import { generateGeminiJson, isGeminiConfigured } from "@/lib/ai/gemini";
+import { generateGeminiJson, isAiConfigured } from "@/lib/ai/gemini";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 
 type Insight = { title: string; body: string; tone: string };
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   }
 
   const context = await loadCampusAiContext(10);
-  if (!isGeminiConfigured()) {
+  if (!isAiConfigured()) {
     return NextResponse.json({ items: fallbackInsights(context), aiAvailable: false });
   }
 

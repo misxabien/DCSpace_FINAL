@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getGeminiModel, isGeminiConfigured } from "@/lib/ai/gemini";
+import { getGeminiModel, isAiConfigured, isGeminiConfigured } from "@/lib/ai/gemini";
+import { getBackupAiInfo } from "@/lib/ai/backup-ai";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 
@@ -11,10 +12,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: actor.error }, { status: actor.status });
   }
 
-  const configured = isGeminiConfigured();
+  const gemini = isGeminiConfigured();
+  const backup = getBackupAiInfo();
   return NextResponse.json({
-    configured,
-    model: configured ? getGeminiModel() : null,
+    configured: isAiConfigured(),
+    model: gemini ? getGeminiModel() : null,
     provider: "gemini",
+    backup: { configured: backup.configured, provider: backup.provider || null, model: backup.model },
   });
 }

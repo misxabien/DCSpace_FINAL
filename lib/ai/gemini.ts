@@ -1,3 +1,5 @@
+import { generateBackupText, isBackupAiConfigured } from "@/lib/ai/backup-ai";
+
 type GeminiJson = Record<string, unknown>;
 
 export class GeminiConfigError extends Error {
@@ -39,6 +41,8 @@ export type GeminiGenerateOptions = {
   cacheKey?: string;
   skipCache?: boolean;
   temperature?: number;
+  /** Filled in with which AI answered: "gemini" (main) or "backup". */
+  meta?: { source?: "gemini" | "backup" | "cache" };
 };
 
 export function getGeminiModel() {
@@ -53,6 +57,11 @@ export function getGeminiModelCandidates() {
 
 export function isGeminiConfigured() {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
+}
+
+/** True when Gemini (main) or the backup AI can answer. */
+export function isAiConfigured() {
+  return isGeminiConfigured() || isBackupAiConfigured();
 }
 
 function cacheGet<T>(key: string): T | null {
@@ -186,25 +195,34 @@ export async function generateGeminiJson<T extends GeminiJson>(
 
   if (options.cacheKey && !options.skipCache) {
     const cached = cacheGet<T>(options.cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      if (options.meta) options.meta.source = "cache";
+      return cached;
+    }
   }
 
-  if (!isGeminiConfigured()) {
+  const backupReady = isBackupAiConfigured();
+  if (!isGeminiConfigured() && !backupReady) {
     throw new GeminiConfigError(
       "Gemini is not configured. Add GEMINI_API_KEY to .env.local and restart the server.",
     );
   }
 
-  const models = getGeminiModelCandidates();
+  const models = isGeminiConfigured() ? getGeminiModelCandidates() : [];
   const temperature = options.temperature ?? 0.4;
-  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  // Leave time for the backup AI when one is configured.
+  const deadline = Date.now() + (backupReady ? TOTAL_BUDGET_MS - 15_000 : TOTAL_BUDGET_MS);
   let lastError: unknown;
+  let stopGemini = false;
 
   for (const model of models) {
+    if (stopGemini) break;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const remaining = deadline - Date.now();
       if (remaining < 2_000) {
-        throw lastError instanceof Error ? lastError : new Error("Gemini request timed out.");
+        lastError = lastError instanceof Error ? lastError : new Error("Gemini request timed out.");
+        stopGemini = true;
+        break;
       }
       try {
         const text = await generateContent(
@@ -215,11 +233,17 @@ export async function generateGeminiJson<T extends GeminiJson>(
         );
         const parsed = extractJson(text) as T;
         if (options.cacheKey) cacheSet(options.cacheKey, parsed);
+        if (options.meta) options.meta.source = "gemini";
         return parsed;
       } catch (error) {
         lastError = error;
-        if (error instanceof GeminiConfigError) throw error;
+        if (error instanceof GeminiConfigError) {
+          stopGemini = true;
+          break;
+        }
         if (error instanceof GeminiRateLimitError) {
+          // Daily/plan quota used up on this model: retrying it cannot help.
+          if (/quota/i.test(error.message)) break;
           if (attempt === 0) {
             await sleep(1600);
             continue;
@@ -229,7 +253,11 @@ export async function generateGeminiJson<T extends GeminiJson>(
         const status = (error as { status?: number }).status || 0;
         const message = error instanceof Error ? error.message : "";
         if (isUnavailableModel(status, message)) break;
-        if (status === 400 || status === 401 || status === 403) throw error;
+        // Bad request / key problem: other Gemini models will fail the same way.
+        if (status === 400 || status === 401 || status === 403) {
+          stopGemini = true;
+          break;
+        }
         // Overloaded (503 "high demand") or timed out: try the next model right away
         // instead of waiting on the same busy one.
         if (status === 503 || /timed out|high demand|overloaded/i.test(message)) break;
@@ -239,6 +267,21 @@ export async function generateGeminiJson<T extends GeminiJson>(
         }
         break;
       }
+    }
+  }
+
+  // Gemini could not answer: ask the backup AI (if configured) before giving up.
+  if (backupReady) {
+    try {
+      const text = await generateBackupText(prompt, temperature);
+      const parsed = extractJson(text) as T;
+      if (options.cacheKey) cacheSet(options.cacheKey, parsed);
+      if (options.meta) options.meta.source = "backup";
+      console.warn("[DC Space] Gemini unavailable; answered by backup AI.", lastError instanceof Error ? lastError.message : "");
+      return parsed;
+    } catch (backupError) {
+      console.warn("[DC Space] Backup AI also failed.", backupError);
+      if (!lastError) lastError = backupError;
     }
   }
 
