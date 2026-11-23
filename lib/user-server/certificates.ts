@@ -1,10 +1,8 @@
 import type { Db } from "mongodb";
 import { certificatesCollection, logUserActivity } from "@/lib/user-server/activity";
 import { notifyUser } from "@/lib/user-server/portal";
-import {
-  buildCertificatePdfFromTemplate,
-  inferCertificateCategory,
-} from "@/lib/certificates/template";
+import { buildCertificatePdfFromTemplate } from "@/lib/certificates/template";
+import { inferCertificateCategory } from "@/lib/certificates/duration";
 
 export type StoredCertificateDoc = {
   _id?: unknown;

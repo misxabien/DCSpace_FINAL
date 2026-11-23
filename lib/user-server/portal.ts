@@ -123,7 +123,7 @@ export async function notifyAllCampusUsers(
         email: { $exists: true, $nin: [null, ""] },
       })
       .project({ email: 1 })
-      .limit(2000)
+      .limit(5000)
       .toArray();
     await notifyUsers(
       members.map((user) => String(user.email || "")),

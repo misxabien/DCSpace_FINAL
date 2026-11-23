@@ -70,11 +70,11 @@ const EVENT_GRID_CONFIG: Array<{
   limit?: number;
   detailContext: string;
 }> = [
-  { id: "row-today", category: "today", limit: 4, detailContext: "explore" },
-  { id: "row-upcoming", category: "upcoming", limit: 4, detailContext: "explore" },
-  { id: "row-academic", category: "academic", limit: 4, detailContext: "explore" },
-  { id: "row-tech", category: "tech", limit: 4, detailContext: "explore" },
-  { id: "row-org", category: "organization", limit: 4, detailContext: "explore" },
+  { id: "row-today", category: "today", limit: 6, detailContext: "explore" },
+  { id: "row-upcoming", category: "upcoming", limit: 8, detailContext: "explore" },
+  { id: "row-academic", category: "academic", limit: 6, detailContext: "explore" },
+  { id: "row-tech", category: "tech", limit: 6, detailContext: "explore" },
+  { id: "row-org", category: "organization", limit: 6, detailContext: "explore" },
   { id: "attendance-today-grid", category: "attendance-today", limit: 1, detailContext: "attendance" },
   { id: "attendance-completed-grid", category: "attendance-completed", limit: 2, detailContext: "attendance" },
   { id: "attendance-incomplete-grid", category: "attendance-incomplete", limit: 2, detailContext: "attendance" },
@@ -722,9 +722,11 @@ export function StudentDataBridge() {
             const card = mapDbEventToCard(event, displayCategory);
             const tags = [card.category];
             // Always tag calendar buckets so Happening Today / Upcoming still
-            // show them even when the card uses a thematic category.
+            // show them on every account even when the card uses a thematic category.
             if (timing === "today" && !tags.includes("today")) tags.push("today");
             if (timing === "upcoming" && !tags.includes("upcoming")) tags.push("upcoming");
+            // Public catalog tag — every approved/live event is browseable campus-wide.
+            if (!tags.includes("campus")) tags.push("campus");
             if (matchesOrg && !tags.includes("organization")) tags.push("organization");
             if (invited.has(card.id)) tags.push("invited");
             if (joined.has(card.id)) tags.push(joinedTagForEvent(card));
@@ -732,6 +734,7 @@ export function StudentDataBridge() {
             return {
               ...card,
               tags,
+              updatedAt: event.updatedAt || event.createdAt || "",
               status: status === "pending" ? "pending" : status ? "joined" : card.status,
             };
           });
@@ -1614,13 +1617,16 @@ export function StudentDataBridge() {
     const t3 = window.setTimeout(runWithSavedSync, 900);
     // Attendance details: poll Mongo tap logs near real-time; everything else calmer.
     // Polls pause while the tab/app is hidden and refresh when it comes back.
+    // Home + Events poll often so newly approved campus events appear for everyone quickly.
     const pollMs = pathname.startsWith("/attendance/details")
       ? 3000
       : pathname.startsWith("/attendance")
         ? 5000
-        : pathname === "/notifications"
-          ? 10_000
-          : 15_000;
+        : pathname === "/home" || pathname.startsWith("/events")
+          ? 8_000
+          : pathname === "/notifications"
+            ? 10_000
+            : 15_000;
     const stopPoll = startSmartPoll(run, pollMs);
 
     const onFocusRefresh = () => {

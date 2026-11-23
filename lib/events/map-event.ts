@@ -74,6 +74,8 @@ export type LegacyCardEvent = {
   dbStatus: string;
   /** Organizer lets registered participants share event photos. */
   allowParticipantPhotos?: boolean;
+  /** Used to surface newly published events quickly in campus grids. */
+  updatedAt?: string;
   attachmentFiles: Array<{ label: string; fileName: string; url: string }>;
 };
 

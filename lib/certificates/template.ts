@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import {
   PDFArray,
   PDFDocument,
@@ -10,52 +11,20 @@ import {
   rgb,
 } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
+import { GREAT_VIBES_TTF_BASE64 } from "@/lib/certificates/fonts/great-vibes";
 
-export function parseDurationToMinutes(value: string): number | null {
-  const text = value.trim().toLowerCase();
-  if (!text) return null;
+export {
+  parseDurationToMinutes,
+  formatMinutesLabel,
+  inferCertificateCategory,
+} from "@/lib/certificates/duration";
 
-  const hoursMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hour|hours|hr|hrs)\b/);
-  const minutesMatch = text.match(/(\d+)\s*(?:minute|minutes|min|mins)\b/);
+// Load fontkit through Node so Turbopack does not try to bundle its CJS entry.
+const nodeRequire = createRequire(import.meta.url);
 
-  let total = 0;
-  if (hoursMatch) total += Math.round(Number(hoursMatch[1]) * 60);
-  if (minutesMatch) total += Number(minutesMatch[1]);
-
-  if (total > 0) return total;
-
-  const numeric = Number(text.replace(/[^\d.]/g, ""));
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return text.includes("hour") || text.includes("hr")
-    ? Math.round(numeric * 60)
-    : Math.round(numeric);
-}
-
-export function formatMinutesLabel(minutes: number): string {
-  const safe = Math.max(0, Math.round(minutes));
-  const hours = Math.floor(safe / 60);
-  const mins = safe % 60;
-  if (hours && mins) {
-    return `${hours}h ${mins}m`;
-  }
-  if (hours) {
-    return `${hours}h`;
-  }
-  return `${mins}m`;
-}
-
-export function inferCertificateCategory(dateIso: string): string {
-  const date = new Date(dateIso);
-  if (Number.isNaN(date.getTime())) return "cert-month";
-  const now = new Date();
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-  if (sameDay) return "cert-today";
-  const day = date.getDay();
-  if (day === 0 || day === 6) return "cert-weekend";
-  return "cert-month";
+function loadFontkit() {
+  const packageId = `@${"pdf-lib"}/fontkit`;
+  return nodeRequire(packageId) as Parameters<PDFDocument["registerFontkit"]>[0];
 }
 
 function bytesFromBase64(base64: string): Uint8Array {
@@ -171,22 +140,7 @@ function findNameUnderlineY(page: PDFPage, width: number, height: number): numbe
   return candidates[0]?.y ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Name slot detection
-//
-// Read the template like a person would: find the "given to / presented to /
-// certify that" line, then place the name in the empty space under it — on the
-// name line when one is drawn there. Works with Canva/Word exports (scaled
-// coordinates, form XObjects, image or vector rules). Falls back to the older
-// underline scan, then to a sensible default band.
-// ---------------------------------------------------------------------------
 
-const NAME_ANCHOR =
-  /(given|presented|awarded|conferred|granted|issued)to|certif(y|ies)that|thisistocertify|ipinagkakaloobkay|iginagawadkay/;
-
-type TextLine = { y: number; size: number; xMin: number; xMax: number; text: string };
-type Rule = { x: number; w: number; y: number; top: number };
-type View = { x0: number; y0: number; width: number; height: number };
 type NameSlot = {
   source: string;
   top: number;
@@ -196,158 +150,25 @@ type NameSlot = {
   maxWidth: number;
 };
 
-type Matrix = [number, number, number, number, number, number];
-const multiply = (m: Matrix, n: Matrix): Matrix => [
-  m[0] * n[0] + m[2] * n[1],
-  m[1] * n[0] + m[3] * n[1],
-  m[0] * n[2] + m[2] * n[3],
-  m[1] * n[2] + m[3] * n[3],
-  m[0] * n[4] + m[2] * n[5] + m[4],
-  m[1] * n[4] + m[3] * n[5] + m[5],
-];
-const applyMatrix = (m: Matrix, x: number, y: number) =>
-  [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] as const;
-
-async function analyzeTemplateLayout(
-  bytes: Uint8Array,
-): Promise<{ view: View; lines: TextLine[]; rules: Rule[] }> {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const doc = await pdfjs.getDocument({
-    data: bytes.slice(),
-    isEvalSupported: false,
-    disableFontFace: true,
-    useSystemFonts: false,
-    verbosity: 0,
-  }).promise;
-  try {
-    const page = await doc.getPage(1);
-    const [vx0, vy0, vx1, vy1] = page.view;
-    const view: View = { x0: vx0, y0: vy0, width: vx1 - vx0, height: vy1 - vy0 };
-
-    // Text lines (page space, y up), grouping fragments that share a baseline.
-    const content = await page.getTextContent();
-    const items = content.items
-      .filter((item): item is (typeof item & { str: string; transform: number[]; width: number; height: number }) =>
-        "str" in item && typeof item.str === "string" && item.str.trim().length > 0,
-      )
-      .map((item) => {
-        const [, , c, d, e, f] = item.transform;
-        return { str: item.str, x: e, y: f, w: item.width, size: Math.hypot(c, d) || item.height || 10 };
-      })
-      .sort((a, b) => b.y - a.y || a.x - b.x);
-    const grouped: Array<TextLine & { parts: typeof items }> = [];
-    for (const item of items) {
-      const line = grouped.find(
-        (l) => Math.abs(l.y - item.y) < Math.max(2, Math.min(l.size, item.size) * 0.45),
-      );
-      if (line) {
-        line.parts.push(item);
-        line.size = Math.max(line.size, item.size);
-        line.xMin = Math.min(line.xMin, item.x);
-        line.xMax = Math.max(line.xMax, item.x + item.w);
-      } else {
-        grouped.push({ y: item.y, size: item.size, xMin: item.x, xMax: item.x + item.w, text: "", parts: [item] });
-      }
-    }
-    const lines: TextLine[] = grouped.map(({ parts, ...line }) => ({
-      ...line,
-      text: parts.sort((a, b) => a.x - b.x).map((p) => p.str).join(" "),
-    }));
-
-    // Long, thin horizontal shapes (strokes, thin fills, thin images) = name rules.
-    const ops = await page.getOperatorList();
-    const OPS = pdfjs.OPS;
-    let ctm: Matrix = [1, 0, 0, 1, 0, 0];
-    const stack: Matrix[] = [];
-    const rules: Rule[] = [];
-    const addBox = (bx0: number, by0: number, bx1: number, by1: number) => {
-      const pts = [applyMatrix(ctm, bx0, by0), applyMatrix(ctm, bx1, by0), applyMatrix(ctm, bx0, by1), applyMatrix(ctm, bx1, by1)];
-      const xs = pts.map((p) => p[0]);
-      const ys = pts.map((p) => p[1]);
-      const w = Math.max(...xs) - Math.min(...xs);
-      const h = Math.max(...ys) - Math.min(...ys);
-      if (w >= view.width * 0.22 && h <= 6) {
-        rules.push({ x: Math.min(...xs), w, y: (Math.max(...ys) + Math.min(...ys)) / 2, top: Math.max(...ys) });
-      }
-    };
-    for (let i = 0; i < ops.fnArray.length; i += 1) {
-      const fn = ops.fnArray[i];
-      const args = ops.argsArray[i] as unknown[];
-      if (fn === OPS.save) stack.push(ctm);
-      else if (fn === OPS.restore) ctm = stack.pop() || ctm;
-      else if (fn === OPS.transform) ctm = multiply(ctm, args as unknown as Matrix);
-      else if (fn === OPS.paintFormXObjectBegin) {
-        stack.push(ctm);
-        if (Array.isArray(args[0]) && args[0].length === 6) ctm = multiply(ctm, args[0] as Matrix);
-      } else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
-      else if (fn === OPS.constructPath) {
-        const minMax = args[2] as number[] | undefined;
-        if (minMax && minMax.length === 4 && minMax.every(Number.isFinite)) {
-          addBox(minMax[0], minMax[1], minMax[2], minMax[3]);
-        }
-      } else if (
-        fn === OPS.paintImageXObject ||
-        fn === OPS.paintInlineImageXObject ||
-        fn === OPS.paintImageMaskXObject
-      ) {
-        addBox(0, 0, 1, 1);
-      }
-    }
-    return { view, lines, rules };
-  } finally {
-    await doc.destroy();
-  }
-}
-
-function planNameSlot(layout: { view: View; lines: TextLine[]; rules: Rule[] }): NameSlot {
-  const { view, lines, rules } = layout;
-  const anchor = lines.find(
-    (l) =>
-      NAME_ANCHOR.test(l.text.toLowerCase().replace(/[^a-zñ]/g, "")) &&
-      l.y > view.y0 + view.height * 0.3,
-  );
-  if (anchor) {
-    const below = lines
-      .filter((l) => l.y < anchor.y - anchor.size * 0.6)
-      .sort((a, b) => b.y - a.y)[0];
-    const top = anchor.y - anchor.size * 0.35;
-    const bottom = below
-      ? below.y + below.size * 0.8
-      : Math.max(view.y0 + view.height * 0.3, anchor.y - view.height * 0.22);
-    const cx = (anchor.xMin + anchor.xMax) / 2;
-    const rule = rules
-      .filter((r) => r.y < top - 4 && r.y > bottom - 2 && r.x < cx && r.x + r.w > cx)
-      .sort((a, b) => a.y - b.y)[0];
+function planNameSlotFromPage(page: PDFPage, width: number, height: number): NameSlot {
+  const underlineY = findNameUnderlineY(page, width, height);
+  if (underlineY != null) {
     return {
-      source: rule ? "anchor+rule" : "anchor-gap",
-      top,
-      bottom,
-      cx: rule ? rule.x + rule.w / 2 : cx,
-      ruleY: rule ? rule.top : null,
-      maxWidth: Math.max(rule ? rule.w * 1.08 : 0, view.width * 0.7),
+      source: "underline",
+      top: underlineY + height * 0.12,
+      bottom: underlineY,
+      cx: width / 2,
+      ruleY: underlineY,
+      maxWidth: width * 0.62,
     };
   }
-  const band = rules
-    .filter((r) => r.y > view.y0 + view.height * 0.35 && r.y < view.y0 + view.height * 0.75)
-    .sort((a, b) => b.w - a.w)[0];
-  if (band) {
-    return {
-      source: "rule",
-      top: band.top + view.height * 0.12,
-      bottom: band.top,
-      cx: band.x + band.w / 2,
-      ruleY: band.top,
-      maxWidth: Math.max(band.w * 1.08, view.width * 0.7),
-    };
-  }
-  const mid = view.y0 + view.height * 0.55;
   return {
     source: "default",
-    top: mid + view.height * 0.08,
-    bottom: mid - view.height * 0.04,
-    cx: view.x0 + view.width / 2,
+    top: height * 0.63,
+    bottom: height * 0.51,
+    cx: width / 2,
     ruleY: null,
-    maxWidth: view.width * 0.6,
+    maxWidth: width * 0.6,
   };
 }
 
@@ -374,28 +195,15 @@ export async function buildCertificatePdfFromTemplate(input: {
   }
   const { width, height } = page.getSize();
 
-  // Where does the name go?
-  let slot: NameSlot;
-  try {
-    slot = planNameSlot(await analyzeTemplateLayout(templateBytes));
-  } catch (error) {
-    console.warn("[DC Space] Certificate layout analysis failed; using underline scan.", error);
-    const underlineY = findNameUnderlineY(page, width, height);
-    slot =
-      underlineY != null
-        ? { source: "underline", top: underlineY + height * 0.12, bottom: underlineY, cx: width / 2, ruleY: underlineY, maxWidth: width * 0.62 }
-        : { source: "default", top: height * 0.63, bottom: height * 0.51, cx: width / 2, ruleY: null, maxWidth: width * 0.6 };
-  }
+  const slot = planNameSlotFromPage(page, width, height);
 
   // Elegant script for the name; Times Bold Italic if the font cannot be embedded.
   let font: PDFFont;
   try {
-    const [{ default: fontkit }, { GREAT_VIBES_TTF_BASE64 }] = await Promise.all([
-      import("@pdf-lib/fontkit"),
-      import("@/lib/certificates/fonts/great-vibes"),
-    ]);
-    pdf.registerFontkit(fontkit);
-    font = await pdf.embedFont(Buffer.from(GREAT_VIBES_TTF_BASE64, "base64"), { subset: true });
+    pdf.registerFontkit(loadFontkit());
+    font = await pdf.embedFont(Buffer.from(GREAT_VIBES_TTF_BASE64, "base64"), {
+      subset: true,
+    });
   } catch (error) {
     console.warn("[DC Space] Certificate font unavailable; using Times Bold Italic.", error);
     font = await pdf.embedFont(StandardFonts.TimesRomanBoldItalic);

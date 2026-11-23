@@ -15,7 +15,7 @@ import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
 import { findOrganizerEvents } from "@/lib/events/find-event";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { organizerOwnershipFilter } from "@/lib/events/ownership";
-import { parseDurationToMinutes } from "@/lib/certificates/template";
+import { parseDurationToMinutes } from "@/lib/certificates/duration";
 import { requireUserAuth } from "@/lib/user-server/require-user-auth";
 import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
@@ -390,6 +390,22 @@ export async function POST(request: Request) {
           title: "New Event Submission",
           body: `${event.organizerName || event.organizerEmail} submitted ${event.title} for approval.`,
           type: "event-submitted",
+          eventId: event.id,
+          eventTitle: event.title,
+        }),
+      );
+    }
+
+    // Admin-created events that are already public must show for every student.
+    if (event.status === "approved" || event.status === "live") {
+      void import("@/lib/user-server/portal").then(({ notifyAllCampusUsers }) =>
+        notifyAllCampusUsers({
+          title: event.status === "live" ? "Event is live" : "New Event Available",
+          body:
+            event.status === "live"
+              ? `${event.title} is now live.`
+              : `A new event, ${event.title}, has been posted.`,
+          type: event.status === "live" ? "event-live" : "event-new",
           eventId: event.id,
           eventTitle: event.title,
         }),

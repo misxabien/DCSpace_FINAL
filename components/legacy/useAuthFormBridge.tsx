@@ -640,7 +640,7 @@ export function useAuthFormBridge() {
       const button = target.closest<HTMLButtonElement>(
         "[data-auth-continue], .btn-continue, button.btn-create, button.btn-signin, button.btn-send, button.btn-submit, button.btn-save",
       );
-      if (!button || button.disabled) {
+      if (!button) {
         return;
       }
       // Ignore password toggles / role chips that might share a class.
@@ -648,6 +648,21 @@ export function useAuthFormBridge() {
         button.classList.contains("toggle-password") ||
         button.classList.contains("role-btn")
       ) {
+        return;
+      }
+
+      // Agreement: if Create Account is still disabled, guide the user to tick consent
+      // instead of silently ignoring the click.
+      if (button.disabled) {
+        if (pathname === "/agreement" && button.id === "submitBtn") {
+          event.preventDefault();
+          event.stopPropagation();
+          showError("Please tick “I have read and agree…” below, then tap I Agree & Create Account.");
+          document.getElementById("consentCard")?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
         return;
       }
       const formEl = findAuthForm(button);
@@ -659,8 +674,37 @@ export function useAuthFormBridge() {
       void handleAuthAction(formEl);
     };
 
+    const syncAgreementConsent = () => {
+      if (pathname !== "/agreement") return;
+      const consent = document.getElementById("consent") as HTMLInputElement | null;
+      const submitBtn = document.getElementById("submitBtn") as HTMLButtonElement | null;
+      const consentCard = document.getElementById("consentCard");
+      if (!consent || !submitBtn || !consentCard) return;
+      const checked = Boolean(consent.checked);
+      submitBtn.disabled = !checked;
+      consentCard.classList.toggle("is-checked", checked);
+    };
+
+    const onConsentChange = (event: Event) => {
+      const target = event.target as HTMLInputElement | null;
+      if (!target || target.id !== "consent") return;
+      syncAgreementConsent();
+      if (target.checked) clearError();
+    };
+
+    const onLegacyReady = () => {
+      syncAgreementConsent();
+    };
+
     document.addEventListener("submit", onSubmit, true);
     document.addEventListener("click", onClick, true);
+    document.addEventListener("change", onConsentChange, true);
+    window.addEventListener("dc-legacy-content-ready", onLegacyReady);
+    document.addEventListener("dc-legacy-content-ready", onLegacyReady);
+    // HTML may already be present after soft navigation.
+    window.setTimeout(syncAgreementConsent, 0);
+    window.setTimeout(syncAgreementConsent, 120);
+    window.setTimeout(syncAgreementConsent, 400);
 
     return () => {
       cancelled = true;
@@ -668,6 +712,9 @@ export function useAuthFormBridge() {
       observer.disconnect();
       document.removeEventListener("submit", onSubmit, true);
       document.removeEventListener("click", onClick, true);
+      document.removeEventListener("change", onConsentChange, true);
+      window.removeEventListener("dc-legacy-content-ready", onLegacyReady);
+      document.removeEventListener("dc-legacy-content-ready", onLegacyReady);
     };
   }, [pathname, router]);
 }

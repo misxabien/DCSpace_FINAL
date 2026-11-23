@@ -273,10 +273,27 @@
   }
 
   [data-legacy-page="06-agreement"] .btn-create {
-    height: 44px !important;
+    height: 48px !important;
     border-radius: 10px !important;
     font-weight: 700 !important;
     box-shadow: 0 6px 16px rgba(68, 138, 255, 0.28) !important;
+  }
+
+  [data-legacy-page="06-agreement"] .consent-card {
+    border: 1.5px solid rgba(68, 138, 255, 0.35) !important;
+    background: #fff !important;
+  }
+
+  [data-legacy-page="06-agreement"] .consent-card.is-checked {
+    border-color: #448aff !important;
+  }
+
+  [data-legacy-page="06-agreement"] .card-footer {
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 5 !important;
+    background: #fffef8 !important;
+    box-shadow: 0 -8px 24px rgba(0, 40, 90, 0.08) !important;
   }
 }
 

@@ -1,5 +1,5 @@
 import type { Db } from "mongodb";
-import { parseDurationToMinutes } from "@/lib/certificates/template";
+import { parseDurationToMinutes } from "@/lib/certificates/duration";
 import { attendanceCollection } from "@/lib/user-server/activity";
 
 export type CertificateEligibility = {

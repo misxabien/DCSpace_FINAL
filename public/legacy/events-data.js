@@ -50,6 +50,15 @@
       var dateB = String(b.date || '');
       var isPast = category === 'joined-past' || category === 'past';
       if (isPast) return dateB.localeCompare(dateA);
+      // Recently published / updated campus events rise first so every account
+      // sees a brand-new approval even when many upcoming events exist.
+      var updatedA = Date.parse(String(a.updatedAt || '')) || 0;
+      var updatedB = Date.parse(String(b.updatedAt || '')) || 0;
+      var dayMs = 36e5 * 36;
+      var aFresh = updatedA && (Date.now() - updatedA) < dayMs;
+      var bFresh = updatedB && (Date.now() - updatedB) < dayMs;
+      if (aFresh !== bFresh) return aFresh ? -1 : 1;
+      if (aFresh && bFresh && updatedA !== updatedB) return updatedB - updatedA;
       if (dateA !== dateB) return dateA.localeCompare(dateB);
       return String(a.name || '').localeCompare(String(b.name || ''));
     });

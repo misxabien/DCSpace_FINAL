@@ -16,7 +16,7 @@ import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
 import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
-import { parseDurationToMinutes } from "@/lib/certificates/template";
+import { parseDurationToMinutes } from "@/lib/certificates/duration";
 
 const REVIEW_STATUSES: EventStatus[] = [
   "pending",
@@ -436,6 +436,15 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (!result) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
+    }
+
+    // Keep the twin DB in sync so every student portal sees the published status
+    // (admin + user event collections are merged on browse).
+    const mirrorDb = writeDb === adminDb ? userDb : adminDb;
+    if (mirrorDb && body.status) {
+      void eventsCollection(mirrorDb)
+        .updateOne({ _id: new ObjectId(id) }, { $set: update })
+        .catch(() => undefined);
     }
 
     const event = sanitizeEvent(result as SpaceEvent & { _id: ObjectId }, { includeMedia: true });

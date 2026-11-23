@@ -129,21 +129,28 @@ export async function GET(request: Request) {
       source: String(doc.source || "session"),
     }));
 
-    return NextResponse.json({
-      events,
-      registrations: registrationDocs.map((doc) => ({
-        eventId: String(doc.eventId || ""),
-        status: String(doc.status || "joined"),
-        eventTitle: String(doc.eventTitle || ""),
-        createdAt: String(doc.createdAt || ""),
-      })),
-      invitations,
-      savedEventIds: Array.isArray(savedDoc?.eventIds)
-        ? savedDoc.eventIds.map(String)
-        : [],
-      attendance,
-      accountEmail: email,
-    });
+    return NextResponse.json(
+      {
+        events,
+        registrations: registrationDocs.map((doc) => ({
+          eventId: String(doc.eventId || ""),
+          status: String(doc.status || "joined"),
+          eventTitle: String(doc.eventTitle || ""),
+          createdAt: String(doc.createdAt || ""),
+        })),
+        invitations,
+        savedEventIds: Array.isArray(savedDoc?.eventIds)
+          ? savedDoc.eventIds.map(String)
+          : [],
+        attendance,
+        accountEmail: email,
+      },
+      {
+        headers: {
+          "Cache-Control": "private, no-store, max-age=0",
+        },
+      },
+    );
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(

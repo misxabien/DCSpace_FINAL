@@ -21,7 +21,7 @@ export type PortalPayload = {
 };
 
 /** Keep short so admin approvals show up for students within a few seconds. */
-const MEMORY_TTL_MS = 8_000;
+const MEMORY_TTL_MS = 5_000;
 const STORAGE_KEY = "dc_portal_data_v2";
 
 let cache: { at: number; data: PortalPayload | null } = { at: 0, data: null };
