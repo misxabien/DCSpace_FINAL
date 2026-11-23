@@ -187,7 +187,16 @@
     box-shadow: 0 6px 16px rgba(68, 138, 255, 0.28) !important;
   }
 
-  /* Agreement modal → full mobile page */
+  /* Agreement modal → full mobile page.
+     The legacy agreement CSS sets `body { overflow: hidden }` so the desktop
+     modal doesn't scroll the page behind it. On mobile the modal becomes a
+     normal tall page, so the body must scroll or the policy text is cut off. */
+  body:has([data-legacy-page="06-agreement"]) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
   [data-legacy-page="06-agreement"] .page-backdrop {
     display: none !important;
   }
