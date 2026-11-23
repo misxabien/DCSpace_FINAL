@@ -242,6 +242,8 @@ export function ProfileDataBridge() {
         (document.getElementById("profile-organization") as HTMLInputElement | null)?.value || "";
       const organizationRole =
         (document.getElementById("profile-org-role") as HTMLInputElement | null)?.value || "";
+      const rfidNumber =
+        (document.getElementById("profile-rfid") as HTMLInputElement | null)?.value?.trim() || "";
       const res = await fetch("/api/user/profile", {
         method: "PATCH",
         headers: authHeaders(),
@@ -251,6 +253,7 @@ export function ProfileDataBridge() {
           school,
           organizationPart: organizationPart === "None" ? "" : organizationPart,
           organizationRole: organizationRole === "None" ? "" : organizationRole,
+          rfidNumber,
           ...extra,
         }),
       });

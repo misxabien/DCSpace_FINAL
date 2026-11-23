@@ -283,14 +283,11 @@ export function useAuthFormBridge() {
             .toLowerCase();
           const password = String(data.get("password") || "");
           const confirmPassword = String(data.get("confirmPassword") || "");
+          // RFID is optional at signup — students can verify it later on Profile.
           const rfidNumber = String(data.get("rfidTagNumber") || "").trim();
 
           if (!email.endsWith("@sdca.edu.ph")) {
             showError("Please use your school email (@sdca.edu.ph).");
-            return;
-          }
-          if (!rfidNumber) {
-            showError("Please enter your RFID tag number.");
             return;
           }
           if (password !== confirmPassword) {

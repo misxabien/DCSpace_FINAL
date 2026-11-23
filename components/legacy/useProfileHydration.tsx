@@ -114,6 +114,21 @@ function showPhotoHint(message: string, isError = false) {
   saveHint.classList.toggle("is-saved", !isError);
 }
 
+function syncRfidVerificationUi(rfidNumber: string) {
+  const hasRfid = Boolean(String(rfidNumber || "").trim());
+  const banner = document.getElementById("rfid-verify-banner");
+  const panel = document.getElementById("rfid-verify-panel");
+  const status = document.getElementById("profile-rfid-status") as HTMLInputElement | null;
+  const verifyInput = document.getElementById(
+    "profile-rfid-verify",
+  ) as HTMLInputElement | null;
+
+  if (banner) banner.hidden = hasRfid;
+  if (panel && hasRfid) panel.hidden = true;
+  if (status) status.value = hasRfid ? "Registered" : "Not Registered";
+  if (verifyInput && hasRfid) verifyInput.value = String(rfidNumber || "").trim();
+}
+
 function applyProfileToDom(profile: UserProfile) {
   const fullName =
     profile.fullName || `${profile.firstName || ""} ${profile.lastName || ""}`.trim();
@@ -141,6 +156,8 @@ function applyProfileToDom(profile: UserProfile) {
   // Position is separate — never copy the role string into this field.
   setInputValue("profile-org-position", org.position);
   setInputValue("profile-rfid", profile.rfidNumber || "");
+  setInputValue("profile-rfid-verify", profile.rfidNumber || "");
+  syncRfidVerificationUi(profile.rfidNumber || "");
   setInputValue(
     "profile-account-type",
     profile.role?.toLowerCase() === "faculty" ? "Faculty" : "Student",
@@ -245,6 +262,55 @@ export function useProfileHydration() {
     const saveBtn = document.getElementById("save-profile-btn");
     const avatarInput = document.getElementById("avatar-photo-input") as HTMLInputElement | null;
     const bannerInput = document.getElementById("banner-photo-input") as HTMLInputElement | null;
+    const verifyNowBtn = document.getElementById("rfid-verify-now-btn");
+    const verifySaveBtn = document.getElementById(
+      "rfid-verify-save-btn",
+    ) as HTMLButtonElement | null;
+    const verifyPanel = document.getElementById("rfid-verify-panel");
+    const verifyInput = document.getElementById(
+      "profile-rfid-verify",
+    ) as HTMLInputElement | null;
+    const profileRfidInput = document.getElementById(
+      "profile-rfid",
+    ) as HTMLInputElement | null;
+
+    const onVerifyNowClick = () => {
+      if (!verifyPanel) return;
+      verifyPanel.hidden = false;
+      window.setTimeout(() => {
+        verifyInput?.focus();
+        verifyInput?.select();
+      }, 0);
+    };
+
+    const onVerifySaveClick = async () => {
+      const current = readAuthSession();
+      const rfidNumber = String(verifyInput?.value || profileRfidInput?.value || "").trim();
+      if (!rfidNumber) {
+        showPhotoHint("Tap or enter your RFID tag number first.", true);
+        verifyInput?.focus();
+        return;
+      }
+      if (verifySaveBtn) verifySaveBtn.disabled = true;
+      try {
+        showPhotoHint("Saving RFID Student ID…");
+        if (profileRfidInput) profileRfidInput.value = rfidNumber;
+        const result = await updateProfile(current?.token, { rfidNumber });
+        if (current?.token) {
+          saveAuthSession(current.token, result.profile);
+        }
+        syncProfileToLegacyStorage(result.profile);
+        applyProfileToDom(result.profile);
+        showPhotoHint("RFID Student ID verified. You can now use the attendance tapper.");
+      } catch (error) {
+        showPhotoHint(
+          error instanceof Error ? error.message : "Could not save RFID tag number.",
+          true,
+        );
+      } finally {
+        if (verifySaveBtn) verifySaveBtn.disabled = false;
+      }
+    };
 
     const onSaveClick = () => {
       const isSaving = saveBtn?.classList.contains("is-editing");
@@ -285,8 +351,11 @@ export function useProfileHydration() {
           }
           syncProfileToLegacyStorage(result.profile);
           applyProfileToDom(result.profile);
-        } catch {
-          /* local save already handled by legacy script */
+        } catch (error) {
+          showPhotoHint(
+            error instanceof Error ? error.message : "Could not save profile.",
+            true,
+          );
         }
       }, 0);
     };
@@ -353,15 +422,39 @@ export function useProfileHydration() {
       }
     };
 
+    const onVerifySaveClickHandler = () => {
+      void onVerifySaveClick();
+    };
+
     saveBtn?.addEventListener("click", onSaveClick, true);
     avatarInput?.addEventListener("change", onAvatarChange, true);
     bannerInput?.addEventListener("change", onBannerChange, true);
+    verifyNowBtn?.addEventListener("click", onVerifyNowClick);
+    verifySaveBtn?.addEventListener("click", onVerifySaveClickHandler);
+
+    // Keep the verify panel input in sync with the profile RFID field.
+    const onProfileRfidInput = () => {
+      if (verifyInput && profileRfidInput) {
+        verifyInput.value = profileRfidInput.value;
+      }
+    };
+    const onVerifyRfidInput = () => {
+      if (verifyInput && profileRfidInput) {
+        profileRfidInput.value = verifyInput.value;
+      }
+    };
+    profileRfidInput?.addEventListener("input", onProfileRfidInput);
+    verifyInput?.addEventListener("input", onVerifyRfidInput);
 
     return () => {
       cancelled = true;
       saveBtn?.removeEventListener("click", onSaveClick, true);
       avatarInput?.removeEventListener("change", onAvatarChange, true);
       bannerInput?.removeEventListener("change", onBannerChange, true);
+      verifyNowBtn?.removeEventListener("click", onVerifyNowClick);
+      verifySaveBtn?.removeEventListener("click", onVerifySaveClickHandler);
+      profileRfidInput?.removeEventListener("input", onProfileRfidInput);
+      verifyInput?.removeEventListener("input", onVerifyRfidInput);
     };
   }, [pathname]);
 }

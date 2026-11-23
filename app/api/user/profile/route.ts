@@ -96,8 +96,34 @@ export async function PATCH(request: Request) {
     updates.updatedAt = new Date().toISOString();
 
     const db = await getUserDb();
-    await db.collection("users").updateOne({ _id: new ObjectId(authResult.user._id) }, { $set: updates });
-    const savedUser = await db.collection("users").findOne({ _id: new ObjectId(authResult.user._id) });
+    const userId = new ObjectId(authResult.user._id);
+
+    if (rfidNumber !== undefined && rfidNumber) {
+      const digits = rfidNumber.replace(/\D/g, "");
+      const canonical = digits.replace(/^0+/, "") || digits;
+      const conflict = await db.collection("users").findOne({
+        _id: { $ne: userId },
+        $or: [
+          { rfidNumber },
+          ...(digits
+            ? [
+                { rfidNumber: digits },
+                { rfidNumber: canonical },
+                { rfidNumber: { $regex: `^0*${canonical}$` } },
+              ]
+            : []),
+        ],
+      });
+      if (conflict) {
+        return NextResponse.json(
+          { error: "This RFID tag is already linked to another account." },
+          { status: 409 },
+        );
+      }
+    }
+
+    await db.collection("users").updateOne({ _id: userId }, { $set: updates });
+    const savedUser = await db.collection("users").findOne({ _id: userId });
 
     if (!savedUser) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
