@@ -2225,47 +2225,52 @@ function fillFulld46EventInfo(event: CertEventDetail | null) {
   }
 }
 
+/** Issue (or regenerate) one participant's certificate for an event. */
+async function issueCertificateFor(eventId: string, email: string, name: string, regenerate = false) {
+  const res = await fetch("/api/user/certificates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventId, email, name, regenerate }),
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(payload.error || "Failed to issue certificate."));
+  return payload;
+}
+
+let certificateRowActionsWired = false;
+
 /**
- * Eligible-participants table (fulld46): one capture-phase handler for every
- * row's "Preview ▾" toggle and its Preview / Generate / Regenerate / Distribute
- * options. The legacy script only wired the template rows at load, so rows
- * cloned for real participants could not be clicked.
+ * Eligible-participants table (fulld46): ONE document-level capture handler for
+ * every row's "Preview ▾" toggle and its Preview / Generate / Regenerate /
+ * Distribute options. Installed before any data loads, so the dropdown works
+ * even if hydration is slow or fails, and it overrides the legacy per-button
+ * listeners (which only covered template rows and can be bound twice).
  */
-function wireCertificateRowActions(
-  table: HTMLElement,
-  issueOne: (email: string, name: string, regenerate?: boolean) => Promise<Record<string, unknown>>,
-) {
-  // Keep the latest issuer (bound to this page's event) for the handler below.
-  (table as HTMLElement & { __dcIssueOne?: typeof issueOne }).__dcIssueOne = issueOne;
-  if (table.dataset.dcRowActionsWired === "1") return;
-  table.dataset.dcRowActionsWired = "1";
+function ensureCertificateRowActionsWired() {
+  if (certificateRowActionsWired) return;
+  certificateRowActionsWired = true;
 
-  const closeAll = (except?: Element | null) => {
-    document.querySelectorAll(".fd-action.open, .fd-bulk.open").forEach((el) => {
-      if (el !== except) el.classList.remove("open");
-    });
-  };
-
-  table.addEventListener(
+  document.addEventListener(
     "click",
     (clickEvent) => {
       const target = clickEvent.target as HTMLElement | null;
-      if (!target) return;
+      const table = target?.closest<HTMLElement>(".fd-table");
+      if (!target || !table) return;
 
       const toggle = target.closest<HTMLElement>("[data-action-toggle]");
-      if (toggle && table.contains(toggle)) {
-        // Capture phase + stopPropagation: the legacy per-button listener (on
-        // template rows) must not toggle the menu a second time.
+      if (toggle) {
         clickEvent.preventDefault();
         clickEvent.stopPropagation();
         const wrap = toggle.closest(".fd-action");
-        closeAll(wrap);
+        document.querySelectorAll(".fd-action.open, .fd-bulk.open").forEach((el) => {
+          if (el !== wrap) el.classList.remove("open");
+        });
         wrap?.classList.toggle("open");
         return;
       }
 
       const option = target.closest<HTMLButtonElement>(".fd-action-menu button");
-      if (!option || !table.contains(option)) return;
+      if (!option) return;
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
       const wrap = option.closest(".fd-action");
@@ -2275,15 +2280,19 @@ function wireCertificateRowActions(
       wrap?.classList.remove("open");
 
       const tr = option.closest<HTMLTableRowElement>("tr");
-      if (!tr) return;
-      const email = tr.dataset.email || "";
-      const userName = tr.dataset.userName || email;
-      const downloadUrl = tr.dataset.downloadUrl || "";
-      const eligible = tr.dataset.eligible === "1";
+      const email = tr?.dataset.email || "";
+      const userName = tr?.dataset.userName || email;
+      const downloadUrl = tr?.dataset.downloadUrl || "";
+      const eligible = tr?.dataset.eligible === "1";
+      const eventId =
+        table.dataset.eventId || new URLSearchParams(window.location.search).get("id") || "";
       const eventTitle = table.dataset.eventTitle || "event";
       const label = (option.textContent || "").trim().toLowerCase();
-      const issue = (table as HTMLElement & { __dcIssueOne?: typeof issueOne }).__dcIssueOne;
 
+      if (!email) {
+        window.alert("Participant details haven't loaded yet. Refresh the page and try again.");
+        return;
+      }
       if (label.includes("preview") || label.includes("distribute")) {
         if (downloadUrl) {
           window.open(downloadUrl, "_blank", "noopener,noreferrer");
@@ -2292,7 +2301,7 @@ function wireCertificateRowActions(
         }
         return;
       }
-      if (!label.includes("generate") || !issue || !email) return;
+      if (!label.includes("generate") || !eventId) return;
       const regenerate = label.includes("regenerate");
       if (!eligible && !regenerate) {
         window.alert(
@@ -2302,16 +2311,12 @@ function wireCertificateRowActions(
       }
       void (async () => {
         try {
-          const payload = await issue(email, userName, regenerate);
+          const payload = await issueCertificateFor(eventId, email, userName, regenerate);
           const blocked = Array.isArray(payload.ineligible)
             ? (payload.ineligible[0] as { reason?: string } | undefined)
             : undefined;
           window.alert(
-            String(
-              payload.message ||
-                blocked?.reason ||
-                `Certificate issued for ${userName} — ${eventTitle}.`,
-            ),
+            String(payload.message || blocked?.reason || `Certificate issued for ${userName} — ${eventTitle}.`),
           );
           window.location.reload();
         } catch (error) {
@@ -2333,6 +2338,7 @@ function wireCertificateRowActions(
 async function hydrateCertificateDetails() {
   const eventId = new URLSearchParams(window.location.search).get("id") || "";
   const pageId = pageIdFromPath(window.location.pathname);
+  ensureCertificateRowActionsWired();
 
   // Clear hardcoded demo copy immediately on the detail page.
   if (pageId === "fulld46") {
@@ -2448,8 +2454,16 @@ async function hydrateCertificateDetails() {
     (eventsPayload?.events || []).find((row) => row.id === eventId) ||
     null;
 
-  fillFulld46EventInfo(event);
-  wireEventPdfReportButtons(eventId);
+  try {
+    fillFulld46EventInfo(event);
+  } catch (error) {
+    console.warn("[DC Space] Certificate event info failed:", error);
+  }
+  try {
+    wireEventPdfReportButtons(eventId);
+  } catch (error) {
+    console.warn("[DC Space] Certificate report buttons failed:", error);
+  }
 
   document.querySelectorAll(".fd-overview-row").forEach((row) => {
     const key = (row.querySelector(".k")?.textContent || "").trim().toLowerCase();
@@ -2549,17 +2563,6 @@ async function hydrateCertificateDetails() {
     if (key.includes("participant")) value.textContent = String(eligibleRows.length);
   });
 
-  const issueOne = async (email: string, name: string, regenerate = false) => {
-    const res = await fetch("/api/user/certificates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventId, email, name, regenerate }),
-    });
-    const payload = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(payload.error || "Failed to issue certificate.");
-    return payload;
-  };
-
   patchTableRows(document.querySelector(".fd-table"), eligibleRows, (tr, row) => {
     tr.setAttribute("data-email", row.email);
     tr.setAttribute("data-user-name", row.userName);
@@ -2589,7 +2592,6 @@ async function hydrateCertificateDetails() {
   if (fdTable) {
     fdTable.dataset.eventId = eventId;
     fdTable.dataset.eventTitle = event?.title || "event";
-    wireCertificateRowActions(fdTable, issueOne);
   }
 
   // Bulk Generate Selected
@@ -3930,6 +3932,7 @@ export function AdminOpsBridge() {
           }
           root.setAttribute("data-dc-blanked", pageId);
         }
+        if (pageId === "fulld46" || pageId === "certdeets46") ensureCertificateRowActionsWired();
         if (pageId === "add40") wireAddUser();
         if (pageId === "school30") await hydrateSchoolDirectory(root);
         if (pageId === "manages28" || pageId === "managef29" || pageId === "manageadmin") {
