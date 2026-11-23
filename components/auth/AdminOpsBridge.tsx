@@ -3289,14 +3289,53 @@ async function hydrateUserEventTables(pageId: string) {
     const certs = await fetchJson<{
       certificates: Array<{ id: string; name: string; eventName: string; dateIssued: string; downloadUrl?: string }>;
     }>(`/api/user/certificates?email=${encodeURIComponent(email)}`);
-    patchChildren(document.querySelector(".cert-grid"), ".cert-card", certs?.certificates || [], (el, cert) => {
+    const certGrid = document.querySelector<HTMLElement>(".cert-grid");
+    patchChildren(certGrid, ".cert-card", certs?.certificates || [], (el, cert) => {
       const name = el.querySelector(".name, p.name");
       const eventName = el.querySelector(".event, p.event");
+      const issued = el.querySelector(".issued, p.issued");
       if (name) name.textContent = cert.name || "Certificate";
       if (eventName) eventName.textContent = cert.eventName || "—";
-      const link = el.querySelector<HTMLAnchorElement>("a");
-      if (link && cert.downloadUrl) link.href = cert.downloadUrl;
+      if (issued) {
+        issued.textContent = cert.dateIssued ? `Issued ${formatCertDate(cert.dateIssued)}` : "—";
+      }
+      // The whole card (preview included) opens the certificate PDF.
+      const hint = el.querySelector(".cert-preview-inner span");
+      if (cert.downloadUrl) {
+        el.dataset.certUrl = cert.downloadUrl;
+        el.setAttribute("role", "link");
+        el.tabIndex = 0;
+        el.style.cursor = "pointer";
+        el.title = `Open ${cert.name || "certificate"}`;
+        el.setAttribute("aria-label", `Open certificate: ${cert.name || "Certificate"}, ${cert.eventName || ""}`);
+        if (hint) hint.textContent = "Click to view";
+      } else {
+        delete el.dataset.certUrl;
+        el.removeAttribute("role");
+        el.removeAttribute("tabindex");
+        el.removeAttribute("aria-label");
+        el.style.cursor = "";
+        if (hint) hint.textContent = "Not available";
+      }
     });
+    // One delegated handler — cloned cards don't carry listeners.
+    if (certGrid && certGrid.dataset.dcCertOpenWired !== "1") {
+      certGrid.dataset.dcCertOpenWired = "1";
+      const openCard = (target: EventTarget | null) => {
+        const card = (target as HTMLElement | null)?.closest<HTMLElement>("[data-cert-url]");
+        const url = card?.dataset.certUrl;
+        if (!url) return false;
+        window.open(url, "_blank", "noopener");
+        return true;
+      };
+      certGrid.addEventListener("click", (event) => {
+        openCard(event.target);
+      });
+      certGrid.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (openCard(event.target)) event.preventDefault();
+      });
+    }
   }
 
   if (pageId === "fb39") {
