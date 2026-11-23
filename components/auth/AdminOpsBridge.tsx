@@ -1330,6 +1330,156 @@ function showRfidDuplicatePopup(
   }, 0);
 }
 
+function ensureQuickRegisterStyles() {
+  ensureRfidPopupStyles();
+  if (document.getElementById("dc-rfid-qr-style")) return;
+  const style = document.createElement("style");
+  style.id = "dc-rfid-qr-style";
+  style.textContent = `
+.dc-rfid-qr-dialog { text-align: left; padding: 28px 26px 24px; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
+.dc-rfid-qr-dialog .dc-rfid-dup-title { color: #1f3b73; text-align: center; }
+.dc-rfid-qr-dialog .dc-rfid-dup-text { color: #5b6b86; text-align: center; margin-bottom: 18px; }
+.dc-rfid-qr-card { font-weight: 700; color: #448aff; }
+.dc-rfid-qr-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .dc-rfid-qr-row { grid-template-columns: 1fr; } }
+.dc-rfid-qr-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.dc-rfid-qr-field span { font-size: 12px; font-weight: 650; color: #1f3b73; }
+.dc-rfid-qr-field input { height: 40px; border: 1px solid rgba(68,138,255,0.3); border-radius: 10px; padding: 0 12px; font: inherit; font-size: 14px; color: #1f2937; background: #fff; }
+.dc-rfid-qr-field input:focus { outline: 2px solid rgba(68,138,255,0.35); border-color: #448aff; }
+.dc-rfid-qr-consent { display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: #374151; line-height: 1.45; margin: 4px 0 14px; cursor: pointer; }
+.dc-rfid-qr-consent input { margin-top: 2px; width: 16px; height: 16px; flex-shrink: 0; }
+.dc-rfid-qr-error { min-height: 18px; margin: 0 0 12px; color: #c62828; font-size: 13px; line-height: 1.4; }
+.dc-rfid-qr-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.dc-rfid-qr-cancel { min-width: 100px; height: 42px; border-radius: 12px; border: 1px solid rgba(68,138,255,0.3); background: #fff; color: #448aff; font-size: 14px; font-weight: 650; cursor: pointer; }
+.dc-rfid-qr-actions .dc-rfid-dup-ok[disabled] { opacity: 0.6; cursor: progress; }
+`;
+  document.head.appendChild(style);
+}
+
+/**
+ * Quick Register on First Tap: an unknown card on Tap In opens this form.
+ * Save creates the account (or links the card to an existing account),
+ * registers the student for the event and records the tap-in in one step.
+ */
+function showRfidQuickRegister(rfidNumber: string) {
+  ensureQuickRegisterStyles();
+  document.getElementById("dc-rfid-qr-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "dc-rfid-qr-overlay";
+  overlay.className = "dc-rfid-dup-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "dc-rfid-qr-title");
+  overlay.innerHTML =
+    '<form class="dc-rfid-dup-dialog dc-rfid-qr-dialog" id="dc-rfid-qr-form" novalidate>' +
+    '<p class="dc-rfid-dup-title" id="dc-rfid-qr-title">Card not registered yet</p>' +
+    '<p class="dc-rfid-dup-text">RFID <span class="dc-rfid-qr-card" id="dc-rfid-qr-card"></span> isn\'t linked to any student. ' +
+    "Fill this in to create their account, link the card and tap them in.</p>" +
+    '<div class="dc-rfid-qr-row">' +
+    '<label class="dc-rfid-qr-field"><span>First name</span><input name="firstName" autocomplete="off" required /></label>' +
+    '<label class="dc-rfid-qr-field"><span>Last name</span><input name="lastName" autocomplete="off" required /></label>' +
+    "</div>" +
+    '<label class="dc-rfid-qr-field"><span>Student number</span><input name="studentNumber" autocomplete="off" inputmode="numeric" required /></label>' +
+    '<label class="dc-rfid-qr-field"><span>School email</span><input name="email" type="email" autocomplete="off" placeholder="name@sdca.edu.ph" required /></label>' +
+    '<label class="dc-rfid-qr-consent"><input type="checkbox" name="privacyConsent" />' +
+    "<span>The student agreed to the DC Space Data Privacy Notice (collection of their name, student number, email and attendance).</span></label>" +
+    '<p class="dc-rfid-qr-error" id="dc-rfid-qr-error" role="alert"></p>' +
+    '<div class="dc-rfid-qr-actions">' +
+    '<button type="button" class="dc-rfid-qr-cancel" id="dc-rfid-qr-cancel">Cancel</button>' +
+    '<button type="submit" class="dc-rfid-dup-ok" id="dc-rfid-qr-save">Save &amp; Tap In</button>' +
+    "</div>" +
+    "</form>";
+  document.body.appendChild(overlay);
+
+  const form = overlay.querySelector<HTMLFormElement>("#dc-rfid-qr-form")!;
+  const errorEl = overlay.querySelector<HTMLElement>("#dc-rfid-qr-error")!;
+  const saveBtn = overlay.querySelector<HTMLButtonElement>("#dc-rfid-qr-save")!;
+  overlay.querySelector("#dc-rfid-qr-card")!.textContent = rfidNumber;
+
+  const close = () => {
+    overlay.remove();
+    window.setTimeout(() => {
+      (document.getElementById("dc-rfid-scan-input") as HTMLInputElement | null)?.focus();
+    }, 0);
+  };
+  overlay.querySelector("#dc-rfid-qr-cancel")?.addEventListener("click", () => {
+    close();
+    setRfidAlert("Quick Register cancelled. Tap the card again to retry.", true);
+  });
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const field = (name: string) =>
+      String((form.elements.namedItem(name) as HTMLInputElement | null)?.value || "").trim();
+    const consent = Boolean(
+      (form.elements.namedItem("privacyConsent") as HTMLInputElement | null)?.checked,
+    );
+    const payload = {
+      eventId: rfidScanEventId,
+      rfidNumber,
+      firstName: field("firstName"),
+      lastName: field("lastName"),
+      studentNumber: field("studentNumber"),
+      email: field("email").toLowerCase(),
+      privacyConsent: consent,
+    };
+    if (!payload.firstName || !payload.lastName || !payload.studentNumber || !payload.email) {
+      errorEl.textContent = "Fill in all fields.";
+      return;
+    }
+    if (!consent) {
+      errorEl.textContent = "Ask the student to agree to the Data Privacy Notice, then tick the box.";
+      return;
+    }
+    errorEl.textContent = "";
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    try {
+      const res = await fetch("/api/admin/attendance/quick-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errorEl.textContent = String(data.error || "Could not register this student.");
+        return;
+      }
+      close();
+      const user = data.user as Parameters<typeof applyRfidParticipantProfile>[0] | undefined;
+      const scan = data.scan as { scannedAt?: string; participantName?: string; email?: string } | undefined;
+      if (user?.name || user?.email) applyRfidParticipantProfile(user);
+      setTapTimes(scan?.scannedAt || new Date().toISOString(), "");
+      setRfidAlert(String(data.message || "Registered and tapped in."));
+      const syncedEmail = String(user?.email || scan?.email || payload.email);
+      window.requestAnimationFrame(() => {
+        void refreshRfidUi({
+          light: true,
+          preserveProfileEmail: syncedEmail,
+          applyLatestProfile: false,
+        });
+      });
+    } catch {
+      errorEl.textContent = "Network error. Check the connection and press Save again.";
+    } finally {
+      if (saveBtn.isConnected) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save & Tap In";
+      }
+    }
+  });
+
+  window.setTimeout(() => {
+    form.querySelector<HTMLInputElement>('input[name="firstName"]')?.focus();
+  }, 0);
+}
+
 function formatRfidClock(value?: string) {
   if (!value) return "";
   const date = new Date(value);
@@ -1774,6 +1924,12 @@ function wireRfidScanner(eventId: string) {
           applyRfidParticipantProfile(null);
           setTapTimes("", "");
         }
+        // Quick Register on First Tap: unknown card on Tap In → registration form.
+        if (code === "unknown_rfid" && action === "in") {
+          setRfidAlert("Card not registered yet — fill in the Quick Register form.", true);
+          showRfidQuickRegister(rfidNumber);
+          return;
+        }
         if (
           code === "duplicate_entry" ||
           code === "duplicate_warning" ||
@@ -1900,6 +2056,8 @@ function wireRfidScanner(eventId: string) {
           return;
         }
         if (isOtherEditableTarget(event.target)) return;
+        // Let the volunteer use the Quick Register form normally.
+        if (document.getElementById("dc-rfid-qr-overlay")) return;
 
         if (event.key === "Enter" || event.key === "NumpadEnter") {
           event.preventDefault();
