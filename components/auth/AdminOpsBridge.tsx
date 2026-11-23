@@ -2225,6 +2225,111 @@ function fillFulld46EventInfo(event: CertEventDetail | null) {
   }
 }
 
+/**
+ * Eligible-participants table (fulld46): one capture-phase handler for every
+ * row's "Preview ▾" toggle and its Preview / Generate / Regenerate / Distribute
+ * options. The legacy script only wired the template rows at load, so rows
+ * cloned for real participants could not be clicked.
+ */
+function wireCertificateRowActions(
+  table: HTMLElement,
+  issueOne: (email: string, name: string, regenerate?: boolean) => Promise<Record<string, unknown>>,
+) {
+  // Keep the latest issuer (bound to this page's event) for the handler below.
+  (table as HTMLElement & { __dcIssueOne?: typeof issueOne }).__dcIssueOne = issueOne;
+  if (table.dataset.dcRowActionsWired === "1") return;
+  table.dataset.dcRowActionsWired = "1";
+
+  const closeAll = (except?: Element | null) => {
+    document.querySelectorAll(".fd-action.open, .fd-bulk.open").forEach((el) => {
+      if (el !== except) el.classList.remove("open");
+    });
+  };
+
+  table.addEventListener(
+    "click",
+    (clickEvent) => {
+      const target = clickEvent.target as HTMLElement | null;
+      if (!target) return;
+
+      const toggle = target.closest<HTMLElement>("[data-action-toggle]");
+      if (toggle && table.contains(toggle)) {
+        // Capture phase + stopPropagation: the legacy per-button listener (on
+        // template rows) must not toggle the menu a second time.
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        const wrap = toggle.closest(".fd-action");
+        closeAll(wrap);
+        wrap?.classList.toggle("open");
+        return;
+      }
+
+      const option = target.closest<HTMLButtonElement>(".fd-action-menu button");
+      if (!option || !table.contains(option)) return;
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      const wrap = option.closest(".fd-action");
+      wrap?.querySelectorAll(".fd-action-menu button").forEach((btn) => {
+        btn.classList.toggle("is-active", btn === option);
+      });
+      wrap?.classList.remove("open");
+
+      const tr = option.closest<HTMLTableRowElement>("tr");
+      if (!tr) return;
+      const email = tr.dataset.email || "";
+      const userName = tr.dataset.userName || email;
+      const downloadUrl = tr.dataset.downloadUrl || "";
+      const eligible = tr.dataset.eligible === "1";
+      const eventTitle = table.dataset.eventTitle || "event";
+      const label = (option.textContent || "").trim().toLowerCase();
+      const issue = (table as HTMLElement & { __dcIssueOne?: typeof issueOne }).__dcIssueOne;
+
+      if (label.includes("preview") || label.includes("distribute")) {
+        if (downloadUrl) {
+          window.open(downloadUrl, "_blank", "noopener,noreferrer");
+        } else {
+          window.alert(`No certificate PDF yet for ${userName}. Use Generate first.`);
+        }
+        return;
+      }
+      if (!label.includes("generate") || !issue || !email) return;
+      const regenerate = label.includes("regenerate");
+      if (!eligible && !regenerate) {
+        window.alert(
+          `${userName} is not eligible yet. They must tap out and meet the minimum attendance time.`,
+        );
+        return;
+      }
+      void (async () => {
+        try {
+          const payload = await issue(email, userName, regenerate);
+          const blocked = Array.isArray(payload.ineligible)
+            ? (payload.ineligible[0] as { reason?: string } | undefined)
+            : undefined;
+          window.alert(
+            String(
+              payload.message ||
+                blocked?.reason ||
+                `Certificate issued for ${userName} — ${eventTitle}.`,
+            ),
+          );
+          window.location.reload();
+        } catch (error) {
+          window.alert(error instanceof Error ? error.message : "Failed.");
+        }
+      })();
+    },
+    true,
+  );
+
+  // Close an open row menu when clicking anywhere else.
+  document.addEventListener("click", (clickEvent) => {
+    const target = clickEvent.target as HTMLElement | null;
+    if (target?.closest(".fd-action")) return;
+    document.querySelectorAll(".fd-action.open").forEach((el) => el.classList.remove("open"));
+  });
+}
+
 async function hydrateCertificateDetails() {
   const eventId = new URLSearchParams(window.location.search).get("id") || "";
   const pageId = pageIdFromPath(window.location.pathname);
@@ -2472,54 +2577,20 @@ async function hydrateCertificateDetails() {
     if (cells[4]) cells[4].textContent = row.school || "—";
     if (cells[5]) cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
     if (cells[6]) cells[6].textContent = row.status;
-
-    const menu = tr.querySelector(".fd-action-menu");
-    if (menu && menu.getAttribute("data-dc-wired") !== "1") {
-      menu.setAttribute("data-dc-wired", "1");
-      const eventTitle = event?.title || "event";
-      menu.querySelectorAll("button").forEach((btn) => {
-        btn.addEventListener("click", (clickEvent) => {
-          clickEvent.preventDefault();
-          clickEvent.stopPropagation();
-          const label = (btn.textContent || "").trim().toLowerCase();
-          void (async () => {
-            try {
-              if (label.includes("preview") || label.includes("distribute")) {
-                if (row.downloadUrl) {
-                  window.open(row.downloadUrl, "_blank", "noopener,noreferrer");
-                } else {
-                  window.alert("No certificate PDF yet. Generate it first.");
-                }
-                return;
-              }
-              if (label.includes("generate")) {
-                if (!row.eligible && !label.includes("regenerate")) {
-                  window.alert(
-                    `${row.userName} is not eligible yet. They must tap out and meet the minimum attendance time.`,
-                  );
-                  return;
-                }
-                const regenerate = label.includes("regenerate");
-                const payload = await issueOne(row.email, row.userName, regenerate);
-                const blocked = Array.isArray(payload.ineligible)
-                  ? payload.ineligible[0]
-                  : null;
-                window.alert(
-                  payload.message ||
-                    (blocked?.reason
-                      ? blocked.reason
-                      : `Certificate issued for ${row.userName} — ${eventTitle}.`),
-                );
-                window.location.reload();
-              }
-            } catch (error) {
-              window.alert(error instanceof Error ? error.message : "Failed.");
-            }
-          })();
-        });
-      });
-    }
+    // Read at click time by the table's delegated handler (rows are cloned and
+    // re-sorted, so per-row listeners would be missing or point at the wrong person).
+    tr.dataset.email = row.email;
+    tr.dataset.userName = row.userName;
+    tr.dataset.downloadUrl = row.downloadUrl;
+    tr.dataset.eligible = row.eligible ? "1" : "0";
   });
+
+  const fdTable = document.querySelector<HTMLElement>(".fd-table");
+  if (fdTable) {
+    fdTable.dataset.eventId = eventId;
+    fdTable.dataset.eventTitle = event?.title || "event";
+    wireCertificateRowActions(fdTable, issueOne);
+  }
 
   // Bulk Generate Selected
   const bulkMenu = document.querySelector(".fd-bulk-menu");
