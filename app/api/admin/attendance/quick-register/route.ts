@@ -42,6 +42,9 @@ export async function POST(request: Request) {
       },
     });
 
+    console.info(
+      `[DC Space] Quick Register ${created ? "created account" : "linked card"} for event ${eventId} by ${auth.session.email}`,
+    );
     return NextResponse.json(
       {
         created,
@@ -54,6 +57,10 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
+    console.warn(
+      `[DC Space] Quick Register failed for event ${eventId}:`,
+      error instanceof AttendanceError ? `${error.code} — ${error.message}` : error,
+    );
     if (error instanceof AttendanceError) {
       return NextResponse.json(
         {
