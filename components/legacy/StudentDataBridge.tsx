@@ -75,7 +75,7 @@ const EVENT_GRID_CONFIG: Array<{
   { id: "row-academic", category: "academic", limit: 6, detailContext: "explore" },
   { id: "row-tech", category: "tech", limit: 6, detailContext: "explore" },
   { id: "row-org", category: "organization", limit: 6, detailContext: "explore" },
-  { id: "attendance-today-grid", category: "attendance-today", limit: 1, detailContext: "attendance" },
+  { id: "attendance-today-grid", category: "attendance-today", limit: 2, detailContext: "attendance" },
   { id: "attendance-completed-grid", category: "attendance-completed", limit: 2, detailContext: "attendance" },
   { id: "attendance-incomplete-grid", category: "attendance-incomplete", limit: 2, detailContext: "attendance" },
   { id: "home-invited-grid", category: "invited", limit: 2, detailContext: "explore" },
@@ -847,6 +847,19 @@ export function StudentDataBridge() {
               return { ...event, category: "attendance-today" };
             }
             return event;
+          });
+          // Tapped in but not out yet, on an event happening today: keep it in
+          // Incomplete and also show it under Today's Event.
+          live = live.map((event) => {
+            if (String(event.category || "") !== "attendance-incomplete") return event;
+            const day = new Date(`${event.date}T12:00:00`);
+            if (Number.isNaN(day.getTime())) return event;
+            day.setHours(0, 0, 0, 0);
+            if (day.getTime() !== today.getTime()) return event;
+            const tags = Array.isArray(event.tags) ? event.tags : [];
+            return tags.includes("attendance-today")
+              ? event
+              : { ...event, tags: [...tags, "attendance-today"] };
           });
         }
 
