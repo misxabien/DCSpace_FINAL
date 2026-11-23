@@ -8,6 +8,7 @@ import {
   patchTableRows,
   ensureEventsFooterAtBottom,
   setNotifEmptyState,
+  setLegacyHidden,
 } from "@/lib/legacy-dom-patch";
 import { startSmartPoll } from "@/lib/client/smart-poll";
 
@@ -3190,14 +3191,58 @@ function patchEregTable(
   });
 }
 
-async function hydrateUserEventTables(pageId: string) {
+/**
+ * The "Events Registered / Attended / … / Certificates Earned" dropdown links to
+ * bare /admin/<view>. Keep the student's id so switching views keeps the student.
+ */
+function carryUserIdInViewMenu() {
   const params = new URLSearchParams(window.location.search);
   const userId = params.get("id") || params.get("userId") || "";
   if (!userId) return;
+  document
+    .querySelectorAll<HTMLAnchorElement>(".ereg-view-menu a[data-view]")
+    .forEach((link) => {
+      const view = String(link.dataset.view || "").trim();
+      if (view) link.href = `/admin/${view}?id=${encodeURIComponent(userId)}`;
+    });
+}
+
+/** Certificates Earned: replace the placeholder cards with a clear message. */
+function setCertGridMessage(message: string | null) {
+  const grid = document.querySelector<HTMLElement>(".cert-grid");
+  if (!grid) return;
+  let note = grid.querySelector<HTMLElement>(".dc-cert-grid-note");
+  if (!message) {
+    note?.remove();
+    return;
+  }
+  grid.querySelectorAll<HTMLElement>(".cert-card").forEach((card) => setLegacyHidden(card, true));
+  if (!note) {
+    note = document.createElement("p");
+    note.className = "dc-cert-grid-note";
+    note.style.cssText =
+      "grid-column:1/-1;margin:0;padding:32px 16px;text-align:center;color:#64748b;font-size:14px;line-height:1.5;";
+    grid.appendChild(note);
+  }
+  note.textContent = message;
+}
+
+async function hydrateUserEventTables(pageId: string) {
+  const params = new URLSearchParams(window.location.search);
+  const userId = params.get("id") || params.get("userId") || "";
+  if (!userId) {
+    if (pageId === "cert38") {
+      setCertGridMessage("Open a student's profile, then choose Certificates Earned to see their certificates.");
+    }
+    return;
+  }
 
   const userData = await fetchJson<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}`);
   const email = userData?.user?.email || "";
-  if (!email) return;
+  if (!email) {
+    if (pageId === "cert38") setCertGridMessage("Couldn't load this student. Go back and open their profile again.");
+    return;
+  }
 
   const eventsPayload = await fetchJson<{ events: ListedEvent[] }>("/api/events?limit=200");
   const events = eventsPayload?.events || [];
@@ -3290,7 +3335,15 @@ async function hydrateUserEventTables(pageId: string) {
       certificates: Array<{ id: string; name: string; eventName: string; dateIssued: string; downloadUrl?: string }>;
     }>(`/api/user/certificates?email=${encodeURIComponent(email)}`);
     const certGrid = document.querySelector<HTMLElement>(".cert-grid");
-    patchChildren(certGrid, ".cert-card", certs?.certificates || [], (el, cert) => {
+    const certList = certs?.certificates || [];
+    if (!certs) {
+      setCertGridMessage("Couldn't load certificates. Check your connection or your permission to view certificates.");
+    } else if (!certList.length) {
+      setCertGridMessage("No certificates earned yet.");
+    } else {
+      setCertGridMessage(null);
+    }
+    patchChildren(certGrid, ".cert-card", certList, (el, cert) => {
       const name = el.querySelector(".name, p.name");
       const eventName = el.querySelector(".event, p.event");
       const issued = el.querySelector(".issued, p.issued");
@@ -3824,6 +3877,7 @@ export function AdminOpsBridge() {
           pageId === "cert38" ||
           pageId === "fb39"
         ) {
+          carryUserIdInViewMenu();
           await hydrateSubDetailUserHeader();
           await hydrateUserEventTables(pageId);
         }
