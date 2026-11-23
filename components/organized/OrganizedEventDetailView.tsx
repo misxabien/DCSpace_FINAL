@@ -253,7 +253,9 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
                   ? event.iroomRoomName
                     ? `Approved — ${event.iroomRoomName}`
                     : "Approved"
-                  : event.iroomStatus === "pending"
+                  : event.iroomStatus === "pending" && event.reservationSyncError
+                    ? `Not sent to eRoomReserve — ${event.reservationSyncError}. Save the event again to retry.`
+                    : event.iroomStatus === "pending"
                     ? "Pending approval"
                     : event.iroomStatus === "rejected"
                       ? event.iroomRejectionReason

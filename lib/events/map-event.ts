@@ -3,6 +3,14 @@
 export type SanitizedEvent = {
   id: string;
   title: string;
+  /** Room reservation (eRoomReserve) fields, as returned by /api/events/[id]. */
+  iroomStatus?: string;
+  iroomRoomName?: string;
+  iroomRejectionReason?: string;
+  reservationId?: string;
+  reservationStatus?: string;
+  reservationRoomName?: string;
+  reservationSyncError?: string;
   description?: string;
   category?: string;
   location?: string;

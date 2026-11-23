@@ -44,6 +44,8 @@ type LiveEvent = {
   reservationRoomId?: string;
   reservationRoomName?: string;
   reservationCapacity?: number | null;
+  /** Last failed DC Space → eRoomReserve push (empty when it went through). */
+  reservationSyncError?: string;
   attachments?: {
     conceptPaper?: string;
     certificateTemplate?: string;
@@ -450,6 +452,11 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   const reservationStatus = (event.reservationStatus || "").toLowerCase();
   const roomValidated =
     reservationStatus === "approved" || reservationStatus === "completed";
+  // eRoomReserve never received the request — don't show it as "pending".
+  const syncError =
+    !roomValidated && reservationStatus !== "rejected" && reservationStatus !== "cancelled"
+      ? String(event.reservationSyncError || "").trim()
+      : "";
   const valStatus = document.getElementById("val-status");
   const valVenue = document.getElementById("val-venue");
   const valCapacity = document.getElementById("val-capacity");
@@ -457,6 +464,8 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
   if (valStatus) {
     if (reservationStatus === "approved" || reservationStatus === "completed") {
       valStatus.textContent = "Validated";
+    } else if (syncError) {
+      valStatus.textContent = "Not sent to eRoomReserve";
     } else if (reservationStatus === "rejected") {
       valStatus.textContent = "Rejected";
     } else if (reservationStatus === "cancelled") {
@@ -480,7 +489,9 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
       ? "None"
       : reservationStatus === "rejected" || reservationStatus === "cancelled"
         ? "Room not available"
-        : "Awaiting eRoomReserve";
+        : syncError
+          ? syncError
+          : "Awaiting eRoomReserve";
   }
 
   fillEventFiles(root, event);
@@ -507,7 +518,7 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
       actions.setAttribute("data-reservation-id", event.reservationId);
     }
     ensureStatusButtons(actions, event.status);
-    showPendingReviewActions(event.status, roomValidated, reservationStatus);
+    showPendingReviewActions(event.status, roomValidated, reservationStatus, syncError);
     showApprovedActionGroup(event.status);
   }
 }
@@ -517,6 +528,7 @@ function showPendingReviewActions(
   status: string,
   roomValidated = false,
   reservationStatus = "",
+  syncError = "",
 ) {
   if (status !== "pending") return;
 
@@ -545,7 +557,9 @@ function showPendingReviewActions(
       ? "eRoomReserve Validated — Ready for DC Space approval"
       : reservationStatus === "rejected"
         ? "eRoomReserve rejected this room"
-        : "Waiting for eRoomReserve validation";
+        : syncError
+          ? "Not sent to eRoomReserve — the organizer's room request failed"
+          : "Waiting for eRoomReserve validation";
   }
 
   // Keep URL in sync with the view mode that matches reservation state.
@@ -717,6 +731,7 @@ export function AdminEventActionsBridge() {
             cached.event.reservationStatus === "approved" ||
               cached.event.reservationStatus === "completed",
             cached.event.reservationStatus || "",
+            cached.event.reservationSyncError || "",
           );
         } else {
           // Replace Figma placeholders immediately so "Event Name" never sticks.

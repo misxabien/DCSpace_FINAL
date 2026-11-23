@@ -34,7 +34,20 @@ export type OrganizedDetailEvent = OrganizedListEvent & {
   collaboratingDepartments: string[];
   audienceSchools: string[];
   attachments: Array<{ label: string; fileName: string; url: string }>;
+  iroomReservationId?: string;
+  iroomStatus?: string;
+  iroomRoomName?: string;
+  iroomRejectionReason?: string;
+  reservationSyncError?: string;
 };
+
+/** Collapse reservationStatus / iroomStatus into approved | pending | rejected | cancelled | "". */
+function roomReservationStatus(event: SanitizedEvent) {
+  const status = String(event.reservationStatus || event.iroomStatus || "").toLowerCase();
+  if (status === "completed") return "approved";
+  if (status === "none") return "";
+  return status;
+}
 
 function splitParagraphs(value?: string) {
   return String(value || "")
@@ -134,5 +147,10 @@ export function mapSanitizedToOrganizedDetail(
       : [],
     audienceSchools: Array.isArray(event.audienceSchools) ? event.audienceSchools : [],
     attachments,
+    iroomReservationId: event.reservationId || "",
+    iroomStatus: roomReservationStatus(event),
+    iroomRoomName: event.reservationRoomName || event.iroomRoomName || "",
+    iroomRejectionReason: event.iroomRejectionReason || "",
+    reservationSyncError: event.reservationSyncError || "",
   };
 }

@@ -770,12 +770,16 @@ export function CreateEventView() {
 
       const isOnCampus = venueType.trim().toLowerCase().includes("on campus");
       if (isOnCampus && data.roomReservation?.openUrl) {
+        const pushed = Boolean(data.roomReservation.pushedToEroomReserve);
+        const reason = String(data.roomReservation.warning || "").trim();
         showToast(
-          data.roomReservation.pushedToEroomReserve
+          pushed
             ? "Event created. Room reservation sent to eRoomReserve."
-            : "Event saved. Continue the room request in eRoomReserve.",
-          "success",
-          { durationMs: 3200 },
+            : reason
+              ? `Event saved, but the room request was not sent: ${reason} Use the exact eRoomReserve room name for Venue, or finish the request in eRoomReserve.`
+              : "Event saved. Continue the room request in eRoomReserve.",
+          pushed ? "success" : "error",
+          { durationMs: pushed ? 3200 : 9000 },
         );
         try {
           window.open(data.roomReservation.openUrl, "_blank", "noopener,noreferrer");

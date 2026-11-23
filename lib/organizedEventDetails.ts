@@ -21,6 +21,8 @@ export type OrganizedEventDetail = Omit<OrganizedEvent, "imageUrl"> & {
   iroomStatus?: string;
   iroomRoomName?: string;
   iroomRejectionReason?: string;
+  /** Set when DC Space could not send the room request to eRoomReserve. */
+  reservationSyncError?: string;
 };
 
 function defaultDetailFields(): Omit<OrganizedEventDetail, keyof OrganizedEvent> & {

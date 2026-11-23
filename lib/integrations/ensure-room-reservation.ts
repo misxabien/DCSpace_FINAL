@@ -119,10 +119,23 @@ export async function ensureRoomReservationForEvent(input: {
       error instanceof Error ? error.message : "Firebase sync failed.";
   }
 
-  const reservationId =
-    http.reservationId || existingId || `dcspace-${input.eventId}`;
+  // On a failed push, keep any real eRoomReserve id we already had instead of
+  // replacing it with the provisional "dcspace-…" id.
+  const reservationId = http.ok
+    ? http.reservationId || existingId || `dcspace-${input.eventId}`
+    : existingId || http.reservationId || `dcspace-${input.eventId}`;
   const reservationStatus = asTerminalOrPending(String(http.status || "pending"));
   const now = new Date().toISOString();
+  // Saved so admins/organizers see "not sent" instead of a misleading "pending".
+  const reservationSyncError = http.ok
+    ? ""
+    : http.error || "eRoomReserve did not accept the reservation.";
+  if (!http.ok) {
+    console.warn(
+      `[DC Space] eRoomReserve reservation push failed for event ${input.eventId}:`,
+      reservationSyncError,
+    );
+  }
 
   await eventsCollection(adminDb).updateOne(
     { _id: new ObjectId(input.eventId) },
@@ -140,6 +153,8 @@ export async function ensureRoomReservationForEvent(input: {
                 ? "cancelled"
                 : "pending",
         iroomSyncedAt: now,
+        reservationSyncError,
+        reservationSyncedAt: now,
         updatedAt: now,
       },
     },

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ObjectId } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import {
   upsertReservationStatus,
@@ -97,6 +98,21 @@ export async function POST(request: Request) {
       updatedAt: body.updatedAt as string,
       eventId: eventId || undefined,
     });
+
+    // eRoomReserve clearly has this reservation now, so any earlier
+    // "not sent" error on the event is stale.
+    if (saved.eventId && ObjectId.isValid(saved.eventId)) {
+      const [{ getAdminDb }, { eventsCollection }] = await Promise.all([
+        import("@/lib/db/get-db"),
+        import("@/lib/events/types"),
+      ]);
+      await eventsCollection(await getAdminDb())
+        .updateOne(
+          { _id: new ObjectId(saved.eventId) },
+          { $set: { reservationSyncError: "" } },
+        )
+        .catch(() => undefined);
+    }
 
     if (saved.status === "approved") {
       void import("@/lib/user-server/portal").then(({ notifyAdmins }) =>

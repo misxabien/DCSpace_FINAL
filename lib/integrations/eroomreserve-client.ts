@@ -64,6 +64,23 @@ export function buildEroomReserveOpenUrl(input: {
   }
 }
 
+/**
+ * Event times are saved from `datetime-local` inputs as Philippine wall-clock
+ * time with no zone (e.g. "2026-11-23T16:00"). eRoomReserve only accepts full
+ * ISO datetimes, so send UTC ("2026-11-23T08:00:00.000Z"). The Philippines has
+ * no daylight saving, so a fixed +08:00 offset is exact.
+ */
+const EVENT_TIME_OFFSET = "+08:00";
+
+export function toEroomIsoDatetime(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const hasZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(text);
+  const withSeconds = /T\d{2}:\d{2}$/.test(text) ? `${text}:00` : text;
+  const date = new Date(hasZone ? text : `${withSeconds}${EVENT_TIME_OFFSET}`);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString();
+}
+
 function extractReservationId(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
   const data = payload as Record<string, unknown>;
@@ -109,8 +126,8 @@ export async function createEroomReserveReservation(
   const body = {
     dcSpaceEventId: input.dcSpaceEventId,
     eventTitle: input.eventTitle,
-    startAt: input.startAt,
-    endAt: input.endAt,
+    startAt: toEroomIsoDatetime(input.startAt),
+    endAt: toEroomIsoDatetime(input.endAt),
     requestedByEmail: input.requestedByEmail.toLowerCase(),
     requestedByName: input.requestedByName || "",
     locationLabel: input.locationLabel || "On Campus",
@@ -142,12 +159,26 @@ export async function createEroomReserveReservation(
         raw && typeof raw === "object"
           ? (raw as { error?: { message?: string; code?: string } | string }).error
           : null;
-      const message =
+      const baseMessage =
         typeof err === "string"
           ? err
           : err && typeof err === "object"
             ? String(err.message || "eRoomReserve rejected the reservation.")
             : `eRoomReserve returned HTTP ${res.status}`;
+      // Validation errors carry the useful part in details.fieldErrors.
+      const fieldErrors =
+        err && typeof err === "object"
+          ? (err as { details?: { fieldErrors?: Record<string, unknown> } }).details
+              ?.fieldErrors
+          : undefined;
+      const fieldSummary = fieldErrors
+        ? Object.entries(fieldErrors)
+            .map(([field, problems]) =>
+              `${field}: ${Array.isArray(problems) ? problems.join(", ") : String(problems)}`,
+            )
+            .join("; ")
+        : "";
+      const message = fieldSummary ? `${baseMessage} (${fieldSummary})` : baseMessage;
       const code =
         err && typeof err === "object" ? String(err.code || "") : String(res.status);
 
