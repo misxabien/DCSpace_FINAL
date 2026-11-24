@@ -21,6 +21,13 @@ function applySidebarUserCard(
   user: Pick<SessionUser, "name" | "email">,
   photoUrl?: string,
 ) {
+  // Top bar "Welcome, <name>" (Figma shipped "First Name Last Name").
+  if (user.name) {
+    document.querySelectorAll<HTMLElement>(".topbar .welcome p:nth-of-type(2)").forEach((el) => {
+      if (el.textContent !== user.name) el.textContent = user.name;
+    });
+  }
+
   const cards = document.querySelectorAll<HTMLElement>(
     ".user-card, #user-menu-toggle, button.user-card",
   );

@@ -10,6 +10,7 @@ import {
   bindAdminFilterDropdowns,
 } from "@/components/legacy/bindAdminFilterDropdowns";
 import { setStatCardsLoading } from "@/lib/legacy-dom-patch";
+import { scrubSampleContent } from "@/lib/client/demo-scrub";
 
 const SIDEBAR_STORAGE_KEY = "dc_admin_sidebar_collapsed";
 const useIsomorphicLayoutEffect =
@@ -54,6 +55,20 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
       document.body.removeAttribute("data-admin-legacy");
     };
   }, [data.title, data.id, data.route]);
+
+  // Blank the Figma sample values the moment the page HTML is placed (before paint
+  // and before any real data arrives); data written later replaces the blanks.
+  useIsomorphicLayoutEffect(() => {
+    if (!htmlReady) return;
+    const roots = Array.from(document.querySelectorAll(`.admin-legacy-root[data-admin-page="${data.id}"]`));
+    roots.forEach((root) => {
+      try {
+        scrubSampleContent(root);
+      } catch {
+        /* never block the page */
+      }
+    });
+  }, [htmlReady, data.id, pageHtml]);
 
   useEffect(() => {
     if (!htmlReady) return;

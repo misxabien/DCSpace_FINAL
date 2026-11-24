@@ -317,6 +317,14 @@
       document.body.classList.add('detail-page--missing');
       setText('detail-title', 'Loading event…');
       setText('detail-name', 'Loading…');
+      // Hide the design sample text (Lorem ipsum, Organization Name…) while the real event loads.
+      ['detail-venue', 'detail-time', 'detail-organization', 'detail-course', 'detail-department', 'detail-attendance', 'detail-grace', 'detail-venue-type-label', 'detail-event-type-label'].forEach(function (fieldId) { setText(fieldId, '—'); });
+      document.querySelectorAll('.detail-section p').forEach(function (p) { p.textContent = ''; });
+      if (!id) {
+        // Opened without choosing an event: go back to the list instead of showing sample content.
+        window.location.replace('/attendance');
+        return;
+      }
       return;
     }
 

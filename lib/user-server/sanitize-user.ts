@@ -15,6 +15,7 @@ type DbUser = {
   course?: string;
   school?: string;
   createdAt?: string;
+  lastLoginAt?: string;
 };
 
 export function sanitizeUser(user: DbUser) {
@@ -34,5 +35,6 @@ export function sanitizeUser(user: DbUser) {
     course: user.course || "",
     school: user.school || "",
     createdAt: user.createdAt || "",
+    lastLoginAt: user.lastLoginAt || "",
   };
 }

@@ -57,7 +57,36 @@ type AdminUser = {
   rfidNumber?: string;
   photoUrl?: string;
   createdAt?: string;
+  lastLoginAt?: string;
 };
+
+/** Participant "Account Status" card: real created / last login / last active. */
+function fillAccountStatus(user: AdminUser) {
+  const card = Array.from(document.querySelectorAll<HTMLElement>(".status-list, section")).find((el) =>
+    /account status/i.test(el.querySelector("h3")?.textContent || ""),
+  );
+  if (!card) return;
+  const fmtDate = (iso?: string) => {
+    const date = iso ? new Date(iso) : null;
+    return date && !Number.isNaN(date.getTime())
+      ? date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      : "—";
+  };
+  const fmtDateTime = (iso?: string) => {
+    const date = iso ? new Date(iso) : null;
+    return date && !Number.isNaN(date.getTime())
+      ? date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+      : "—";
+  };
+  card.querySelectorAll<HTMLElement>(".info-field").forEach((field) => {
+    const label = (field.querySelector(".label")?.textContent || "").trim().toLowerCase();
+    const value = field.querySelector<HTMLElement>(".value");
+    if (!value) return;
+    if (label.includes("created")) value.textContent = fmtDate(user.createdAt);
+    else if (label.includes("last login")) value.textContent = fmtDateTime(user.lastLoginAt);
+    else if (label.includes("last active")) value.textContent = user.lastLoginAt ? formatWhen(user.lastLoginAt) : "—";
+  });
+}
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
@@ -677,6 +706,7 @@ async function hydrateUserInfo() {
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
   ensureRfidProfileField(user, false);
+  fillAccountStatus(user);
 
   applyParticipantAttendanceSummary(data.attendanceSummary);
 
@@ -3154,6 +3184,7 @@ async function hydrateNew41() {
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
+  fillAccountStatus(user);
   applyParticipantAttendanceSummary(data.attendanceSummary);
 
   // wire stat tile links to pass the user id
