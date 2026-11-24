@@ -15,6 +15,27 @@ export async function getEventsDatabases(): Promise<Db[]> {
 type EventDoc = SpaceEvent & { _id: ObjectId };
 
 /** Exclude multi‑MB attachment blobs from list queries so cards load ASAP. */
+/**
+ * Sorted event query that never loads attachment blobs (posters, certificate
+ * templates, concept papers) into MongoDB's 32 MB in-memory sort. A plain
+ * find().sort() applies the projection AFTER sorting, so with a few multi‑MB
+ * attachments it fails with "Sort exceeded memory limit" (Atlas free tier).
+ * Here the projection runs first, then the sort.
+ */
+export function findEventsSorted<T extends Document = SpaceEvent & { _id: ObjectId }>(
+  db: Db,
+  filter: Filter<Document>,
+  options: { sort: Sort; limit?: number; projection?: Document },
+): Promise<T[]> {
+  const pipeline: Document[] = [
+    { $match: filter },
+    { $project: options.projection || EVENT_LIST_EXCLUDE_BLOBS },
+    { $sort: options.sort as Document },
+  ];
+  if (options.limit) pipeline.push({ $limit: options.limit });
+  return eventsCollection(db).aggregate<T>(pipeline).toArray();
+}
+
 export const EVENT_LIST_EXCLUDE_BLOBS = {
   posterImageBase64: 0,
   conceptPaperBase64: 0,

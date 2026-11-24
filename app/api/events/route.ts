@@ -123,17 +123,11 @@ export async function GET(request: Request) {
           { certificateTemplateName: { $exists: true, $nin: [null, ""] } },
         ];
       }
+      const { findEventsSorted } = await import("@/lib/events/events-query");
+      const listOptions = { projection: EVENT_LIST_PROJECTION, sort: { updatedAt: -1 as const }, limit };
       const [adminPublic, userPublic] = await Promise.all([
-        eventsCollection(adminDb)
-          .find(publicFilter, { projection: EVENT_LIST_PROJECTION })
-          .sort({ updatedAt: -1 })
-          .limit(limit)
-          .toArray(),
-        eventsCollection(userDb)
-          .find(publicFilter, { projection: EVENT_LIST_PROJECTION })
-          .sort({ updatedAt: -1 })
-          .limit(limit)
-          .toArray(),
+        findEventsSorted(adminDb, publicFilter, listOptions),
+        findEventsSorted(userDb, publicFilter, listOptions),
       ]);
       const byId = new Map<string, SpaceEvent & { _id: ObjectId }>();
       for (const doc of [...userPublic, ...adminPublic, ...owned]) {

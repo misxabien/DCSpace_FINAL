@@ -158,11 +158,15 @@ export async function findOrganizerEvents(
 ): Promise<EventDoc[]> {
   const [adminDb, userDb] = await Promise.all([getAdminDb(), getUserDb()]);
   const projection = options?.projection || EVENT_LIST_PROJECTION;
+  // Project before sorting (aggregate) so attachment blobs never hit Mongo's 32 MB sort.
   const list = (db: Db) =>
     eventsCollection(db)
-      .find(filter, { projection })
-      .sort({ updatedAt: -1 })
-      .limit(limit)
+      .aggregate<EventDoc>([
+        { $match: filter },
+        { $project: projection },
+        { $sort: { updatedAt: -1 } },
+        { $limit: limit },
+      ])
       .toArray();
 
   const [adminDocs, userDocs] = await Promise.all([list(adminDb), list(userDb)]);

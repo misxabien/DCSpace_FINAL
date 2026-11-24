@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
-import { eventsCollection, sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
+import { sanitizeEvent, type SpaceEvent } from "@/lib/events/types";
 import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { PORTAL_EVENT_PROJECTION } from "@/lib/events/list-projection";
+import { findEventsSorted } from "@/lib/events/events-query";
 import { findEventsByIds, mergeEventDocs, type EventDoc } from "@/lib/events/find-event";
 import { escapeRegex } from "@/lib/events/ownership";
 import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
@@ -29,18 +30,17 @@ export async function GET(request: Request) {
     const publicFilter = { status: { $in: [...PUBLIC_EVENT_STATUSES] } };
     const [adminEventDocs, userEventDocs, registrationDocs, invitationDocs, savedDoc, attendanceDocs] =
       await Promise.all([
-        eventsCollection(adminDb)
-          .find(publicFilter)
-          .project(PORTAL_EVENT_PROJECTION)
-          .sort({ startsAt: 1, updatedAt: -1 })
-          .limit(500)
-          .toArray(),
-        eventsCollection(userDb)
-          .find(publicFilter)
-          .project(PORTAL_EVENT_PROJECTION)
-          .sort({ startsAt: 1, updatedAt: -1 })
-          .limit(500)
-          .toArray(),
+        // Project before sorting: attachment blobs must never reach Mongo's 32 MB sort.
+        findEventsSorted(adminDb, publicFilter, {
+          projection: PORTAL_EVENT_PROJECTION,
+          sort: { startsAt: 1, updatedAt: -1 },
+          limit: 500,
+        }),
+        findEventsSorted(userDb, publicFilter, {
+          projection: PORTAL_EVENT_PROJECTION,
+          sort: { startsAt: 1, updatedAt: -1 },
+          limit: 500,
+        }),
         registrationsCollection(userDb)
           .find({ email: emailFilter })
           .project({ eventId: 1, status: 1, eventTitle: 1, createdAt: 1 })

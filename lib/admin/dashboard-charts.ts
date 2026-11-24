@@ -1,6 +1,6 @@
 import type { Db } from "mongodb";
 import { getAdminDb } from "@/lib/db/get-db";
-import { eventsCollection } from "@/lib/events/types";
+import { findEventsSorted } from "@/lib/events/events-query";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { registrationsCollection } from "@/lib/user-server/portal";
 
@@ -116,20 +116,19 @@ export async function buildDashboardCharts(userDb: Db): Promise<DashboardCharts>
 
   // Keep chart scans bounded so /api/admin/dashboard stays snappy.
   const [adminEvents, userEvents, attendanceDocs, registrationDocs] = await Promise.all([
-    eventsCollection(adminDb)
-      .find({})
-      .project({ title: 1, category: 1, startsAt: 1, status: 1 })
-      .sort({ updatedAt: -1 })
-      .limit(400)
-      .toArray(),
+    // Project before sorting so attachment blobs never hit Mongo's 32 MB sort limit.
+    findEventsSorted(
+      adminDb,
+      {},
+      { projection: { title: 1, category: 1, startsAt: 1, status: 1, updatedAt: 1 }, sort: { updatedAt: -1 }, limit: 400 },
+    ),
     adminDb === userDb
       ? Promise.resolve([])
-      : eventsCollection(userDb)
-          .find({})
-          .project({ title: 1, category: 1, startsAt: 1, status: 1 })
-          .sort({ updatedAt: -1 })
-          .limit(400)
-          .toArray(),
+      : findEventsSorted(
+          userDb,
+          {},
+          { projection: { title: 1, category: 1, startsAt: 1, status: 1, updatedAt: 1 }, sort: { updatedAt: -1 }, limit: 400 },
+        ),
     attendanceCollection(userDb)
       .find({ action: { $in: ["in", "out"] } })
       .project({ eventId: 1, eventTitle: 1, email: 1, action: 1 })

@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { eventsCollection } from "@/lib/events/types";
+import { findEventsSorted } from "@/lib/events/events-query";
 import {
   attendanceCollection,
   certificatesCollection,
@@ -312,11 +313,7 @@ export async function loadUserAiContext(userId: string) {
 export async function loadCampusAiContext(limit = 12) {
   const userDb = await getUserDb();
   const adminDb = await getAdminDb();
-  const events = await eventsCollection(adminDb)
-    .find({})
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .toArray();
+  const events = await findEventsSorted(adminDb, {}, { sort: { updatedAt: -1 }, limit });
 
   const [pending, live, completed, attendanceCount, feedbackCount, userCount] = await Promise.all([
     eventsCollection(adminDb).countDocuments({ status: "pending" }),

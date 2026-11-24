@@ -740,12 +740,57 @@ export function CreateEventView() {
       payload.programFileBase64 = programFileBase64;
     }
 
+    // Vercel rejects request bodies over ~4.5 MB before they reach the API, so a
+    // poster + certificate + concept paper + program file sent together can fail.
+    // When the files are big, save the event first, then upload each file on its own.
+    const FILE_GROUPS: Array<{ label: string; keys: string[]; data: string }> = [
+      { label: "poster", keys: ["posterImageBase64", "posterImageMimeType"], data: "posterImageBase64" },
+      {
+        label: "certificate template",
+        keys: ["certificateTemplateName", "certificateTemplateMimeType", "certificateTemplateBase64"],
+        data: "certificateTemplateBase64",
+      },
+      {
+        label: "concept paper",
+        keys: ["conceptPaperName", "conceptPaperMimeType", "conceptPaperBase64"],
+        data: "conceptPaperBase64",
+      },
+      { label: "program file", keys: ["programFileName", "programFileMimeType", "programFileBase64"], data: "programFileBase64" },
+    ];
+    const MAX_REQUEST_CHARS = 3_500_000; // safely under Vercel's limit
+    const MAX_FILE_CHARS = 4_200_000; // ~3 MB file once encoded
+    const tooBig = FILE_GROUPS.find((group) => String(payload[group.data] || "").length > MAX_FILE_CHARS);
+    if (tooBig) {
+      showToast(
+        `The ${tooBig.label} is too large to upload (about 3 MB max). Please compress it or save it smaller, then try again.`,
+        "error",
+        { durationMs: 9000 },
+      );
+      setSaving(false);
+      return;
+    }
+    const uploadSeparately = JSON.stringify(payload).length > MAX_REQUEST_CHARS;
+    const mainPayload: Record<string, unknown> = { ...payload };
+    const pendingFiles: Array<{ label: string; body: Record<string, unknown> }> = [];
+    if (uploadSeparately) {
+      for (const group of FILE_GROUPS) {
+        if (!String(payload[group.data] || "")) continue;
+        pendingFiles.push({
+          label: group.label,
+          body: Object.fromEntries(group.keys.map((key) => [key, payload[key]])),
+        });
+        group.keys.forEach((key) => delete mainPayload[key]);
+      }
+    }
+    const tooLargeMessage =
+      "The files are too large to upload together. Make the poster or files smaller, then try again.";
+
     const endpoint = editingId ? `/api/events/${encodeURIComponent(editingId)}` : "/api/events";
     try {
       const res = await authFetch(endpoint, {
         method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(mainPayload),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -757,7 +802,32 @@ export function CreateEventView() {
         };
       };
       if (!res.ok) {
-        throw new Error(data.error || "Failed to save event to the server.");
+        throw new Error(
+          data.error ||
+            (res.status === 413 ? tooLargeMessage : `Failed to save event to the server (error ${res.status}).`),
+        );
+      }
+
+      const savedId = editingId || String(data.event?.id || "");
+      const failedFiles: string[] = [];
+      if (savedId) {
+        for (const file of pendingFiles) {
+          const upload = await authFetch(`/api/events/${encodeURIComponent(savedId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(file.body),
+          }).catch(() => null);
+          if (!upload?.ok) failedFiles.push(file.label);
+        }
+      } else if (pendingFiles.length) {
+        failedFiles.push(...pendingFiles.map((file) => file.label));
+      }
+      if (failedFiles.length) {
+        showToast(
+          `Event saved, but the ${failedFiles.join(" and ")} could not be uploaded. Open the event, edit it and attach ${failedFiles.length > 1 ? "them" : "it"} again (smaller files upload more reliably).`,
+          "error",
+          { durationMs: 10000 },
+        );
       }
 
       window.dispatchEvent(new Event("dc-organized-changed"));
@@ -769,7 +839,9 @@ export function CreateEventView() {
       }
 
       const isOnCampus = venueType.trim().toLowerCase().includes("on campus");
-      if (isOnCampus && data.roomReservation?.openUrl) {
+      if (failedFiles.length) {
+        // Keep the "could not be uploaded" message on screen (shown above).
+      } else if (isOnCampus && data.roomReservation?.openUrl) {
         const pushed = Boolean(data.roomReservation.pushedToEroomReserve);
         const reason = String(data.roomReservation.warning || "").trim();
         showToast(

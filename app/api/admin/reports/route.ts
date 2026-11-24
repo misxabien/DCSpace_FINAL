@@ -9,7 +9,7 @@ import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { requireAdminPermission } from "@/lib/admin-server/admin-permissions";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { getAdminDb } from "@/lib/db/get-db";
-import { eventsCollection } from "@/lib/events/types";
+import { findEventsSorted } from "@/lib/events/events-query";
 
 const CATEGORY_LABELS: Record<AdminReportCategory, string> = {
   event: "Event",
@@ -63,7 +63,7 @@ async function buildUsersCsv(db: Awaited<ReturnType<typeof getUserDb>>) {
 async function loadLiveCounts(db: Awaited<ReturnType<typeof getUserDb>>) {
   const [events, usersCount, attendanceCount, feedbackCount, certCount] = await Promise.all([
     // Events live in the admin DB after the user/admin split.
-    eventsCollection(await getAdminDb()).find({}).sort({ updatedAt: -1 }).limit(50).toArray(),
+    findEventsSorted(await getAdminDb(), {}, { sort: { updatedAt: -1 }, limit: 50 }),
     db.collection("users").countDocuments({
       role: { $nin: ["admin", "super-admin"] },
     }),

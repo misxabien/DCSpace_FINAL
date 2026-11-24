@@ -17,7 +17,7 @@ import { getUserDb } from "@/lib/user-server/get-user-db";
 import { getAdminDb } from "@/lib/db/get-db";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { buildDashboardCharts } from "@/lib/admin/dashboard-charts";
-import { findEventsAcrossDatabases } from "@/lib/events/events-query";
+import { findEventsAcrossDatabases, findEventsSorted } from "@/lib/events/events-query";
 import {
   MONGO_QUICK_TIMEOUT_MS,
   withTimeout,
@@ -136,7 +136,8 @@ export async function GET(request: Request) {
 
     const usersCol = db.collection("users");
     // Events are stored in the admin DB after the user/admin split.
-    const eventsCol = eventsCollection(await getAdminDb());
+    const adminDb = await getAdminDb();
+    const eventsCol = eventsCollection(adminDb);
     const activitiesCol = activitiesCollection(db);
     const attendanceCol = attendanceCollection(db);
     const feedbackCol = feedbackCollection(db);
@@ -189,16 +190,11 @@ export async function GET(request: Request) {
       eventsCol.countDocuments({ status: { $in: ["live"] } }),
       eventsCol.countDocuments({ status: "approved" }),
       eventsCol.countDocuments({ status: "completed" }),
-      eventsCol
-        .find(
-          {
-            status: { $in: ["pending", "postponed", "rejected"] },
-          },
-          { projection: EVENT_LIST_EXCLUDE_BLOBS },
-        )
-        .sort({ updatedAt: -1 })
-        .limit(6)
-        .toArray(),
+      findEventsSorted(
+        adminDb,
+        { status: { $in: ["pending", "postponed", "rejected"] } },
+        { projection: EVENT_LIST_EXCLUDE_BLOBS, sort: { updatedAt: -1 }, limit: 6 },
+      ),
       findEventsAcrossDatabases(
         { status: "pending" },
         { sort: { createdAt: -1 }, limit: 80, lean: true, cardFields: true },
@@ -207,14 +203,11 @@ export async function GET(request: Request) {
         { status: { $in: ["approved", "live", "completed"] } },
         { sort: { updatedAt: -1 }, limit: 80, lean: true, cardFields: true },
       ),
-      eventsCol
-        .find(
-          { status: { $in: ["approved", "live"] } },
-          { projection: EVENT_LIST_EXCLUDE_BLOBS },
-        )
-        .sort({ startsAt: 1 })
-        .limit(40)
-        .toArray(),
+      findEventsSorted(
+        adminDb,
+        { status: { $in: ["approved", "live"] } },
+        { projection: EVENT_LIST_EXCLUDE_BLOBS, sort: { startsAt: 1 }, limit: 40 },
+      ),
       activitiesCol.find({}).sort({ createdAt: -1 }).limit(40).toArray(),
       attendanceCol.countDocuments({}),
       feedbackCol.countDocuments({}),
