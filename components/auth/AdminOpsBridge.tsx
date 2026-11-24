@@ -2833,6 +2833,19 @@ function wireLiveSearch(root: Element) {
 }
 
 /**
+ * Profile avatars show the initials of the name actually displayed (the Figma
+ * pages shipped hard-coded "KE"/"KJ"); same rule as the page hydrations.
+ */
+function syncProfileInitials() {
+  const nameEl = document.getElementById("user-name");
+  const initialsEl = document.getElementById("user-initials");
+  if (!nameEl || !initialsEl) return;
+  const parts = (nameEl.textContent || "").trim().split(/\s+/).filter(Boolean);
+  const next = ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+  if (next && initialsEl.textContent !== next) initialsEl.textContent = next;
+}
+
+/**
  * The admin page container for this page. More than one `.admin-legacy-root` can
  * be in the document at once (Next keeps a hidden copy of a route while it
  * renders the next), so prefer the one for this page that has its HTML in it.
@@ -4293,6 +4306,7 @@ export function AdminOpsBridge() {
         if (pageId === "report51" || pageId === "reportgen53") wireReportsDownload();
         if (pageId === "user27") wireUser27Views(root);
         wireLiveSearch(root);
+        syncProfileInitials();
       } catch {
         /* keep static markup */
       }

@@ -68,6 +68,20 @@ const DETAIL_PAGES = new Set([
   "/admin/reject25",
 ]);
 
+/**
+ * A detail page opened without ?id= goes back to its list instead of showing a
+ * guessed event (it used to pick the newest event with that status, so the same
+ * event kept appearing). Ongoing is the exception: "Happening now" shows the live event.
+ */
+const LIST_FOR_DETAIL_PAGE: Record<string, string> = {
+  "/admin/edetails14": "/admin/event13",
+  "/admin/aed15": "/admin/event13?tab=approved",
+  "/admin/cc19": "/admin/complete18",
+  "/admin/postponed22": "/admin/inactive20",
+  "/admin/rejected21": "/admin/inactive20",
+  "/admin/c23": "/admin/inactive20",
+};
+
 const EVENT_DETAIL_CACHE_MS = 30_000;
 const eventDetailCache = new Map<string, { event: LiveEvent; fetchedAt: number }>();
 const eventDetailInflight = new Map<string, Promise<LiveEvent | null>>();
@@ -709,6 +723,11 @@ export function AdminEventActionsBridge() {
         rootEl.classList.add("is-loading-details");
       }
 
+      const listPage = LIST_FOR_DETAIL_PAGE[pathname];
+      if (!queryId && listPage) {
+        window.location.replace(listPage);
+        return;
+      }
       const eventId = queryId || (await resolveAdminEventId(queryId, statusParam || "live"));
       if (!eventId || cancelled) {
         if (rootEl instanceof HTMLElement) {

@@ -168,7 +168,8 @@ export function eventDisplayLocation(doc: {
   const roomStatus = [doc.reservationStatus, doc.iroomStatus].map((s) => String(s || "").toLowerCase());
   const roomApproved = roomStatus.some((s) => s === "approved" || s === "completed");
   if (roomApproved) return location && location !== "TBA" ? location : String(doc.reservationRoomName || "TBA");
-  const published = ["approved", "live", "ongoing", "completed"].includes(String(doc.status || "").toLowerCase());
+  // Upcoming/ongoing events wait for the room; a finished event keeps its venue.
+  const published = ["approved", "live", "ongoing"].includes(String(doc.status || "").toLowerCase());
   return published ? "TBA" : location;
 }
 
