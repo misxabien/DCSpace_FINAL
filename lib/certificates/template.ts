@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import fontkit from "@pdf-lib/fontkit";
 import {
   PDFArray,
   PDFDocument,
@@ -12,20 +12,13 @@ import {
 } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { GREAT_VIBES_TTF_BASE64 } from "@/lib/certificates/fonts/great-vibes";
+import { analyzeTemplatePage, planNameSlot, type NameSlot } from "@/lib/certificates/layout";
 
 export {
   parseDurationToMinutes,
   formatMinutesLabel,
   inferCertificateCategory,
 } from "@/lib/certificates/duration";
-
-// Load fontkit through Node so Turbopack does not try to bundle its CJS entry.
-const nodeRequire = createRequire(import.meta.url);
-
-function loadFontkit() {
-  const packageId = `@${"pdf-lib"}/fontkit`;
-  return nodeRequire(packageId) as Parameters<PDFDocument["registerFontkit"]>[0];
-}
 
 function bytesFromBase64(base64: string): Uint8Array {
   const normalized = base64.replace(/^data:application\/pdf;base64,/, "").trim();
@@ -140,16 +133,7 @@ function findNameUnderlineY(page: PDFPage, width: number, height: number): numbe
   return candidates[0]?.y ?? null;
 }
 
-
-type NameSlot = {
-  source: string;
-  top: number;
-  bottom: number;
-  cx: number;
-  ruleY: number | null;
-  maxWidth: number;
-};
-
+/** Fallback when the layout analysis fails: underline scan, then a default band. */
 function planNameSlotFromPage(page: PDFPage, width: number, height: number): NameSlot {
   const underlineY = findNameUnderlineY(page, width, height);
   if (underlineY != null) {
@@ -195,12 +179,19 @@ export async function buildCertificatePdfFromTemplate(input: {
   }
   const { width, height } = page.getSize();
 
-  const slot = planNameSlotFromPage(page, width, height);
+  // Where does the name go? (Read the page before anything is drawn on it.)
+  let slot: NameSlot;
+  try {
+    slot = planNameSlot(analyzeTemplatePage(page));
+  } catch (error) {
+    console.warn("[DC Space] Certificate layout analysis failed; using underline scan.", error);
+    slot = planNameSlotFromPage(page, width, height);
+  }
 
   // Elegant script for the name; Times Bold Italic if the font cannot be embedded.
   let font: PDFFont;
   try {
-    pdf.registerFontkit(loadFontkit());
+    pdf.registerFontkit(fontkit);
     font = await pdf.embedFont(Buffer.from(GREAT_VIBES_TTF_BASE64, "base64"), {
       subset: true,
     });

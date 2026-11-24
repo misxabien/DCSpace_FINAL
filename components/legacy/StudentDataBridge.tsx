@@ -119,35 +119,42 @@ function categoryForPath(pathname: string): { category: string; detailContext: s
   return null;
 }
 
+type AttendanceBucket = "attendance-completed" | "attendance-incomplete" | "attendance-today";
+type AttendanceRowLite = {
+  eventId?: string;
+  action?: string;
+  qualifiedForCertificate?: boolean;
+  /** Server-computed: tapped out and met the event's minimum time (no minimum → any tap-out). */
+  attendanceComplete?: boolean;
+};
+
+/**
+ * Complete = tapped out and met the attendance time requirement.
+ * Incomplete = tapped in but not out, or tapped out before the minimum time.
+ */
+function attendanceBucketsFromRows(rows: AttendanceRowLite[]) {
+  const buckets = new Map<string, AttendanceBucket>();
+  for (const row of rows) {
+    const eventId = String(row.eventId || "");
+    if (!eventId) continue;
+    const complete =
+      typeof row.attendanceComplete === "boolean"
+        ? row.attendanceComplete
+        : Boolean(row.qualifiedForCertificate) || row.action === "out";
+    if (complete) buckets.set(eventId, "attendance-completed");
+    else if (buckets.get(eventId) !== "attendance-completed") buckets.set(eventId, "attendance-incomplete");
+  }
+  return buckets;
+}
+
 async function fetchAttendanceBuckets() {
   try {
     const res = await authFetch("/api/user/attendance", { cache: "no-store" });
-    if (!res.ok) return new Map<string, "attendance-completed" | "attendance-incomplete" | "attendance-today">();
-    const data = (await res.json()) as {
-      attendance?: Array<{
-        eventId?: string;
-        action?: string;
-        qualifiedForCertificate?: boolean;
-      }>;
-    };
-    const buckets = new Map<
-      string,
-      "attendance-completed" | "attendance-incomplete" | "attendance-today"
-    >();
-    for (const row of data.attendance || []) {
-      const eventId = String(row.eventId || "");
-      if (!eventId) continue;
-      if (row.qualifiedForCertificate || row.action === "out") {
-        buckets.set(eventId, "attendance-completed");
-        continue;
-      }
-      if (row.action === "in" && buckets.get(eventId) !== "attendance-completed") {
-        buckets.set(eventId, "attendance-incomplete");
-      }
-    }
-    return buckets;
+    if (!res.ok) return new Map<string, AttendanceBucket>();
+    const data = (await res.json()) as { attendance?: AttendanceRowLite[] };
+    return attendanceBucketsFromRows(data.attendance || []);
   } catch {
-    return new Map<string, "attendance-completed" | "attendance-incomplete" | "attendance-today">();
+    return new Map<string, AttendanceBucket>();
   }
 }
 
@@ -628,12 +635,7 @@ export function StudentDataBridge() {
         let events: SanitizedEvent[] = [];
         let registrations: Array<{ eventId?: string; status?: string; eventTitle?: string }> = [];
         let invitations: Array<{ eventId?: string; status?: string }> = [];
-        let portalAttendance: Array<{
-          eventId?: string;
-          action?: string;
-          qualifiedForCertificate?: boolean;
-          eventTitle?: string;
-        }> = [];
+        let portalAttendance: Array<AttendanceRowLite & { eventTitle?: string }> = [];
 
         // Events/home need fresh public catalog so admin approvals appear quickly.
         const forcePortal =
@@ -751,25 +753,7 @@ export function StudentDataBridge() {
           // Always include this account's attendance event ids from MongoDB.
           const liveBuckets =
             portalAttendance.length > 0
-              ? (() => {
-                  const buckets = new Map<
-                    string,
-                    "attendance-completed" | "attendance-incomplete" | "attendance-today"
-                  >();
-                  for (const row of portalAttendance) {
-                    const eventId = String(row.eventId || "");
-                    if (!eventId) continue;
-                    if (row.qualifiedForCertificate || row.action === "out") {
-                      buckets.set(eventId, "attendance-completed");
-                    } else if (
-                      row.action === "in" &&
-                      buckets.get(eventId) !== "attendance-completed"
-                    ) {
-                      buckets.set(eventId, "attendance-incomplete");
-                    }
-                  }
-                  return buckets;
-                })()
+              ? attendanceBucketsFromRows(portalAttendance)
               : await fetchAttendanceBuckets();
 
           for (const eventId of liveBuckets.keys()) registeredIds.add(eventId);
@@ -843,15 +827,20 @@ export function StudentDataBridge() {
             const day = new Date(`${event.date}T12:00:00`);
             if (Number.isNaN(day.getTime())) return event;
             day.setHours(0, 0, 0, 0);
-            if (day.getTime() === today.getTime() && event.status === "live") {
+            if (
+              day.getTime() === today.getTime() &&
+              // card status is the event status, or "joined" for the student's registration
+              ["live", "approved", "ongoing", "joined"].includes(String(event.status || ""))
+            ) {
               return { ...event, category: "attendance-today" };
             }
             return event;
           });
-          // Tapped in but not out yet, on an event happening today: keep it in
-          // Incomplete and also show it under Today's Event.
+          // An event happening today stays under Today's Event all day, whether the
+          // student's attendance is complete or still incomplete.
           live = live.map((event) => {
-            if (String(event.category || "") !== "attendance-incomplete") return event;
+            const category = String(event.category || "");
+            if (category !== "attendance-incomplete" && category !== "attendance-completed") return event;
             const day = new Date(`${event.date}T12:00:00`);
             if (Number.isNaN(day.getTime())) return event;
             day.setHours(0, 0, 0, 0);

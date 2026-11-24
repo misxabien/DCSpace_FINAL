@@ -540,13 +540,15 @@ function showPendingReviewActions(
   ) as HTMLElement | null;
   if (group) {
     group.style.display = "flex";
+    // Events can be approved before eRoomReserve confirms the room; the venue
+    // then shows "TBA" until the room is approved.
     group.querySelectorAll<HTMLButtonElement>(".action-btn.approve").forEach((btn) => {
-      btn.disabled = !roomValidated;
+      btn.disabled = false;
       btn.title = roomValidated
         ? "Approve event"
-        : "Waiting for eRoomReserve to approve the room reservation";
-      btn.style.opacity = roomValidated ? "" : "0.45";
-      btn.style.pointerEvents = roomValidated ? "" : "none";
+        : "Approve now — the venue shows TBA until eRoomReserve approves the room";
+      btn.style.opacity = "";
+      btn.style.pointerEvents = "";
     });
   }
 
@@ -556,10 +558,10 @@ function showPendingReviewActions(
     subtitle.textContent = roomValidated
       ? "eRoomReserve Validated — Ready for DC Space approval"
       : reservationStatus === "rejected"
-        ? "eRoomReserve rejected this room"
+        ? "eRoomReserve rejected this room — you can still approve; the venue will show TBA"
         : syncError
-          ? "Not sent to eRoomReserve — the organizer's room request failed"
-          : "Waiting for eRoomReserve validation";
+          ? "Not sent to eRoomReserve — you can still approve; the venue will show TBA"
+          : "Room not confirmed yet — you can approve now; the venue shows TBA until eRoomReserve approves";
   }
 
   // Keep URL in sync with the view mode that matches reservation state.

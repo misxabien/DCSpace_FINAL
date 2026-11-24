@@ -148,12 +148,36 @@ export async function GET(request: Request) {
       .limit(500)
       .toArray();
 
+    // Admin view of one event: fill student number / course / department from
+    // each participant's account (tap records don't always carry them).
+    const profiles = new Map<string, { studentNumber: string; course: string; school: string }>();
+    if (isAdmin && eventId && docs.length) {
+      const emails = [...new Set(docs.map((doc) => String(doc.email || "").toLowerCase()).filter(Boolean))];
+      const users = await db
+        .collection("users")
+        .find(
+          { email: { $in: emails } },
+          { projection: { email: 1, studentNumber: 1, course: 1, school: 1, department: 1 } },
+        )
+        .toArray();
+      for (const user of users) {
+        profiles.set(String(user.email || "").toLowerCase(), {
+          studentNumber: String(user.studentNumber || ""),
+          course: String(user.course || ""),
+          school: String(user.school || user.department || ""),
+        });
+      }
+    }
+
     const attendance = docs.map((doc) => ({
       id: String(doc._id),
       eventId: String(doc.eventId || ""),
       eventTitle: String(doc.eventTitle || doc.eventName || ""),
       email: String(doc.email || "").toLowerCase(),
       participantName: String(doc.participantName || doc.userName || ""),
+      studentNumber: String(doc.studentNumber || profiles.get(String(doc.email || "").toLowerCase())?.studentNumber || ""),
+      course: String(doc.course || profiles.get(String(doc.email || "").toLowerCase())?.course || ""),
+      school: profiles.get(String(doc.email || "").toLowerCase())?.school || "",
       action: String(doc.action || "in"),
       status: String(doc.status || "recorded"),
       source: String(doc.source || "session"),

@@ -163,11 +163,15 @@ export function patchChildren<T>(
       insertBeforeFooter(el);
     }
     setLegacyHidden(el, false);
+    el.setAttribute(LIVE_ATTR, "1");
     patch(el, item, index);
   });
 
   host.querySelectorAll<HTMLElement>(itemSelector).forEach((el, index) => {
-    if (index >= items.length) setLegacyHidden(el, true);
+    if (index >= items.length) {
+      el.removeAttribute(LIVE_ATTR);
+      setLegacyHidden(el, true);
+    }
   });
 }
 
@@ -198,11 +202,15 @@ export function patchTableRows<T>(
       tbody.appendChild(row);
     }
     setLegacyHidden(row, false);
+    row.setAttribute(LIVE_ATTR, "1");
     patch(row, item, index);
   });
 
   tbody.querySelectorAll<HTMLTableRowElement>("tr").forEach((row, index) => {
-    if (index >= items.length) setLegacyHidden(row, true);
+    if (index >= items.length) {
+      row.removeAttribute(LIVE_ATTR);
+      setLegacyHidden(row, true);
+    }
   });
 }
 
@@ -229,8 +237,17 @@ export function hideLegacyDemoContent(root: ParentNode) {
   ].join(", ");
   scope.querySelectorAll<HTMLElement>(selector).forEach((el) => {
     if (el.closest("#user-menu-popover, .user-menu, thead")) return;
+    // Never hide rows/cards already filled with live data (the bridges can run
+    // in either order, so this may run after real data is on screen).
+    if (el.hasAttribute(LIVE_ATTR)) return;
     setLegacyHidden(el, true);
   });
+}
+
+/** Marks an element as showing live (database) data so demo-hiding skips it. */
+export const LIVE_ATTR = "data-dc-live";
+export function markLive(el: Element | null | undefined) {
+  el?.setAttribute(LIVE_ATTR, "1");
 }
 
 /** Keep Asc/Desc + pager pinned to the bottom of every list card. */

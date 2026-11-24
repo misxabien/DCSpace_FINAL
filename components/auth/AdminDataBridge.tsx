@@ -17,6 +17,7 @@ import {
   clearStatCardLoading,
 } from "@/lib/legacy-dom-patch";
 import { startSmartPoll } from "@/lib/client/smart-poll";
+import { attachTablePager } from "@/lib/client/table-pager";
 
 const STAT_LOADING_PAGES = new Set([
   "home12",
@@ -1575,7 +1576,7 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
 
   const tableRows = (all.length ? all : pipelineEvents.map((event) => ensure(event.id, event.title, event.status))).slice(
     0,
-    20,
+    200,
   );
   patchTableRows(root.querySelector(".cert-table"), tableRows, (tr, event) => {
     const workflow = certWorkflow(event);
@@ -1597,10 +1598,17 @@ async function hydrateCertificatesAdmin(root: Element, data: DashboardPayload) {
     }
   });
 
-  const entries = root.querySelector(".cert-entries");
-  if (entries) {
-    entries.textContent = `${tableRows.length} out of ${all.length || tableRows.length} entries`;
-  }
+  // 5 events per page with working ‹ › and Ascending / Descending.
+  attachTablePager({
+    table: root.querySelector(".cert-table"),
+    pageLabel: root.querySelector(".cert-page span"),
+    prevButton: root.querySelector<HTMLElement>('.cert-page .nav-btn[aria-label="Previous"]'),
+    nextButton: root.querySelector<HTMLElement>('.cert-page .nav-btn[aria-label="Next"]'),
+    entriesLabel: root.querySelector(".cert-entries"),
+    sortButtons: root.querySelectorAll<HTMLElement>(".cert-sort [data-sort]"),
+    sortCellIndex: 0,
+    pageSize: 5,
+  });
 }
 
 function initialsFromName(name: string) {

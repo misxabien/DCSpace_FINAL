@@ -29,12 +29,11 @@ export function ChangePasswordModal() {
       return;
     }
 
-    const button = document.querySelector<HTMLButtonElement>("button.btn-change");
-    if (!button) {
-      return;
-    }
-
+    // Delegated: the profile HTML is inserted after this component mounts (and can be
+    // re-rendered), so a listener on the button found at mount time would be lost.
     const onClick = (event: Event) => {
+      const button = (event.target as Element | null)?.closest?.("button.btn-change");
+      if (!button) return;
       event.preventDefault();
       setError("");
       setSuccess("");
@@ -44,8 +43,8 @@ export function ChangePasswordModal() {
       setOpen(true);
     };
 
-    button.addEventListener("click", onClick);
-    return () => button.removeEventListener("click", onClick);
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
   }, [pathname]);
 
   useEffect(() => {

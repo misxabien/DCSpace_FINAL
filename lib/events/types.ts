@@ -144,6 +144,34 @@ function formatPosterDataUrl(base64?: string, mimeType?: string) {
   return `data:${mimeType || "image/jpeg"};base64,${raw}`;
 }
 
+/**
+ * Venue to show for an event. A published on-campus event whose room eRoomReserve
+ * has not approved yet shows "TBA" (it can be posted before the room is confirmed);
+ * once the room is approved, the real venue appears.
+ */
+export function eventDisplayLocation(doc: {
+  location?: string | null;
+  venue?: string | null;
+  venueType?: string | null;
+  status?: string | null;
+  reservationStatus?: string | null;
+  iroomStatus?: string | null;
+  reservationRoomName?: string | null;
+}): string {
+  const location = String(doc.location || doc.venue || "").trim();
+  const onCampus = String(doc.venueType || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .includes("on campus");
+  if (!onCampus) return location;
+  const roomStatus = [doc.reservationStatus, doc.iroomStatus].map((s) => String(s || "").toLowerCase());
+  const roomApproved = roomStatus.some((s) => s === "approved" || s === "completed");
+  if (roomApproved) return location && location !== "TBA" ? location : String(doc.reservationRoomName || "TBA");
+  const published = ["approved", "live", "ongoing", "completed"].includes(String(doc.status || "").toLowerCase());
+  return published ? "TBA" : location;
+}
+
 /** Slim card payload for admin/organizer event lists (fast JSON). */
 export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
   const id = doc._id?.toString?.() || String(doc._id || "");
@@ -153,7 +181,7 @@ export function sanitizeEventListCard(doc: SpaceEvent & { _id: ObjectId }) {
     id,
     title: String(doc.title || "Untitled event"),
     status: String(doc.status || ""),
-    location: String(doc.location || ""),
+    location: eventDisplayLocation(doc),
     startsAt: String(doc.startsAt || ""),
     endsAt: String(doc.endsAt || ""),
     category: String(doc.category || ""),
@@ -190,7 +218,7 @@ export function sanitizeEvent(
     title: doc.title,
     description: doc.description || "",
     category: doc.category || "",
-    location: doc.location || doc.venue || "",
+    location: eventDisplayLocation(doc),
     startsAt,
     endsAt,
     attendanceRequired: doc.attendanceRequired || "",

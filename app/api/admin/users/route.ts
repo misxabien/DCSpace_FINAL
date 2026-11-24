@@ -85,12 +85,18 @@ export async function GET(request: Request) {
       };
     }
     if (q) {
-      filter.$or = [
-        { email: { $regex: q, $options: "i" } },
-        { firstName: { $regex: q, $options: "i" } },
-        { lastName: { $regex: q, $options: "i" } },
-        { studentNumber: { $regex: q, $options: "i" } },
-      ];
+      // Every word must match a field, so "juan dela cruz" finds first + last name;
+      // the text is escaped so characters like "(" can't break the query.
+      const words = q
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 6)
+        .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      filter.$and = words.map((word) => ({
+        $or: ["email", "firstName", "lastName", "studentNumber", "rfidNumber"].map((field) => ({
+          [field]: { $regex: word, $options: "i" },
+        })),
+      }));
     }
 
     const db = await getUserDb();

@@ -12,6 +12,10 @@ import { AdminAiBridge } from "@/components/auth/AdminAiBridge";
 import { AdminEventPhotosBridge } from "@/components/auth/AdminEventPhotosBridge";
 import { useAuth } from "@/components/auth/AuthProvider";
 import type { SessionUser } from "@/lib/auth/types";
+import { installApiFetchDedupe } from "@/lib/client/fetch-dedupe";
+
+// Admin bridges load overlapping data on every page; share identical GETs.
+if (typeof window !== "undefined") installApiFetchDedupe();
 
 function applySidebarUserCard(
   user: Pick<SessionUser, "name" | "email">,

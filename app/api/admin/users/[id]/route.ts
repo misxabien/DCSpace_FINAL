@@ -5,6 +5,7 @@ import {
   requireSuperAdmin,
 } from "@/lib/admin-server/require-admin-auth";
 import { getUserDb } from "@/lib/user-server/get-user-db";
+import { findUserByRfid } from "@/lib/user-server/record-attendance";
 import { sanitizeUser } from "@/lib/user-server/sanitize-user";
 import { buildUserAttendanceSummary } from "@/lib/user-server/attendance-summary";
 import {
@@ -207,10 +208,15 @@ export async function PATCH(request: Request, context: RouteContext) {
       if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
     }
     if (typeof body.rfidNumber === "string" && body.rfidNumber.trim()) {
-      const clash = await db.collection("users").findOne({
-        rfidNumber: body.rfidNumber.trim(),
-        _id: { $ne: new ObjectId(id) },
-      });
+      // Same matching as the RFID desk (leading zeros, other stored spellings), so
+      // one card can never end up on two accounts.
+      let clash = false;
+      try {
+        const owner = await findUserByRfid(body.rfidNumber.trim());
+        clash = Boolean(owner && String((owner as { _id?: unknown })._id) !== id);
+      } catch {
+        clash = true; // already matches more than one account
+      }
       if (clash) {
         return NextResponse.json(
           { error: "This RFID tag is already linked to another account." },

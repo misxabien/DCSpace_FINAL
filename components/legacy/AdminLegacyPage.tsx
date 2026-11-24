@@ -363,7 +363,15 @@ export function AdminLegacyPage({ data }: { data: LegacyPageData }) {
   }, [htmlReady, data.id, router]);
 
   return (
-    <div data-admin-legacy="" data-admin-page={data.id} className="admin-legacy-root">
+    // Only the container that holds the page HTML gets `admin-legacy-root`: during
+    // the first moments of a load an empty, server-rendered copy can sit in the
+    // document too, and the data bridges (which look up `.admin-legacy-root`) must
+    // never fill that hidden copy instead of the visible page.
+    <div
+      data-admin-legacy=""
+      data-admin-page={data.id}
+      className={htmlReady ? "admin-legacy-root" : "admin-legacy-root-pending"}
+    >
       <style dangerouslySetInnerHTML={{ __html: pageStyles }} />
       {/* Loaded after page styles so Super Admin Administration stays visible when collapsed */}
       <style

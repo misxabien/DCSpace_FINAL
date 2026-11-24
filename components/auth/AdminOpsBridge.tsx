@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   hideLegacyDemoContent,
   patchChildren,
@@ -11,6 +11,7 @@ import {
   setLegacyHidden,
 } from "@/lib/legacy-dom-patch";
 import { startSmartPoll } from "@/lib/client/smart-poll";
+import { attachTablePager } from "@/lib/client/table-pager";
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
@@ -675,6 +676,7 @@ async function hydrateUserInfo() {
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
+  ensureRfidProfileField(user, false);
 
   applyParticipantAttendanceSummary(data.attendanceSummary);
 
@@ -1293,11 +1295,16 @@ function rfidPopupTitle(code?: string) {
   }
 }
 
+/** Runs once when the RFID popup's OK is pressed (e.g. open Quick Register). */
+let rfidPopupOnOk: (() => void) | null = null;
+
 function showRfidDuplicatePopup(
   message = "Suspicious RFID activity was detected.",
   code?: string,
+  options: { title?: string; okLabel?: string; onOk?: () => void } = {},
 ) {
   ensureRfidPopupStyles();
+  rfidPopupOnOk = options.onOk ?? null;
   let overlay = document.getElementById("dc-rfid-dup-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -1316,15 +1323,24 @@ function showRfidDuplicatePopup(
     const close = () => {
       overlay?.setAttribute("hidden", "");
     };
-    overlay.querySelector("#dc-rfid-dup-ok")?.addEventListener("click", close);
+    overlay.querySelector("#dc-rfid-dup-ok")?.addEventListener("click", () => {
+      const next = rfidPopupOnOk;
+      rfidPopupOnOk = null;
+      close();
+      next?.();
+    });
     overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) close();
+      if (event.target !== overlay) return;
+      rfidPopupOnOk = null; // clicking outside just dismisses
+      close();
     });
   }
   const title = overlay.querySelector("#dc-rfid-dup-title");
-  if (title) title.textContent = rfidPopupTitle(code);
+  if (title) title.textContent = options.title || rfidPopupTitle(code);
   const text = overlay.querySelector("#dc-rfid-dup-text");
   if (text) text.textContent = message;
+  const okButton = overlay.querySelector("#dc-rfid-dup-ok");
+  if (okButton) okButton.textContent = options.okLabel || "OK";
   overlay.removeAttribute("hidden");
   window.setTimeout(() => {
     overlay?.querySelector<HTMLButtonElement>("#dc-rfid-dup-ok")?.focus();
@@ -1925,10 +1941,19 @@ function wireRfidScanner(eventId: string) {
           applyRfidParticipantProfile(null);
           setTapTimes("", "");
         }
-        // Quick Register on First Tap: unknown card on Tap In → registration form.
+        // Quick Register on First Tap: unknown card on Tap In → "not registered"
+        // popup → OK opens the Quick Register form.
         if (code === "unknown_rfid" && action === "in") {
-          setRfidAlert("Card not registered yet — fill in the Quick Register form.", true);
-          showRfidQuickRegister(rfidNumber);
+          setRfidAlert("Card not registered yet — press OK to open Quick Register.", true);
+          showRfidDuplicatePopup(
+            `This RFID (${rfidNumber}) is not registered to any student yet. Press OK to register them now with Quick Register.`,
+            code,
+            {
+              title: "Card not registered",
+              okLabel: "OK",
+              onOk: () => showRfidQuickRegister(rfidNumber),
+            },
+          );
           return;
         }
         if (
@@ -2250,6 +2275,15 @@ function ensureCertificateRowActionsWired() {
   if (certificateRowActionsWired) return;
   certificateRowActionsWired = true;
 
+  if (!document.getElementById("dc-fd-action-up-style")) {
+    const style = document.createElement("style");
+    style.id = "dc-fd-action-up-style";
+    style.textContent =
+      ".fd-action.open { z-index: 20; }" +
+      ".fd-action.dc-menu-up .fd-action-menu { top: auto !important; bottom: calc(100% + 6px) !important; }";
+    document.head.appendChild(style);
+  }
+
   document.addEventListener(
     "click",
     (clickEvent) => {
@@ -2266,6 +2300,15 @@ function ensureCertificateRowActionsWired() {
           if (el !== wrap) el.classList.remove("open");
         });
         wrap?.classList.toggle("open");
+        // Near the bottom of the screen, open the menu upward so it stays visible.
+        wrap?.classList.remove("dc-menu-up");
+        const menu = wrap?.querySelector<HTMLElement>(".fd-action-menu");
+        if (wrap?.classList.contains("open") && menu) {
+          const below = window.innerHeight - toggle.getBoundingClientRect().bottom;
+          if (below < menu.offsetHeight + 16 && toggle.getBoundingClientRect().top > menu.offsetHeight + 16) {
+            wrap.classList.add("dc-menu-up");
+          }
+        }
         return;
       }
 
@@ -2385,6 +2428,7 @@ async function hydrateCertificateDetails() {
             action: string;
             studentNumber?: string;
             course?: string;
+            school?: string;
             qualifiedForCertificate?: boolean;
             attendanceMinutes?: number;
           }>;
@@ -2517,7 +2561,7 @@ async function hydrateCertificateDetails() {
       userName: String(row.participantName || email),
       studentNumber: String(row.studentNumber || ""),
       course: String(row.course || ""),
-      school: "",
+      school: String(row.school || ""),
       eligible: false,
       status: "Not issued",
       downloadUrl: "",
@@ -2586,12 +2630,39 @@ async function hydrateCertificateDetails() {
     tr.dataset.userName = row.userName;
     tr.dataset.downloadUrl = row.downloadUrl;
     tr.dataset.eligible = row.eligible ? "1" : "0";
+    // Every row starts as "Preview" (the Figma demo rows had other labels).
+    const toggle = tr.querySelector<HTMLElement>("[data-action-toggle]");
+    if (toggle) {
+      const icon = toggle.querySelector("svg");
+      toggle.textContent = "Preview ";
+      if (icon) toggle.appendChild(icon);
+    }
+    tr.querySelectorAll(".fd-action-menu button").forEach((option) => {
+      option.classList.toggle("is-active", (option.textContent || "").trim() === "Preview");
+    });
+    tr.querySelector(".fd-action")?.classList.remove("open");
   });
 
   const fdTable = document.querySelector<HTMLElement>(".fd-table");
   if (fdTable) {
     fdTable.dataset.eventId = eventId;
     fdTable.dataset.eventTitle = event?.title || "event";
+    // 5 participants per page; ‹ › pages, Show ‹ n › page size, Ascending / Descending.
+    const footer = fdTable.closest("section, .fd-card, .fd-block")?.querySelector(".fd-footer") || document;
+    const showSpans = footer.querySelectorAll(".fd-show > span");
+    attachTablePager({
+      table: fdTable,
+      pageLabel: footer.querySelector(".fd-page span"),
+      prevButton: footer.querySelector<HTMLElement>('.fd-page .nav-btn[aria-label="Previous"]'),
+      nextButton: footer.querySelector<HTMLElement>('.fd-page .nav-btn[aria-label="Next"]'),
+      sizeLabel: showSpans[1] || null,
+      totalLabel: showSpans[2] || null,
+      fewerButton: footer.querySelector<HTMLElement>('.fd-show .stepper[aria-label="Fewer"]'),
+      moreButton: footer.querySelector<HTMLElement>('.fd-show .stepper[aria-label="More"]'),
+      sortButtons: footer.querySelectorAll<HTMLElement>(".fd-sort [data-sort]"),
+      sortCellIndex: 1,
+      pageSize: 5,
+    });
   }
 
   // Bulk Generate Selected
@@ -2761,6 +2832,235 @@ function wireLiveSearch(root: Element) {
   });
 }
 
+/**
+ * The admin page container for this page. More than one `.admin-legacy-root` can
+ * be in the document at once (Next keeps a hidden copy of a route while it
+ * renders the next), so prefer the one for this page that has its HTML in it.
+ */
+function currentAdminRoot(pageId: string): Element {
+  const roots = Array.from(document.querySelectorAll(".admin-legacy-root"));
+  return (
+    roots.find((el) => el.getAttribute("data-admin-page") === pageId && el.querySelector(".main, .topbar, main")) ||
+    roots.find((el) => el.querySelector(".main, .topbar, main")) ||
+    roots[0] ||
+    document.querySelector("[data-admin-page]") ||
+    document.body
+  );
+}
+
+// ─── Top bar on every admin page: Live RFID shortcut + quick people search ───
+
+/** Client-side navigation (set by AdminOpsBridge); falls back to a full load. */
+let adminNavigate: (href: string) => void = (href) => window.location.assign(href);
+
+function ensureTopbarShortcutStyles() {
+  if (document.getElementById("dc-topbar-shortcut-style")) return;
+  const style = document.createElement("style");
+  style.id = "dc-topbar-shortcut-style";
+  style.textContent = `
+.dc-live-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px;
+  border-radius: 999px; background: #ef4444; color: #fff !important; font: 600 13px/1 "Poppins", sans-serif;
+  text-decoration: none !important; white-space: nowrap; flex-shrink: 0; border: 0; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25); }
+.dc-live-btn:hover { background: #dc2626; }
+.dc-live-btn .dc-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff;
+  animation: dcLivePulse 1.4s ease-in-out infinite; }
+@keyframes dcLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.search-bar.dc-has-people { position: relative !important; overflow: visible !important; }
+.dc-people-results { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 80; background: #fff;
+  border: 1px solid rgba(68, 138, 255, 0.25); border-radius: 12px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  padding: 6px; max-height: 380px; overflow: auto; min-width: 300px; }
+.dc-people-results[hidden] { display: none !important; }
+.dc-people-head { font: 600 11px/1.2 "Poppins", sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #64748b; padding: 6px 10px 4px; }
+.dc-people-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border-radius: 8px; text-align: left; background: transparent; border: 0; cursor: pointer; }
+.dc-people-item:hover, .dc-people-item:focus-visible { background: #eef4ff; outline: none; }
+.dc-people-name { display: block; font: 600 13px/1.3 "Poppins", sans-serif; color: #0f172a; }
+.dc-people-meta { display: block; font: 400 12px/1.3 "Poppins", sans-serif; color: #64748b; }
+.dc-people-chip, .dc-rfid-status { flex-shrink: 0; display: inline-block; font: 600 11px/1 "Poppins", sans-serif;
+  padding: 5px 8px; border-radius: 999px; background: #dcfce7; color: #166534; white-space: nowrap; }
+.dc-people-chip.is-missing, .dc-rfid-status.is-missing { background: #fef3c7; color: #92400e; }
+.dc-rfid-status { margin-left: 8px; vertical-align: middle; }
+.dc-people-empty { padding: 10px; font: 400 13px/1.3 "Poppins", sans-serif; color: #64748b; }
+`;
+  document.head.appendChild(style);
+}
+
+function wireTopbarShortcuts(root: Element) {
+  const bar = root.querySelector<HTMLElement>(".topbar .search-bar, .top-actions .search-bar");
+  const actions = bar?.parentElement;
+  if (!bar || !actions) return;
+  ensureTopbarShortcutStyles();
+
+  if (!actions.querySelector(".dc-live-btn")) {
+    const live = document.createElement("a");
+    live.className = "dc-live-btn";
+    live.href = "/admin/rfid17";
+    live.title = "Open Live Attendance RFID";
+    live.innerHTML = '<span class="dc-live-dot" aria-hidden="true"></span>Live';
+    live.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      adminNavigate("/admin/rfid17");
+    });
+    bar.insertAdjacentElement("afterend", live);
+  }
+
+  const input = bar.querySelector<HTMLInputElement>('input[type="search"], input');
+  if (!input || input.dataset.dcPeople === "1") return;
+  input.dataset.dcPeople = "1";
+  bar.classList.add("dc-has-people");
+  const panel = document.createElement("div");
+  panel.className = "dc-people-results";
+  panel.hidden = true;
+  bar.appendChild(panel);
+
+  let timer = 0;
+  let seq = 0;
+  const hide = () => {
+    panel.hidden = true;
+  };
+  const open = (user: AdminUser) => {
+    hide();
+    adminNavigate(`/admin/info30?id=${encodeURIComponent(user.id)}`);
+  };
+  let lastUsers: AdminUser[] = [];
+  const render = (users: AdminUser[]) => {
+    lastUsers = users;
+    panel.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "dc-people-head";
+    head.textContent = "People";
+    panel.appendChild(head);
+    if (!users.length) {
+      const empty = document.createElement("div");
+      empty.className = "dc-people-empty";
+      empty.textContent = "No user matches. Try a name, email, student number or RFID.";
+      panel.appendChild(empty);
+    }
+    for (const user of users) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "dc-people-item";
+      const text = document.createElement("span");
+      const name = document.createElement("span");
+      name.className = "dc-people-name";
+      name.textContent = user.fullName || user.email;
+      const meta = document.createElement("span");
+      meta.className = "dc-people-meta";
+      meta.textContent = [user.email, user.studentNumber, user.course].filter(Boolean).join(" · ");
+      text.append(name, meta);
+      const chip = document.createElement("span");
+      const hasCard = Boolean(String(user.rfidNumber || "").trim());
+      chip.className = `dc-people-chip${hasCard ? "" : " is-missing"}`;
+      chip.textContent = hasCard ? `RFID ${user.rfidNumber}` : "No RFID";
+      item.append(text, chip);
+      item.addEventListener("mousedown", (event) => event.preventDefault()); // keep focus for keyboard users
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        open(user);
+      });
+      panel.appendChild(item);
+    }
+    panel.hidden = false;
+  };
+
+  input.addEventListener("input", () => {
+    window.clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) {
+      seq += 1;
+      hide();
+      return;
+    }
+    timer = window.setTimeout(async () => {
+      const mine = ++seq;
+      const data = await fetchJson<{ users: AdminUser[] }>(
+        `/api/admin/users?q=${encodeURIComponent(q)}&limit=6`,
+      );
+      if (mine !== seq || input.value.trim() !== q || !data) return;
+      render(data.users || []);
+    }, 250);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hide();
+    if (event.key === "Enter" && !panel.hidden && lastUsers[0]) {
+      event.preventDefault();
+      open(lastUsers[0]);
+    }
+  });
+  input.addEventListener("focus", () => {
+    if (lastUsers.length && input.value.trim().length >= 2) panel.hidden = false;
+  });
+  if (!peopleOutsideClickWired) {
+    peopleOutsideClickWired = true;
+    document.addEventListener("click", (event) => {
+      document.querySelectorAll<HTMLElement>(".dc-people-results").forEach((results) => {
+        if (!results.parentElement?.contains(event.target as Node)) results.hidden = true;
+      });
+    });
+  }
+}
+let peopleOutsideClickWired = false;
+
+/** RFID Tag Number + status on the participant pages (view on info30, edit on perinfo31). */
+function ensureRfidProfileField(user: AdminUser, editable: boolean) {
+  const numberField = document
+    .getElementById("field-number")
+    ?.closest<HTMLElement>(".update-field, .info-field");
+  if (!numberField) return null;
+  ensureTopbarShortcutStyles();
+  let field = document.getElementById("dc-rfid-field");
+  if (!field) {
+    field = numberField.cloneNode(true) as HTMLElement;
+    field.id = "dc-rfid-field";
+    const input = field.querySelector<HTMLInputElement>("input");
+    if (input) {
+      input.id = "field-rfid";
+      input.name = "rfidNumber";
+      input.setAttribute("readonly", "");
+      input.setAttribute("inputmode", "numeric");
+      input.setAttribute("autocomplete", "off");
+      input.placeholder = editable ? "Tap the card on the reader or type its number" : "No RFID card linked";
+      // A USB reader ends with Enter: keep it from submitting the whole form.
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") event.preventDefault();
+      });
+    }
+    const editBtn = field.querySelector<HTMLElement>(".field-edit-btn");
+    if (editBtn) {
+      if (editable && input) {
+        editBtn.setAttribute("data-for", "field-rfid");
+        editBtn.setAttribute("aria-label", "Edit RFID Tag Number");
+        editBtn.addEventListener("click", (event) => {
+          event.preventDefault();
+          input.removeAttribute("readonly");
+          input.focus();
+          input.select();
+        });
+      } else {
+        editBtn.remove();
+      }
+    }
+    numberField.insertAdjacentElement("afterend", field);
+  }
+  const rfid = String(user.rfidNumber || "").trim();
+  const label = field.querySelector(".label");
+  if (label) {
+    label.textContent = "RFID Tag Number";
+    const status = document.createElement("span");
+    status.className = `dc-rfid-status${rfid ? "" : " is-missing"}`;
+    status.textContent = rfid ? "Registered" : "Not registered";
+    label.appendChild(status);
+  }
+  const input = field.querySelector<HTMLInputElement>("#field-rfid");
+  if (input) input.value = rfid;
+  return input;
+}
+
 function wireUser27Views(root: Element) {
   root.querySelectorAll(".users-table-panel .view-btn, .panel-box .view-btn").forEach((btn) => {
     if (!(btn instanceof HTMLElement) || btn.dataset.dcWired === "1") return;
@@ -2869,12 +3169,16 @@ async function hydratePerinfo31() {
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
   setInput("field-org-role", rolePart);
   setInput("field-org-pos", posPart);
+  ensureRfidProfileField(user, true);
 
   const form = document.getElementById("update-info-form") as HTMLFormElement | null;
   if (form && form.dataset.dcWired !== "1") {
     form.dataset.dcWired = "1";
+    // Capture + stopImmediatePropagation: the page's original script also handles
+    // submit by jumping to info30 without the user id, which could cut this save off.
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      ev.stopImmediatePropagation();
       const fullName = (document.getElementById("field-name") as HTMLInputElement | null)?.value || "";
       const parts = fullName.trim().split(/\s+/);
       const orgRoleVal = (document.getElementById("field-org-role") as HTMLInputElement | null)?.value || "";
@@ -2891,13 +3195,14 @@ async function hydratePerinfo31() {
           school: (document.getElementById("field-school") as HTMLInputElement | null)?.value,
           organizationPart: (document.getElementById("field-org") as HTMLInputElement | null)?.value,
           organizationRole: orgPos ? `${orgRoleVal}:${orgPos}` : orgRoleVal,
+          rfidNumber: (document.getElementById("field-rfid") as HTMLInputElement | null)?.value,
         }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) { window.alert(payload.error || "Failed to save."); return; }
       window.alert("Information updated.");
       window.location.assign(`/admin/info30?id=${encodeURIComponent(id)}`);
-    });
+    }, true);
   }
 }
 
@@ -3894,9 +4199,16 @@ async function hydrateManageCounts(pageId: string) {
  */
 export function AdminOpsBridge() {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const queryId = searchParams.get("id") || "";
   const queryEvent = searchParams.get("event") || "";
+
+  // Top bar "Live" button and people search navigate without a full reload.
+  useEffect(() => {
+    adminNavigate = (href) => router.push(href);
+    router.prefetch("/admin/rfid17");
+  }, [router]);
 
   useEffect(() => {
     const pageId = pageIdFromPath(pathname);
@@ -3916,14 +4228,14 @@ export function AdminOpsBridge() {
     ) {
       return;
     }
-    const root =
-      document.querySelector(".admin-legacy-root") ||
-      document.querySelector("[data-admin-page]") ||
-      document.body;
     let cancelled = false;
 
     const run = async () => {
       if (cancelled) return;
+      // Look the page container up on every run: when this bridge mounts before the
+      // legacy HTML is swapped in, an element captured once would be a stale,
+      // detached node and everything below would silently act on nothing.
+      const root = currentAdminRoot(pageId);
       try {
         if (root instanceof Element && root.getAttribute("data-dc-blanked") !== pageId) {
           // Keep placeholder notifications visible until live data replaces them.
@@ -3932,6 +4244,7 @@ export function AdminOpsBridge() {
           }
           root.setAttribute("data-dc-blanked", pageId);
         }
+        if (root instanceof Element) wireTopbarShortcuts(root);
         if (pageId === "fulld46" || pageId === "certdeets46") ensureCertificateRowActionsWired();
         if (pageId === "add40") wireAddUser();
         if (pageId === "school30") await hydrateSchoolDirectory(root);

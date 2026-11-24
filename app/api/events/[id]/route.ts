@@ -385,13 +385,11 @@ export async function PATCH(request: Request, context: RouteContext) {
       venueType: String(update.venueType ?? existing.venueType ?? ""),
     });
 
-    // DC Space final approve requires eRoomReserve room approval first —
-    // only for on-campus events (off-campus events have no room to reserve).
+    // On-campus events can be approved/posted before eRoomReserve confirms the room:
+    // the venue shows "TBA" until the room is approved (see eventDisplayLocation).
+    // When a reservation already exists, copy its latest room details onto the event.
     if (isAdmin && body.status === "approved" && needsRoom) {
-      const {
-        findReservationForEvent,
-        isRoomValidatedForEventApproval,
-      } = await import("@/lib/integrations/reservation-status");
+      const { findReservationForEvent } = await import("@/lib/integrations/reservation-status");
       const reservation = await findReservationForEvent(userDb, {
         id,
         reservationId: String(
@@ -401,23 +399,6 @@ export async function PATCH(request: Request, context: RouteContext) {
           (update.location as string | undefined) || existing.location || "",
         ),
       });
-      const reservationStatus =
-        reservation?.status ||
-        String(existing.reservationStatus || "") ||
-        String(existing.iroomStatus || "");
-      const iroomOk =
-        existing.iroomStatus === "approved" ||
-        String(existing.iroomStatus || "") === "completed";
-      if (!isRoomValidatedForEventApproval(reservationStatus) && !iroomOk) {
-        return NextResponse.json(
-          {
-            error:
-              "eRoomReserve has not approved this room yet. Wait for reservation status sync before approving the event.",
-            reservationStatus: reservationStatus || "pending",
-          },
-          { status: 409 },
-        );
-      }
       if (reservation) {
         update.reservationId = reservation.reservationId;
         update.reservationStatus = reservation.status;

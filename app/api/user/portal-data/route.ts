@@ -11,6 +11,7 @@ import { savedEventsCollection } from "@/lib/db/user-collections";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { invitationsCollection, registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { resolveRequiredAttendanceMinutes } from "@/lib/user-server/certificate-eligibility";
 
 /** One round-trip for student home/events/attendance: browse data + this account's context. */
 export async function GET(request: Request) {
@@ -117,17 +118,25 @@ export async function GET(request: Request) {
       )
       .sort(compareEventsForDisplay);
 
-    const attendance = attendanceDocs.map((doc) => ({
-      id: String(doc._id),
-      eventId: String(doc.eventId || ""),
-      eventTitle: String(doc.eventTitle || doc.eventName || ""),
-      action: String(doc.action || "in"),
-      scannedAt: String(doc.scannedAt || doc.createdAt || ""),
-      createdAt: String(doc.createdAt || doc.scannedAt || ""),
-      attendanceMinutes: Number(doc.attendanceMinutes || 0),
-      qualifiedForCertificate: Boolean(doc.qualifiedForCertificate),
-      source: String(doc.source || "session"),
-    }));
+    const attendance = attendanceDocs.map((doc) => {
+      const action = String(doc.action || "in");
+      const qualified = Boolean(doc.qualifiedForCertificate);
+      const event = byId.get(String(doc.eventId || ""));
+      const requiredMinutes = event ? resolveRequiredAttendanceMinutes(event) : 0;
+      return {
+        id: String(doc._id),
+        eventId: String(doc.eventId || ""),
+        eventTitle: String(doc.eventTitle || doc.eventName || ""),
+        action,
+        scannedAt: String(doc.scannedAt || doc.createdAt || ""),
+        createdAt: String(doc.createdAt || doc.scannedAt || ""),
+        attendanceMinutes: Number(doc.attendanceMinutes || 0),
+        qualifiedForCertificate: qualified,
+        // Complete = tapped out and met the event's minimum time (no minimum → any tap-out).
+        attendanceComplete: action === "out" && (qualified || requiredMinutes === 0),
+        source: String(doc.source || "session"),
+      };
+    });
 
     return NextResponse.json(
       {
