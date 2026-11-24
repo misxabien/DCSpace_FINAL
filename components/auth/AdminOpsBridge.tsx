@@ -2845,6 +2845,21 @@ function syncProfileInitials() {
   if (next && initialsEl.textContent !== next) initialsEl.textContent = next;
 }
 
+/** Update the initials the moment the name changes (not after the whole page loads). */
+function watchProfileInitials() {
+  const nameEl = document.getElementById("user-name") as (HTMLElement & { __dcInitialsWatch?: boolean }) | null;
+  if (!nameEl) return;
+  if (!nameEl.__dcInitialsWatch) {
+    nameEl.__dcInitialsWatch = true;
+    new MutationObserver(syncProfileInitials).observe(nameEl, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  }
+  syncProfileInitials();
+}
+
 /**
  * The admin page container for this page. More than one `.admin-legacy-root` can
  * be in the document at once (Next keeps a hidden copy of a route while it
@@ -4258,6 +4273,7 @@ export function AdminOpsBridge() {
           root.setAttribute("data-dc-blanked", pageId);
         }
         if (root instanceof Element) wireTopbarShortcuts(root);
+        watchProfileInitials();
         if (pageId === "fulld46" || pageId === "certdeets46") ensureCertificateRowActionsWired();
         if (pageId === "add40") wireAddUser();
         if (pageId === "school30") await hydrateSchoolDirectory(root);
