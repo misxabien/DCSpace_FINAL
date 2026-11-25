@@ -10,6 +10,11 @@ import {
 } from "react";
 import type { SessionUser } from "@/lib/auth/types";
 import { isAdminRole } from "@/lib/auth/types";
+import { installApiFetchDedupe } from "@/lib/client/fetch-dedupe";
+
+// Admin and student pages are made of several parts that each load the same data
+// (portal data, notifications, saved events…); share identical requests.
+if (typeof window !== "undefined") installApiFetchDedupe();
 import {
   clearAuthSession,
   clearRegistrationDraft,

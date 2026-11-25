@@ -627,6 +627,9 @@ export function StudentDataBridge() {
 
   useEffect(() => {
     let cancelled = false;
+    // What the cards last showed; background refreshes with identical data skip
+    // the re-render (no flicker, no repeated image loads).
+    let lastRenderKey = "";
 
     const injectEvents = async () => {
       if (!window.DCEvents) return;
@@ -869,6 +872,10 @@ export function StudentDataBridge() {
             ];
           }
         }
+
+        const renderKey = `${pathname}${window.location.search}|${JSON.stringify(live)}`;
+        if (renderKey === lastRenderKey) return; // nothing changed since the last render
+        lastRenderKey = renderKey;
 
         window.DCEvents.list = live;
         if (
@@ -1614,21 +1621,26 @@ export function StudentDataBridge() {
       void syncSaved();
     };
 
+    // First run right away; the two retries only matter when the page scripts were
+    // not ready yet (otherwise they would just repeat the same work).
+    const retryIfNotRendered = () => {
+      if (!lastRenderKey) runWithSavedSync();
+    };
     const t1 = window.setTimeout(runWithSavedSync, 80);
-    const t2 = window.setTimeout(runWithSavedSync, 400);
-    const t3 = window.setTimeout(runWithSavedSync, 900);
+    const t2 = window.setTimeout(retryIfNotRendered, 400);
+    const t3 = window.setTimeout(retryIfNotRendered, 900);
     // Attendance details: poll Mongo tap logs near real-time; everything else calmer.
     // Polls pause while the tab/app is hidden and refresh when it comes back.
-    // Home + Events poll often so newly approved campus events appear for everyone quickly.
+    // Unchanged data no longer re-renders, so refreshes are cheap.
     const pollMs = pathname.startsWith("/attendance/details")
       ? 3000
       : pathname.startsWith("/attendance")
-        ? 5000
+        ? 8_000
         : pathname === "/home" || pathname.startsWith("/events")
-          ? 8_000
+          ? 15_000
           : pathname === "/notifications"
             ? 10_000
-            : 15_000;
+            : 20_000;
     const stopPoll = startSmartPoll(run, pollMs);
 
     const onFocusRefresh = () => {

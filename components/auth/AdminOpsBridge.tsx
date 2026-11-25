@@ -1803,14 +1803,16 @@ async function hydrateRfid(options?: { light?: boolean; resetProfile?: boolean }
     setRfidEventTitle("Loading event…");
   }
 
-  const eventId = await resolveRfidEventId();
+  // Listen to the scanner right away: waiting for the event list first meant a card
+  // tapped while the page was still loading lost its first digits. A scan that
+  // arrives before the event is known resolves the event itself (see submitScan).
   if (!rfidScannerWired) {
-    wireRfidScanner(eventId);
+    wireRfidScanner("");
     rfidScannerWired = true;
-  } else {
-    rememberRfidEventId(eventId);
-    ensureRfidModeToggle();
   }
+  const eventId = await resolveRfidEventId();
+  rememberRfidEventId(eventId);
+  ensureRfidModeToggle();
   await syncRfidEventPicker(eventId);
 
   if (!eventId) {
@@ -4267,6 +4269,18 @@ export function AdminOpsBridge() {
   useEffect(() => {
     adminNavigate = (href) => router.push(href);
     router.prefetch("/admin/rfid17");
+    // Warm the main sidebar pages while the browser is idle so switching is instant.
+    const warm = () =>
+      ["/admin/home12", "/admin/event13", "/admin/user27", "/admin/attendance42", "/admin/cert45", "/admin/feedback47", "/admin/report51"].forEach(
+        (href) => router.prefetch(href),
+      );
+    // Some phone browsers have no requestIdleCallback: fall back to a short delay.
+    const hasIdle = typeof window.requestIdleCallback === "function";
+    const handle = hasIdle ? window.requestIdleCallback(warm, { timeout: 4000 }) : window.setTimeout(warm, 2000);
+    return () => {
+      if (hasIdle) window.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
   }, [router]);
 
   useEffect(() => {
