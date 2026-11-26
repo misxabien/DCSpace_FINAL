@@ -23,6 +23,8 @@ export type StoredCertificateDoc = {
   qualificationSource?: string;
   attendanceMinutes?: number;
   layoutVersion?: number;
+  distributedAt?: string;
+  distributedBy?: string;
 };
 
 export function certificateDownloadUrl(id: string) {

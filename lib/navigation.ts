@@ -20,6 +20,7 @@ export type NavIconName =
   | "attendance"
   | "saved"
   | "certificates"
+  | "faqs"
   | "feedback"
   | "logout";
 
@@ -47,6 +48,7 @@ export const ORGANIZER_NAV_ITEM: NavItem = {
 export const NAV_ITEMS = STUDENT_NAV_ITEMS;
 
 export const BOTTOM_NAV: NavItem[] = [
+  { href: "/faqs", label: "FAQs", icon: "faqs" },
   { href: "/feedback", label: "Submit a Feedback", icon: "feedback" },
   { href: "/login", label: "Log out", icon: "logout" },
 ];
@@ -76,6 +78,9 @@ export function isNavActive(pathname: string, href: string) {
   }
   if (href === "/certificates") {
     return pathname === "/certificates" || pathname.startsWith("/certificates/");
+  }
+  if (href === "/faqs") {
+    return pathname === "/faqs" || pathname.startsWith("/faqs/");
   }
   if (href === "/feedback") {
     return pathname === "/feedback" || pathname.startsWith("/feedback/");

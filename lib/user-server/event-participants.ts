@@ -1,8 +1,10 @@
 import { ObjectId } from "mongodb";
 import { findEventById } from "@/lib/events/find-event";
+import { usersCollection } from "@/lib/db/user-collections";
 import { attendanceCollection } from "@/lib/user-server/activity";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { attendanceSecurityCollection } from "@/lib/user-server/attendance-security";
+import { profileFromUserDoc } from "@/lib/user-server/record-attendance";
 
 export type EventParticipantFilters = {
   errors: boolean;
@@ -30,6 +32,8 @@ export type EventParticipantRow = {
   filters: EventParticipantFilters;
 };
 
+const MANILA_TZ = "Asia/Manila";
+
 function normalizeEmail(email: string) {
   return String(email || "").trim().toLowerCase();
 }
@@ -43,7 +47,11 @@ function formatClock(iso: string) {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: MANILA_TZ,
+  });
 }
 
 function formatDurationMinutes(minutes: number) {
@@ -54,6 +62,22 @@ function formatDurationMinutes(minutes: number) {
   const hourLabel = hours === 1 ? "1 HR" : `${hours} HRS`;
   if (remainder === 0) return hourLabel;
   return `${hourLabel} ${remainder} MINS`;
+}
+
+function splitOrgRole(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "—") return { role: "", position: "" };
+  if (!raw.includes(":")) return { role: raw, position: "" };
+  const [role, ...rest] = raw.split(":");
+  return { role: role.trim(), position: rest.join(":").trim() };
+}
+
+function pickNonEmpty(...values: Array<string | undefined | null>) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text && text !== "—") return text;
+  }
+  return "";
 }
 
 type ParticipantSession = {
@@ -84,7 +108,15 @@ function buildParticipantRow(input: {
   const security = input.security || { errors: false, manualOverride: false };
   const tapInAt = session?.tapInAt || "";
   const tapOutAt = session?.tapOutAt || "";
-  const attendanceMinutes = session?.attendanceMinutes || 0;
+  let attendanceMinutes = session?.attendanceMinutes || 0;
+  // Older taps may lack attendanceMinutes — derive from first in → last out.
+  if (attendanceMinutes <= 0 && tapInAt && tapOutAt) {
+    const startMs = toMs(tapInAt);
+    const endMs = toMs(tapOutAt);
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
+      attendanceMinutes = Math.max(0, Math.round((endMs - startMs) / 60_000));
+    }
+  }
   const qualified = Boolean(session?.qualified);
 
   const completed = Boolean(
@@ -130,6 +162,10 @@ function buildParticipantRow(input: {
   } else if (late) {
     statusLabel = "LATE";
     attendanceStatusLabel = "Late";
+  } else if (tapInAt && tapOutAt) {
+    statusLabel = "COMPLETE";
+    attendanceStatusLabel =
+      input.requiredMinutes > 0 ? "Attendance Requirement Met" : "Complete";
   } else {
     statusLabel = "INCOMPLETE";
     attendanceStatusLabel = "Incomplete";
@@ -221,7 +257,7 @@ export async function buildEventParticipantList(eventId: string) {
     const when = String(row.scannedAt || row.createdAt || "");
     if (action === "in") {
       if (!session.tapInAt) session.tapInAt = when;
-    } else {
+    } else if (action === "out") {
       session.tapOutAt = when;
       session.attendanceMinutes = Math.max(
         session.attendanceMinutes,
@@ -243,6 +279,41 @@ export async function buildEventParticipantList(eventId: string) {
     certByEmail.set(email, String(cert.status || "generated").toUpperCase());
   }
 
+  const emails = new Set<string>();
+  for (const reg of registrations) {
+    const email = normalizeEmail(String(reg.email || ""));
+    if (email) emails.add(email);
+  }
+  for (const email of sessions.keys()) emails.add(email);
+
+  const userDocs =
+    emails.size > 0
+      ? await usersCollection(db)
+          .find({ email: { $in: [...emails] } })
+          .project({
+            email: 1,
+            firstName: 1,
+            lastName: 1,
+            fullName: 1,
+            name: 1,
+            studentNumber: 1,
+            course: 1,
+            school: 1,
+            organizationPart: 1,
+            organization: 1,
+            organizationRole: 1,
+          })
+          .limit(500)
+          .toArray()
+      : [];
+
+  const profileByEmail = new Map(
+    userDocs.map((user) => [
+      normalizeEmail(String(user.email || "")),
+      profileFromUserDoc(user as Record<string, unknown>),
+    ]),
+  );
+
   const participants: EventParticipantRow[] = [];
   const seen = new Set<string>();
 
@@ -251,6 +322,8 @@ export async function buildEventParticipantList(eventId: string) {
     if (!email || seen.has(email)) continue;
     seen.add(email);
 
+    const profile = profileByEmail.get(email);
+    const regOrg = splitOrgRole(String(reg.organizationRole || ""));
     const session = sessions.get(email);
     const qualified = Boolean(session?.qualified);
     let certificateStatus = "INELIGIBLE";
@@ -261,13 +334,27 @@ export async function buildEventParticipantList(eventId: string) {
     participants.push(
       buildParticipantRow({
         email,
-        name: String(reg.userName || reg.email || email),
-        studentNumber: String(reg.studentNumber || ""),
-        course: String(reg.course || ""),
-        school: String(reg.school || ""),
-        organization: String(reg.organization || ""),
-        organizationRole: String(reg.organizationRole || ""),
-        organizationPosition: String(reg.organizationRole || ""),
+        name: pickNonEmpty(
+          String(reg.userName || ""),
+          profile?.name,
+          email,
+        ),
+        studentNumber: pickNonEmpty(
+          String(reg.studentNumber || ""),
+          profile?.studentNumber,
+        ),
+        course: pickNonEmpty(String(reg.course || ""), profile?.course),
+        school: pickNonEmpty(String(reg.school || ""), profile?.school),
+        organization: pickNonEmpty(
+          String(reg.organization || ""),
+          profile?.organization,
+        ),
+        organizationRole: pickNonEmpty(regOrg.role, profile?.organizationRole),
+        organizationPosition: pickNonEmpty(
+          String(reg.organizationPosition || ""),
+          regOrg.position,
+          profile?.organizationPosition,
+        ),
         session,
         security: securityByEmail.get(email),
         certificateStatus,
@@ -285,6 +372,7 @@ export async function buildEventParticipantList(eventId: string) {
     const attendanceName = attendanceDocs.find(
       (row) => normalizeEmail(String(row.email || "")) === email,
     );
+    const profile = profileByEmail.get(email);
     const qualified = Boolean(session.qualified);
     let certificateStatus = "INELIGIBLE";
     if (certByEmail.has(email)) certificateStatus = certByEmail.get(email) || "COMPLETE";
@@ -294,15 +382,30 @@ export async function buildEventParticipantList(eventId: string) {
     participants.push(
       buildParticipantRow({
         email,
-        name: String(
-          attendanceName?.participantName || attendanceName?.userName || email,
+        name: pickNonEmpty(
+          String(attendanceName?.participantName || ""),
+          String(attendanceName?.userName || ""),
+          profile?.name,
+          email,
         ),
-        studentNumber: String(attendanceName?.studentNumber || ""),
-        course: String(attendanceName?.course || ""),
-        school: "",
-        organization: "—",
-        organizationRole: "—",
-        organizationPosition: "—",
+        studentNumber: pickNonEmpty(
+          String(attendanceName?.studentNumber || ""),
+          profile?.studentNumber,
+        ),
+        course: pickNonEmpty(String(attendanceName?.course || ""), profile?.course),
+        school: pickNonEmpty(String(attendanceName?.school || ""), profile?.school),
+        organization: pickNonEmpty(
+          String(attendanceName?.organization || ""),
+          profile?.organization,
+        ),
+        organizationRole: pickNonEmpty(
+          String(attendanceName?.organizationRole || ""),
+          profile?.organizationRole,
+        ),
+        organizationPosition: pickNonEmpty(
+          String(attendanceName?.organizationPosition || ""),
+          profile?.organizationPosition,
+        ),
         session,
         security: securityByEmail.get(email),
         certificateStatus,

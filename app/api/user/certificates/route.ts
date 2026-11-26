@@ -69,6 +69,7 @@ export async function GET(request: Request) {
           createdAt: 1,
           status: 1,
           category: 1,
+          distributedAt: 1,
         },
       })
       .sort({ createdAt: -1 })
@@ -89,6 +90,7 @@ export async function GET(request: Request) {
         dateIssued: String(doc.dateIssued || doc.createdAt || ""),
         status: String(doc.status || "generated"),
         category: String(doc.category || "cert-month"),
+        distributedAt: String(doc.distributedAt || ""),
         downloadUrl: certificateDownloadUrl(String(doc._id)),
       })),
     });
@@ -256,10 +258,19 @@ export async function POST(request: Request) {
         email: target.email,
       });
       if (existing && !regenerate) {
+        // Keep already-generated certs visible as Issued (never leave a blank status).
+        const existingStatus = String(existing.status || "").toLowerCase();
+        if (!existingStatus || existingStatus === "pending" || existingStatus === "not issued") {
+          await certificatesCollection(userDb).updateOne(
+            { _id: existing._id },
+            { $set: { status: "generated" } },
+          );
+        }
         skipped.push({
           email: target.email,
           userName: target.userName,
           id: String(existing._id),
+          status: existingStatus === "distributed" ? "distributed" : "generated",
           downloadUrl: certificateDownloadUrl(String(existing._id)),
         });
         continue;
@@ -328,6 +339,127 @@ export async function POST(request: Request) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
       { error: "Failed to generate certificates.", details },
+      { status: 500 },
+    );
+  }
+}
+
+/** Mark generated certificates as distributed (released to participants). */
+export async function PATCH(request: Request) {
+  const auth = await requireAdminAuth(request);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  // Accept either distribute or generate permission — both roles manage release.
+  const distributeDenied = await requireAdminPermission(auth, "distribute-certificates");
+  const generateDenied = await requireAdminPermission(auth, "generate-certificates");
+  if (distributeDenied && generateDenied) {
+    return NextResponse.json(
+      { error: distributeDenied.error },
+      { status: distributeDenied.status },
+    );
+  }
+
+  let body: {
+    eventId?: string;
+    email?: string;
+    emails?: string[];
+    action?: string;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  const action = String(body.action || "distribute").trim().toLowerCase();
+  if (action !== "distribute") {
+    return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
+  }
+
+  const eventId = String(body.eventId || "").trim();
+  if (!eventId || !ObjectId.isValid(eventId)) {
+    return NextResponse.json({ error: "Valid eventId is required." }, { status: 400 });
+  }
+
+  const emails = [
+    ...(Array.isArray(body.emails) ? body.emails : []),
+    body.email || "",
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  const uniqueEmails = [...new Set(emails)];
+  if (!uniqueEmails.length) {
+    return NextResponse.json(
+      { error: "Select at least one participant with a generated certificate." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const userDb = await getUserDb();
+    const now = new Date().toISOString();
+    const filter = {
+      eventId,
+      email: { $in: uniqueEmails },
+      status: { $ne: "distributed" },
+    };
+    const existing = await certificatesCollection(userDb)
+      .find(filter, { projection: { _id: 1, email: 1, userName: 1, eventName: 1, eventTitle: 1 } })
+      .limit(500)
+      .toArray();
+
+    if (!existing.length) {
+      const already = await certificatesCollection(userDb).countDocuments({
+        eventId,
+        email: { $in: uniqueEmails },
+        status: "distributed",
+      });
+      const missing = uniqueEmails.length - already;
+      return NextResponse.json({
+        distributed: 0,
+        alreadyDistributed: already,
+        missing,
+        message:
+          already > 0
+            ? `${already} certificate(s) were already distributed.`
+            : "No generated certificates found for the selected participants. Generate first.",
+      });
+    }
+
+    const result = await certificatesCollection(userDb).updateMany(
+      { _id: { $in: existing.map((doc) => doc._id) } },
+      {
+        $set: {
+          status: "distributed",
+          distributedAt: now,
+          distributedBy: auth.session.email,
+        },
+      },
+    );
+
+    const { notifyUser } = await import("@/lib/user-server/portal");
+    await Promise.all(
+      existing.map((doc) =>
+        notifyUser({
+          email: String(doc.email || ""),
+          title: "Certificate distributed",
+          body: `Your certificate for ${String(doc.eventName || doc.eventTitle || "the event")} has been released.`,
+          type: "certificate",
+          eventId,
+          eventTitle: String(doc.eventName || doc.eventTitle || ""),
+        }).catch(() => undefined),
+      ),
+    );
+
+    return NextResponse.json({
+      distributed: result.modifiedCount,
+      message: `Distributed ${result.modifiedCount} certificate(s).`,
+    });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { error: "Failed to distribute certificates.", details },
       { status: 500 },
     );
   }

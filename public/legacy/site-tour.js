@@ -26,6 +26,7 @@
     '/saved/today': '30-saved-today.html',
     '/saved/upcoming': '31-saved-upcoming.html',
     '/saved/past': '32-saved-past.html',
+    '/faqs': 'faqs.html',
     '/feedback': '33-feedbacl.html',
     '/feedback/details': '34-feedback-details.html',
     '/feedback/sign': '35-feedback-sign.html',
@@ -162,6 +163,11 @@
       step('.notif-toolbar__search', 'Search notifications', 'Search by event, status, or notification text.'),
       step('[data-group="today"]', 'Today\'s updates', 'Your newest notifications appear in this group first.'),
       step('[data-group="yesterday"]', 'Earlier updates', 'Older notifications stay organized by date below.')
+    ],
+    'faqs.html': [
+      step('.main__greeting', 'FAQs', 'Browse the official DC SPACE getting-started questions.'),
+      step('ul[role="list"]', 'Answers', 'Tap a question to expand the step-by-step answer.'),
+      step('aside[aria-label="Still have questions"]', 'Still have questions?', 'Contact the student developers or send feedback from here.')
     ]
   };
 

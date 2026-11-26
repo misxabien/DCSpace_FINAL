@@ -2282,6 +2282,47 @@ function fillFulld46EventInfo(event: CertEventDetail | null) {
   }
 }
 
+/** Map stored certificate status → admin table label. */
+function certStatusLabel(raw?: string) {
+  const status = String(raw || "").trim().toLowerCase();
+  if (status === "distributed" || status === "released") return "Distributed";
+  if (status === "generated" || status === "issued" || status === "complete") return "Issued";
+  if (!status || status === "not issued" || status === "pending") return "Not issued";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function currentFulld46EventId() {
+  const table = document.querySelector<HTMLElement>(".fd-table");
+  return (
+    table?.dataset.eventId ||
+    new URLSearchParams(window.location.search).get("id") ||
+    ""
+  );
+}
+
+function currentFulld46EventTitle() {
+  const table = document.querySelector<HTMLElement>(".fd-table");
+  return table?.dataset.eventTitle || "event";
+}
+
+/** Paint CERTIFICATE STATUS (+ download URL) immediately so the UI never lags the API. */
+function paintCertificateStatuses(
+  updates: Array<{ email: string; status: string; downloadUrl?: string }>,
+) {
+  const byEmail = new Map(
+    updates.map((row) => [row.email.trim().toLowerCase(), row] as const),
+  );
+  document.querySelectorAll<HTMLTableRowElement>(".fd-table tbody tr").forEach((tr) => {
+    const email = String(tr.dataset.email || "").toLowerCase();
+    const update = byEmail.get(email);
+    if (!update) return;
+    const statusCell = tr.cells[6];
+    if (statusCell) statusCell.textContent = update.status;
+    tr.dataset.certStatus = update.status;
+    if (update.downloadUrl) tr.dataset.downloadUrl = update.downloadUrl;
+  });
+}
+
 /** Issue (or regenerate) one participant's certificate for an event. */
 async function issueCertificateFor(eventId: string, email: string, name: string, regenerate = false) {
   const res = await fetch("/api/user/certificates", {
@@ -2294,14 +2335,66 @@ async function issueCertificateFor(eventId: string, email: string, name: string,
   return payload;
 }
 
+async function issueCertificatesBulk(
+  eventId: string,
+  emails: string[],
+  names: string[],
+  regenerate = false,
+) {
+  const res = await fetch("/api/user/certificates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      emails.length
+        ? { eventId, emails, name: names[0] || undefined, regenerate }
+        : { eventId, regenerate },
+    ),
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(payload.error || "Failed to generate."));
+  return payload;
+}
+
+/** Mark one or more certificates as distributed for an event. */
+async function distributeCertificatesFor(eventId: string, emails: string[]) {
+  const res = await fetch("/api/user/certificates", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventId, emails, action: "distribute" }),
+  });
+  const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(payload.error || "Failed to distribute certificate."));
+  return payload;
+}
+
+function collectCertificateResults(payload: Record<string, unknown>) {
+  const updates: Array<{ email: string; status: string; downloadUrl?: string }> = [];
+  const push = (row: Record<string, unknown>, status: string) => {
+    const email = String(row.email || "").trim().toLowerCase();
+    if (!email) return;
+    updates.push({
+      email,
+      status,
+      downloadUrl: String(row.downloadUrl || "") || undefined,
+    });
+  };
+  for (const row of (payload.certificates as Array<Record<string, unknown>> | undefined) || []) {
+    push(row, "Issued");
+  }
+  for (const row of (payload.skipped as Array<Record<string, unknown>> | undefined) || []) {
+    const status =
+      String(row.status || "").toLowerCase() === "distributed" ? "Distributed" : "Issued";
+    push(row, status);
+  }
+  return updates;
+}
+
 let certificateRowActionsWired = false;
 
 /**
  * Eligible-participants table (fulld46): ONE document-level capture handler for
- * every row's "Preview ▾" toggle and its Preview / Generate / Regenerate /
- * Distribute options. Installed before any data loads, so the dropdown works
- * even if hydration is slow or fails, and it overrides the legacy per-button
- * listeners (which only covered template rows and can be bound twice).
+ * row actions AND bulk Generate/Distribute. Installed once; always reads the
+ * current eventId from the URL/table at click time (never a stale closure).
  */
 function ensureCertificateRowActionsWired() {
   if (certificateRowActionsWired) return;
@@ -2312,7 +2405,8 @@ function ensureCertificateRowActionsWired() {
     style.id = "dc-fd-action-up-style";
     style.textContent =
       ".fd-action.open { z-index: 20; }" +
-      ".fd-action.dc-menu-up .fd-action-menu { top: auto !important; bottom: calc(100% + 6px) !important; }";
+      ".fd-action.dc-menu-up .fd-action-menu { top: auto !important; bottom: calc(100% + 6px) !important; }" +
+      ".fd-bulk.open { z-index: 20; }";
     document.head.appendChild(style);
   }
 
@@ -2320,8 +2414,117 @@ function ensureCertificateRowActionsWired() {
     "click",
     (clickEvent) => {
       const target = clickEvent.target as HTMLElement | null;
-      const table = target?.closest<HTMLElement>(".fd-table");
-      if (!target || !table) return;
+      if (!target) return;
+
+      // Bulk dropdown toggle
+      const bulkToggle = target.closest<HTMLElement>("[data-bulk-toggle]");
+      if (bulkToggle) {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        const wrap = bulkToggle.closest(".fd-bulk");
+        document.querySelectorAll(".fd-action.open, .fd-bulk.open").forEach((el) => {
+          if (el !== wrap) el.classList.remove("open");
+        });
+        const open = wrap?.classList.toggle("open");
+        bulkToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        return;
+      }
+
+      // Bulk menu actions (outside .fd-table)
+      const bulkOption = target.closest<HTMLButtonElement>(".fd-bulk-menu button");
+      if (bulkOption) {
+        clickEvent.preventDefault();
+        clickEvent.stopPropagation();
+        clickEvent.stopImmediatePropagation();
+        const wrap = bulkOption.closest(".fd-bulk");
+        wrap?.classList.remove("open");
+        wrap?.querySelector("[data-bulk-toggle]")?.setAttribute("aria-expanded", "false");
+        wrap?.querySelectorAll(".fd-bulk-menu button").forEach((btn) => {
+          btn.classList.toggle("is-active", btn === bulkOption);
+        });
+
+        const label = (bulkOption.textContent || "").trim().toLowerCase();
+        const eventId = currentFulld46EventId();
+        if (!eventId) {
+          window.alert("Open an event certificate page before generating.");
+          return;
+        }
+        const selected = Array.from(
+          document.querySelectorAll<HTMLInputElement>(
+            '.fd-table tbody input[type="checkbox"]:checked',
+          ),
+        );
+        const emails = selected
+          .map((input) => input.dataset.email || "")
+          .filter(Boolean);
+        const names = selected.map((input) => input.dataset.name || "");
+
+        if (label.includes("distribute")) {
+          void (async () => {
+            try {
+              const targets =
+                emails.length > 0
+                  ? emails
+                  : Array.from(document.querySelectorAll<HTMLTableRowElement>(".fd-table tbody tr"))
+                      .filter((tr) => {
+                        const status = (
+                          tr.dataset.certStatus ||
+                          tr.cells[6]?.textContent ||
+                          ""
+                        )
+                          .trim()
+                          .toLowerCase();
+                        return status === "issued" || Boolean(tr.dataset.downloadUrl);
+                      })
+                      .map((tr) => tr.dataset.email || "")
+                      .filter(Boolean);
+              if (!targets.length) {
+                window.alert(
+                  "Select participants with Issued certificates, or Generate first.",
+                );
+                return;
+              }
+              const payload = await distributeCertificatesFor(eventId, targets);
+              paintCertificateStatuses(
+                targets.map((email) => ({ email, status: "Distributed" })),
+              );
+              window.alert(
+                String(
+                  payload.message ||
+                    `Distributed certificates for ${targets.length} participant(s).`,
+                ),
+              );
+              await hydrateCertificateDetails();
+            } catch (error) {
+              window.alert(error instanceof Error ? error.message : "Failed.");
+            }
+          })();
+          return;
+        }
+
+        if (!label.includes("generate") || label.includes("stop")) return;
+        const regenerate = label.includes("regenerate");
+        void (async () => {
+          try {
+            const payload = await issueCertificatesBulk(
+              eventId,
+              emails,
+              names,
+              regenerate,
+            );
+            const painted = collectCertificateResults(payload);
+            if (painted.length) paintCertificateStatuses(painted);
+            window.alert(String(payload.message || "Certificates issued."));
+            await hydrateCertificateDetails();
+          } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Failed.");
+          }
+        })();
+        return;
+      }
+
+      const table = target.closest<HTMLElement>(".fd-table");
+      if (!table) return;
 
       const toggle = target.closest<HTMLElement>("[data-action-toggle]");
       if (toggle) {
@@ -2332,7 +2535,6 @@ function ensureCertificateRowActionsWired() {
           if (el !== wrap) el.classList.remove("open");
         });
         wrap?.classList.toggle("open");
-        // Near the bottom of the screen, open the menu upward so it stays visible.
         wrap?.classList.remove("dc-menu-up");
         const menu = wrap?.querySelector<HTMLElement>(".fd-action-menu");
         if (wrap?.classList.contains("open") && menu) {
@@ -2348,6 +2550,7 @@ function ensureCertificateRowActionsWired() {
       if (!option) return;
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
+      clickEvent.stopImmediatePropagation();
       const wrap = option.closest(".fd-action");
       wrap?.querySelectorAll(".fd-action-menu button").forEach((btn) => {
         btn.classList.toggle("is-active", btn === option);
@@ -2358,22 +2561,48 @@ function ensureCertificateRowActionsWired() {
       const email = tr?.dataset.email || "";
       const userName = tr?.dataset.userName || email;
       const downloadUrl = tr?.dataset.downloadUrl || "";
+      const certStatus = (
+        tr?.dataset.certStatus ||
+        tr?.cells[6]?.textContent ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
       const eligible = tr?.dataset.eligible === "1";
-      const eventId =
-        table.dataset.eventId || new URLSearchParams(window.location.search).get("id") || "";
-      const eventTitle = table.dataset.eventTitle || "event";
+      const eventId = currentFulld46EventId();
+      const eventTitle = currentFulld46EventTitle();
       const label = (option.textContent || "").trim().toLowerCase();
 
       if (!email) {
         window.alert("Participant details haven't loaded yet. Refresh the page and try again.");
         return;
       }
-      if (label.includes("preview") || label.includes("distribute")) {
+      if (label.includes("preview")) {
         if (downloadUrl) {
           window.open(downloadUrl, "_blank", "noopener,noreferrer");
         } else {
           window.alert(`No certificate PDF yet for ${userName}. Use Generate first.`);
         }
+        return;
+      }
+      if (label.includes("distribute")) {
+        if (!eventId) return;
+        if (!downloadUrl && certStatus !== "issued" && certStatus !== "distributed") {
+          window.alert(`No certificate PDF yet for ${userName}. Use Generate first.`);
+          return;
+        }
+        void (async () => {
+          try {
+            const payload = await distributeCertificatesFor(eventId, [email]);
+            paintCertificateStatuses([{ email, status: "Distributed", downloadUrl }]);
+            window.alert(
+              String(payload.message || `Certificate distributed for ${userName} — ${eventTitle}.`),
+            );
+            await hydrateCertificateDetails();
+          } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Failed.");
+          }
+        })();
         return;
       }
       if (!label.includes("generate") || !eventId) return;
@@ -2387,13 +2616,16 @@ function ensureCertificateRowActionsWired() {
       void (async () => {
         try {
           const payload = await issueCertificateFor(eventId, email, userName, regenerate);
+          const painted = collectCertificateResults(payload);
+          if (painted.length) paintCertificateStatuses(painted);
+          else paintCertificateStatuses([{ email, status: "Issued" }]);
           const blocked = Array.isArray(payload.ineligible)
             ? (payload.ineligible[0] as { reason?: string } | undefined)
             : undefined;
           window.alert(
             String(payload.message || blocked?.reason || `Certificate issued for ${userName} — ${eventTitle}.`),
           );
-          window.location.reload();
+          await hydrateCertificateDetails();
         } catch (error) {
           window.alert(error instanceof Error ? error.message : "Failed.");
         }
@@ -2402,11 +2634,15 @@ function ensureCertificateRowActionsWired() {
     true,
   );
 
-  // Close an open row menu when clicking anywhere else.
   document.addEventListener("click", (clickEvent) => {
     const target = clickEvent.target as HTMLElement | null;
-    if (target?.closest(".fd-action")) return;
-    document.querySelectorAll(".fd-action.open").forEach((el) => el.classList.remove("open"));
+    if (target?.closest(".fd-action, .fd-bulk")) return;
+    document.querySelectorAll(".fd-action.open, .fd-bulk.open").forEach((el) => {
+      el.classList.remove("open");
+    });
+    document.querySelectorAll("[data-bulk-toggle]").forEach((btn) => {
+      btn.setAttribute("aria-expanded", "false");
+    });
   });
 }
 
@@ -2519,7 +2755,7 @@ async function hydrateCertificateDetails() {
         if (cells[3]) cells[3].textContent = cert.course || "—";
         if (cells[4]) cells[4].textContent = cert.school || "—";
         if (cells[5]) cells[5].textContent = "Eligible";
-        if (cells[6]) cells[6].textContent = (cert.status || "generated").toUpperCase();
+        if (cells[6]) cells[6].textContent = certStatusLabel(cert.status);
       });
     }
     return;
@@ -2598,8 +2834,11 @@ async function hydrateCertificateDetails() {
       status: "Not issued",
       downloadUrl: "",
     };
-    // Eligible only after tap-out + minimum attendance time.
+    // Eligible after tap-out qualifies, or any recorded tap-out with minutes.
     if (row.qualifiedForCertificate) existing.eligible = true;
+    if (String(row.action || "") === "out" && Number(row.attendanceMinutes || 0) > 0) {
+      existing.eligible = true;
+    }
     if (row.participantName) existing.userName = String(row.participantName);
     byEmail.set(email, existing);
   }
@@ -2616,7 +2855,7 @@ async function hydrateCertificateDetails() {
       status: "Not issued",
       downloadUrl: "",
     };
-    existing.status = (cert.status || "generated").toUpperCase();
+    existing.status = certStatusLabel(cert.status || "generated");
     existing.downloadUrl = cert.downloadUrl || "";
     existing.userName = cert.userName || existing.userName;
     existing.studentNumber = cert.studentNumber || existing.studentNumber;
@@ -2631,12 +2870,22 @@ async function hydrateCertificateDetails() {
   );
 
   const pendingCount = eligibleRows.filter((row) => row.status === "Not issued").length;
+  const distributedCount = eligibleRows.filter((row) => row.status === "Distributed").length;
+  const issuedCount = eligibleRows.filter(
+    (row) => row.status === "Issued" || row.status === "Distributed",
+  ).length;
   document.querySelectorAll(".fd-overview-row").forEach((row) => {
     const key = (row.querySelector(".k")?.textContent || "").trim().toLowerCase();
     const value = row.querySelector(".v");
     if (!value) return;
     if (key.includes("pending")) value.textContent = String(pendingCount);
     if (key.includes("participant")) value.textContent = String(eligibleRows.length);
+    if (key.includes("released") || (key.includes("certificate") && key.includes("distribut"))) {
+      value.textContent = String(distributedCount);
+    }
+    if (key.includes("certificate") && key.includes("generated")) {
+      value.textContent = String(issuedCount);
+    }
   });
 
   patchTableRows(document.querySelector(".fd-table"), eligibleRows, (tr, row) => {
@@ -2662,6 +2911,7 @@ async function hydrateCertificateDetails() {
     tr.dataset.userName = row.userName;
     tr.dataset.downloadUrl = row.downloadUrl;
     tr.dataset.eligible = row.eligible ? "1" : "0";
+    tr.dataset.certStatus = row.status;
     // Every row starts as "Preview" (the Figma demo rows had other labels).
     const toggle = tr.querySelector<HTMLElement>("[data-action-toggle]");
     if (toggle) {
@@ -2696,65 +2946,8 @@ async function hydrateCertificateDetails() {
       pageSize: 5,
     });
   }
-
-  // Bulk Generate Selected
-  const bulkMenu = document.querySelector(".fd-bulk-menu");
-  if (bulkMenu && bulkMenu.getAttribute("data-dc-wired") !== "1") {
-    bulkMenu.setAttribute("data-dc-wired", "1");
-    bulkMenu.querySelectorAll("button").forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        const label = (btn.textContent || "").trim().toLowerCase();
-        if (!label.includes("generate")) return;
-        const regenerate = label.includes("regenerate");
-        const selected = Array.from(
-          document.querySelectorAll<HTMLInputElement>(
-            '.fd-table tbody input[type="checkbox"]:checked',
-          ),
-        );
-        const emails = selected
-          .map((input) => input.dataset.email || "")
-          .filter(Boolean);
-        const names = selected.map((input) => input.dataset.name || "");
-        void (async () => {
-          try {
-            if (!emails.length) {
-              // No selection → issue for all eligible not-yet-issued attendees.
-              const res = await fetch("/api/user/certificates", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ eventId, regenerate }),
-              });
-              const payload = await res.json().catch(() => ({}));
-              if (!res.ok) throw new Error(payload.error || "Failed to generate.");
-              window.alert(payload.message || "Certificates issued.");
-              window.location.reload();
-              return;
-            }
-            const res = await fetch("/api/user/certificates", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                eventId,
-                emails,
-                name: names[0] || undefined,
-                regenerate,
-              }),
-            });
-            const payload = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(payload.error || "Failed to generate.");
-            window.alert(
-              payload.message ||
-                `Issued certificates for ${emails.length} participant(s).`,
-            );
-            window.location.reload();
-          } catch (error) {
-            window.alert(error instanceof Error ? error.message : "Failed.");
-          }
-        })();
-      });
-    });
-  }
+  // Bulk Generate / Distribute is handled by ensureCertificateRowActionsWired
+  // (document capture) so it never closes over a stale eventId.
 }
 
 function wireReportsDownload() {
@@ -4032,9 +4225,45 @@ function matchesListpFilter(participant: ListpParticipant, filter: string) {
   }
 }
 
-function selectListpParticipant(participant: ListpParticipant, index: number) {
+/** Sticky selection across listp44 poll refreshes (email stays until the user picks another). */
+let listpSelectedEmail = "";
+
+function readListpSelectedEmail(root?: Element | null) {
+  const fromDom = String(
+    (root as HTMLElement | null)?.dataset?.dcListpSelectedEmail || listpSelectedEmail || "",
+  )
+    .trim()
+    .toLowerCase();
+  return fromDom;
+}
+
+function writeListpSelectedEmail(email: string, root?: Element | null) {
+  listpSelectedEmail = String(email || "").trim().toLowerCase();
+  if (root instanceof HTMLElement) {
+    root.dataset.dcListpSelectedEmail = listpSelectedEmail;
+  } else {
+    const host =
+      document.querySelector<HTMLElement>(".admin-legacy-root") ||
+      document.querySelector<HTMLElement>("[data-admin-page]");
+    if (host) host.dataset.dcListpSelectedEmail = listpSelectedEmail;
+  }
+}
+
+function selectListpParticipant(
+  participant: ListpParticipant,
+  index: number,
+  root?: Element | null,
+) {
+  writeListpSelectedEmail(participant.email, root);
   document.querySelectorAll("#listp-body tr").forEach((row) => {
-    row.classList.toggle("is-selected", Number(row.getAttribute("data-index")) === index);
+    const rowEmail = String((row as HTMLElement).dataset.email || "").toLowerCase();
+    const rowIndex = Number(row.getAttribute("data-index"));
+    row.classList.toggle(
+      "is-selected",
+      listpSelectedEmail
+        ? rowEmail === listpSelectedEmail
+        : rowIndex === index,
+    );
   });
   setText("d-name", participant.name);
   setText("d-number", participant.studentNumber || "—");
@@ -4069,12 +4298,16 @@ function clearListpParticipantDetail() {
   ].forEach((id) => setText(id, "—"));
 }
 
-function renderListp44Table(participants: ListpParticipant[]) {
+function renderListp44Table(participants: ListpParticipant[], selectedEmail = "") {
+  const selected = selectedEmail.trim().toLowerCase();
   patchTableRows(document.querySelector(".listp-table"), participants, (tr, row, index) => {
     tr.dataset.index = String(index);
     tr.dataset.email = row.email;
     tr.tabIndex = 0;
-    tr.classList.toggle("is-selected", index === 0);
+    const isSelected = selected
+      ? row.email.toLowerCase() === selected
+      : index === 0;
+    tr.classList.toggle("is-selected", isSelected);
 
     const nameSpan = tr.querySelector(".name-cell span:last-child");
     if (nameSpan) nameSpan.textContent = row.name;
@@ -4098,7 +4331,7 @@ function wireListp44RowSelection(
     const email = String(row.dataset.email || "").toLowerCase();
     const participant =
       getParticipants().find((item) => item.email === email) || getParticipants()[index];
-    if (participant) selectListpParticipant(participant, index);
+    if (participant) selectListpParticipant(participant, index, root);
   };
 
   tbody.addEventListener("click", (event) => {
@@ -4191,12 +4424,12 @@ async function hydrateListp44() {
     allParticipants = data?.participants || [];
   }
 
-  if (!allParticipants.length) {
-    allParticipants = buildListpParticipantsFromTable(root);
-  }
+  // Never fall back to scraping demo table rows for tap times — that blanks
+  // or invents attendance clocks. Prefer an empty state if the API has nothing.
 
   if (!allParticipants.length) {
     ensureListp44FilterWrap(root);
+    clearListpParticipantDetail();
     return;
   }
 
@@ -4205,8 +4438,15 @@ async function hydrateListp44() {
 
   const renderParticipants = (participants: ListpParticipant[]) => {
     displayedParticipants = participants;
-    renderListp44Table(participants);
-    if (participants[0]) selectListpParticipant(participants[0], 0);
+    const preferredEmail = readListpSelectedEmail(root);
+    const selectedIndex = preferredEmail
+      ? participants.findIndex((item) => item.email.toLowerCase() === preferredEmail)
+      : -1;
+    const index = selectedIndex >= 0 ? selectedIndex : 0;
+    const selected = participants[index];
+
+    renderListp44Table(participants, selected?.email || "");
+    if (selected) selectListpParticipant(selected, index, root);
     else clearListpParticipantDetail();
   };
 
