@@ -12,6 +12,7 @@ import {
 } from "@/lib/legacy-dom-patch";
 import { startSmartPoll } from "@/lib/client/smart-poll";
 import { attachTablePager } from "@/lib/client/table-pager";
+import { parseDurationToMinutes } from "@/lib/certificates/duration";
 import {
   courseCode,
   courseLabel,
@@ -2878,7 +2879,18 @@ async function hydrateCertificateDetails() {
     eligible: boolean;
     status: string;
     downloadUrl: string;
+    tappedOut: boolean;
+    bestMinutes: number;
+    qualified: boolean;
+    reason: string;
   };
+
+  // Same rule the server uses to issue certificates (getCertificateEligibility):
+  // tapped out, the event has a minimum attendance time, and it was met.
+  const requiredMinutes =
+    Number(event?.attendanceRequiredMinutes || 0) ||
+    parseDurationToMinutes(String((event as { attendanceRequired?: string } | null)?.attendanceRequired || "")) ||
+    0;
 
   const byEmail = new Map<string, EligibleRow>();
   for (const row of attendance?.attendance || []) {
@@ -2893,14 +2905,30 @@ async function hydrateCertificateDetails() {
       eligible: false,
       status: "Not issued",
       downloadUrl: "",
+      tappedOut: false,
+      bestMinutes: 0,
+      qualified: false,
+      reason: "",
     };
-    // Eligible after tap-out qualifies, or any recorded tap-out with minutes.
-    if (row.qualifiedForCertificate) existing.eligible = true;
-    if (String(row.action || "") === "out" && Number(row.attendanceMinutes || 0) > 0) {
-      existing.eligible = true;
+    if (String(row.action || "") === "out") {
+      existing.tappedOut = true;
+      existing.bestMinutes = Math.max(existing.bestMinutes, Number(row.attendanceMinutes || 0));
+      if (row.qualifiedForCertificate) existing.qualified = true;
     }
     if (row.participantName) existing.userName = String(row.participantName);
     byEmail.set(email, existing);
+  }
+  for (const row of byEmail.values()) {
+    if (!row.tappedOut) {
+      row.reason = "Has not tapped out yet.";
+    } else if (requiredMinutes <= 0) {
+      row.reason = "This event has no minimum attendance time set.";
+    } else if (row.bestMinutes >= requiredMinutes || row.qualified) {
+      row.eligible = true;
+      row.reason = `Stayed ${row.bestMinutes} of the required ${requiredMinutes} minutes.`;
+    } else {
+      row.reason = `Stayed ${row.bestMinutes} of the required ${requiredMinutes} minutes.`;
+    }
   }
   for (const cert of certs?.certificates || []) {
     const email = String(cert.email || "").toLowerCase();
@@ -2914,8 +2942,13 @@ async function hydrateCertificateDetails() {
       eligible: true,
       status: "Not issued",
       downloadUrl: "",
+      tappedOut: true,
+      bestMinutes: 0,
+      qualified: true,
+      reason: "",
     };
     existing.status = certStatusLabel(cert.status || "generated");
+    existing.reason = "Certificate already issued.";
     existing.downloadUrl = cert.downloadUrl || "";
     existing.userName = cert.userName || existing.userName;
     existing.studentNumber = cert.studentNumber || existing.studentNumber;
@@ -2929,7 +2962,8 @@ async function hydrateCertificateDetails() {
     a.userName.localeCompare(b.userName),
   );
 
-  const pendingCount = eligibleRows.filter((row) => row.status === "Not issued").length;
+  // Pending = eligible but no certificate yet (not everyone who tapped in).
+  const pendingCount = eligibleRows.filter((row) => row.eligible && row.status === "Not issued").length;
   const distributedCount = eligibleRows.filter((row) => row.status === "Distributed").length;
   const issuedCount = eligibleRows.filter(
     (row) => row.status === "Issued" || row.status === "Distributed",
@@ -2963,7 +2997,12 @@ async function hydrateCertificateDetails() {
     if (cells[2]) cells[2].textContent = row.studentNumber || "—";
     if (cells[3]) cells[3].textContent = courseLabel(row.course) || "—";
     if (cells[4]) cells[4].textContent = schoolLabel(row.school) || "—";
-    if (cells[5]) cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
+    if (cells[5]) {
+      cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
+      // Hover shows why (e.g. "Stayed 12 of the required 30 minutes.").
+      if (row.reason) cells[5].setAttribute("title", row.reason);
+      else cells[5].removeAttribute("title");
+    }
     if (cells[6]) cells[6].textContent = row.status;
     // Read at click time by the table's delegated handler (rows are cloned and
     // re-sorted, so per-row listeners would be missing or point at the wrong person).

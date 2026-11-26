@@ -224,12 +224,12 @@
     }
 
     // Real requirement only: the server's minimum (minutes), else the event's own
-    // text; with no minimum a tap-out is enough.
+    // text. Certificates need a minimum to be set (server rule).
     var requiredMinutes = Number(rfid.requiredMinutes || 0);
     var eventRequired = String(event?.attendanceRequired || '').trim();
     var requiredText = requiredMinutes > 0
       ? requiredMinutes + ' minutes'
-      : (eventRequired && eventRequired !== '—' && eventRequired !== 'No minimum' ? eventRequired : '');
+      : (eventRequired && eventRequired !== '—' && eventRequired !== 'Not set' ? eventRequired : '');
     var minutes = rfid.attendanceMinutes || 0;
     if (minutes > 0 && requiredText) {
       note.textContent =
@@ -242,7 +242,7 @@
 
     note.textContent = requiredText
       ? 'Complete the attendance requirement (' + requiredText + ') to receive your certificate.'
-      : 'Tap in when you arrive and tap out when you leave to receive your certificate.';
+      : 'Certificates open once the organizer sets a minimum attendance time for this event.';
   }
 
   function applyRfidMetrics(rfid, event) {

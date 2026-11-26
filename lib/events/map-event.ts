@@ -374,9 +374,9 @@ function buildAttachmentFiles(
 }
 
 /**
- * What the event actually requires. When the organizer set no minimum, the
- * certificate only needs a tap-out (see resolveRequiredAttendanceMinutes), so
- * never show a made-up "30 minutes".
+ * What the event actually requires. Certificates are only issued when the
+ * organizer set a minimum (see getCertificateEligibility), so an unset minimum
+ * reads "Not set" — never a made-up "30 minutes".
  */
 export function attendanceRequirementLabel(
   e: Pick<SanitizedEvent, "attendanceRequired" | "attendanceRequiredMinutes">,
@@ -384,7 +384,7 @@ export function attendanceRequirementLabel(
   const text = String(e.attendanceRequired || "").trim();
   if (text) return text;
   const minutes = Number(e.attendanceRequiredMinutes || 0);
-  return minutes > 0 ? `${minutes} minutes` : "No minimum";
+  return minutes > 0 ? `${minutes} minutes` : "Not set";
 }
 
 /** Grace period as set; 15 minutes is the system default used for on-time checks. */
