@@ -1217,19 +1217,77 @@ async function resolveRfidEventId() {
     }
   }
 
-  // Fall back to the newest live/approved event from Mongo (not a hardcoded id).
-  if (eligible[0]?.id) {
-    rememberRfidEventId(eligible[0].id);
-    return eligible[0].id;
+  // No event chosen: auto-pick only an event that is actually Live. An upcoming
+  // (approved) event must be chosen on purpose from the picker, so taps never
+  // land in the wrong event silently.
+  const live = eligible.find((event) => event.status === "live");
+  if (live?.id) {
+    rememberRfidEventId(live.id);
+    return live.id;
   }
   return "";
 }
 
-async function syncRfidEventPicker(_selectedId: string) {
-  // Intentionally no visible picker — keep the original RFID layout clean.
-  // Event resolution still happens via resolveRfidEventId() / URL / session.
-  const existing = document.getElementById("dc-rfid-event-picker");
-  if (existing) existing.remove();
+function rfidEventOptionLabel(event: RfidEventOption) {
+  const title = event.title || "Untitled event";
+  if (event.status === "live") return `● Live now — ${title}`;
+  const start = event.startsAt ? new Date(event.startsAt) : null;
+  const when =
+    start && !Number.isNaN(start.getTime())
+      ? start.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "";
+  return `Upcoming${when ? ` (${when})` : ""} — ${title}`;
+}
+
+/**
+ * Small picker under the event title: shows which event taps are recorded for
+ * and lets the desk switch events (live first, then upcoming).
+ */
+async function syncRfidEventPicker(selectedId: string) {
+  const nameEl = document.querySelector<HTMLElement>(".event-name");
+  if (!nameEl) return;
+  const events = await listRfidEligibleEvents();
+
+  let select = document.getElementById("dc-rfid-event-picker") as HTMLSelectElement | null;
+  if (!select) {
+    select = document.createElement("select");
+    select.id = "dc-rfid-event-picker";
+    select.setAttribute("aria-label", "Event to take attendance for");
+    select.style.cssText =
+      "display:block;margin:6px 0 10px;max-width:420px;width:100%;height:34px;padding:0 10px;" +
+      "border:1px solid #c7dbff;border-radius:8px;background:#fff;color:#1e3a8a;" +
+      "font:500 13px Poppins,system-ui,sans-serif;cursor:pointer;";
+    select.addEventListener("change", () => {
+      const id = select?.value || "";
+      // Hand focus back so the card reader's keystrokes reach the desk again.
+      select?.blur();
+      if (!id) return;
+      rememberRfidEventId(id);
+      clearRfidDemoUi();
+      setRfidAlert("");
+      void hydrateRfid({ resetProfile: false });
+    });
+    nameEl.insertAdjacentElement("afterend", select);
+  }
+  // Leave it alone while someone is choosing.
+  if (document.activeElement === select) return;
+
+  const key = `${selectedId}|${events.map((event) => `${event.id}:${event.status}`).join(",")}`;
+  if (select.dataset.dcKey === key) return;
+  select.dataset.dcKey = key;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = events.length ? "Choose an event…" : "No live or upcoming events";
+  placeholder.disabled = true;
+  select.appendChild(placeholder);
+  for (const event of events) {
+    const option = document.createElement("option");
+    option.value = event.id;
+    option.textContent = rfidEventOptionLabel(event);
+    select.appendChild(option);
+  }
+  select.value = selectedId && events.some((event) => event.id === selectedId) ? selectedId : "";
 }
 
 function setRfidAlert(message: string, isError = false) {
@@ -1830,7 +1888,7 @@ async function refreshRfidUi(options?: {
   const eventId = rfidScanEventId || (await resolveRfidEventId());
   if (!eventId) {
     clearRfidDemoUi();
-    setRfidAlert("No approved or live event available for attendance.", true);
+    setRfidAlert("No live event right now. Choose an event from the list to take attendance.", true);
     setRfidEventTitle("No live event");
     return;
   }
@@ -1877,7 +1935,7 @@ async function hydrateRfid(options?: { light?: boolean; resetProfile?: boolean }
   await syncRfidEventPicker(eventId);
 
   if (!eventId) {
-    setRfidAlert("No approved or live event available for attendance.", true);
+    setRfidAlert("No live event right now. Choose an event from the list to take attendance.", true);
     setRfidEventTitle("No live event");
     return;
   }
@@ -1917,7 +1975,6 @@ function isOtherEditableTarget(target: EventTarget | null) {
 function wireRfidScanner(eventId: string) {
   rememberRfidEventId(eventId);
   ensureRfidModeToggle();
-  document.getElementById("dc-rfid-event-picker")?.remove();
   document.getElementById("dc-rfid-registry")?.remove();
   document.getElementById("dc-rfid-feed")?.remove();
 
@@ -1983,7 +2040,7 @@ function wireRfidScanner(eventId: string) {
     if (!rfidScanEventId) {
       const resolved = await resolveRfidEventId();
       if (!resolved) {
-        setRfidAlert("No approved or live event available for attendance.", true);
+        setRfidAlert("No live event right now. Choose an event from the list to take attendance.", true);
         return;
       }
     }
