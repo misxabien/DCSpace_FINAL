@@ -16,12 +16,8 @@
   function renderMedia(media) {
     var items = Array.isArray(media) ? media : [];
     if (!items.length) {
-      return (
-        '<div class="detail-media">' +
-        '<div class="detail-media__thumb" role="img" aria-label="Uploaded media 1"></div>' +
-        '<div class="detail-media__thumb detail-media__thumb--alt" role="img" aria-label="Uploaded media 2"></div>' +
-        "</div>"
-      );
+      // No uploads: say so instead of showing placeholder thumbnails.
+      return '<p class="detail-media__empty" style="margin:6px 0 0;color:#64748b;font-size:14px;">No media uploaded.</p>';
     }
 
     var html = '<div class="detail-media">';
@@ -47,6 +43,24 @@
     return html;
   }
 
+  function setBlank(status) {
+    var submittedEl = document.getElementById("detail-submitted");
+    if (submittedEl) submittedEl.textContent = status;
+    var titleVal = document.getElementById("detail-title-value");
+    if (titleVal) titleVal.textContent = "—";
+    var typeVal = document.getElementById("detail-type-value");
+    if (typeVal) typeVal.textContent = "—";
+    var starsEl = document.getElementById("detail-stars");
+    if (starsEl) {
+      starsEl.innerHTML = renderStars(0);
+      starsEl.setAttribute("aria-label", "No rating");
+    }
+    var mediaEl = document.getElementById("detail-media");
+    if (mediaEl) mediaEl.innerHTML = "";
+    var commentEl = document.getElementById("detail-comment");
+    if (commentEl) commentEl.value = "";
+  }
+
   function renderFeedbackDetails() {
     if (!window.DCFeedback) return;
 
@@ -54,7 +68,13 @@
     var id = params.get("id") || "1";
     var feedback = DCFeedback.getFeedbackById(id);
     // Live items arrive from MongoDB via StudentDataBridge, which calls this again.
-    if (!feedback) return;
+    // Until then (or if the id is not one of the user's feedback) clear the
+    // design's sample entry so no fake title/date/rating is shown.
+    if (!feedback) {
+      var loaded = Array.isArray(DCFeedback.FEEDBACK_ITEMS);
+      setBlank(loaded ? "FEEDBACK NOT FOUND" : "LOADING…");
+      return;
+    }
 
     document.title = "DC Space — " + feedback.title;
 

@@ -868,6 +868,64 @@ async function hydrateRetrievedEvent(root: ParentNode) {
     if (label === "EVENT TYPE") value.textContent = event.category || "—";
     if (label === "ORGANIZATION/COMMITTEE") value.textContent = event.organizerName || "—";
   });
+  await fillCollectedEventStats(root, eventId);
+}
+
+/** "Review Collected Event Data": real attendance / certificate / feedback numbers. */
+async function fillCollectedEventStats(root: ParentNode, eventId: string) {
+  type PhaseStats = { responses: number; averageRating: number | null; responseRate: number | null };
+  const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}/stats`, { cache: "no-store" });
+  if (!res.ok) return;
+  const s = (await res.json()) as {
+    registrations: number;
+    attendees: number;
+    tapIns: number;
+    tapOuts: number;
+    averageDuration: string;
+    peakPeriod: string;
+    peakCount: number;
+    metRequirement: number;
+    belowRequirement: number;
+    eligible: number;
+    certificatesIssued: number;
+    midEvent: PhaseStats;
+    postEvent: PhaseStats;
+  };
+  const rating = (p: PhaseStats) => (p.averageRating ? `${p.averageRating}/5` : "—");
+  const rate = (p: PhaseStats) => (p.responseRate != null ? `${p.responseRate}%` : "—");
+  const valueFor = (label: string): string | null => {
+    const k = label.toLowerCase();
+    const phase =
+      k.includes("midevent") || k.includes("mid-event") || k.includes("mid event")
+        ? s.midEvent
+        : k.includes("post event") || k.includes("post-event")
+          ? s.postEvent
+          : null;
+    if (phase) {
+      if (k.includes("total responses")) return String(phase.responses);
+      if (k.includes("average rating")) return rating(phase);
+      if (k.includes("response rate")) return rate(phase);
+    }
+    if (k.includes("actual attendees")) return s.registrations ? `${s.attendees}/${s.registrations}` : String(s.attendees);
+    if (k.includes("average attendance duration")) return s.averageDuration || "—";
+    if (k.includes("early departures")) return String(s.belowRequirement);
+    if (k.includes("highest crowd density")) return s.peakPeriod || "—";
+    if (k.includes("peak occupancy")) return s.peakCount ? String(s.peakCount) : "—";
+    if (k.includes("tapped ins")) return String(s.tapIns);
+    if (k.includes("tapped outs")) return String(s.tapOuts);
+    if (k.includes("below the attendance requirement")) return String(s.belowRequirement);
+    if (k.includes("meeting the attendance requirement")) return String(s.metRequirement);
+    if (k.includes("eligible participants")) return String(s.eligible);
+    if (k.includes("certificates issued")) return String(s.certificatesIssued);
+    if (k.includes("certificates downloaded")) return "—"; // downloads are not tracked
+    return null;
+  };
+  root.querySelectorAll<HTMLElement>(".rg-kv .k").forEach((labelEl) => {
+    const valueEl = labelEl.nextElementSibling as HTMLElement | null;
+    if (!valueEl || !valueEl.classList.contains("v")) return;
+    const value = valueFor(labelEl.textContent || "");
+    if (value != null) valueEl.textContent = value;
+  });
 }
 
 function wireReportExport() {
@@ -989,6 +1047,16 @@ function wireSmartReport() {
   if (report) {
     fillReportEditors(report);
     fillReportPreview(report);
+  } else {
+    // No Smart Report yet: say so instead of leaving empty sections.
+    const doc = document.querySelector(".rg-preview-doc");
+    if (doc && !doc.querySelector(".dc-preview-empty")) {
+      const note = document.createElement("p");
+      note.className = "dc-preview-empty";
+      note.textContent = "No Smart Report yet. Go back to Step 5 to generate it, then return here to preview.";
+      note.style.cssText = "color:#64748b;font-style:italic;";
+      doc.prepend(note);
+    }
   }
 }
 

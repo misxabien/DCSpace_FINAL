@@ -73,6 +73,29 @@ export function scrubSampleContent(root: ParentNode | null | undefined) {
     if (/^\d+%$/.test((el.textContent || "").trim())) el.textContent = BLANK;
   });
 
+  // Report wizard "Review Collected Event Data": every value there is sample data
+  // until the selected event's real numbers load.
+  root.querySelectorAll<HTMLElement>(".rg-kv .v").forEach((el) => {
+    el.textContent = BLANK;
+  });
+
+  // Certificate page overview numbers ("Manual Reviews 2"…) and the admin
+  // profile "Account Summary" (20 / 3 / 0): real values replace these blanks.
+  root.querySelectorAll<HTMLElement>(".fd-overview-row .v, .summary-list .val").forEach((el) => {
+    if (/^\d+$/.test((el.textContent || "").trim())) el.textContent = BLANK;
+  });
+
+  // Admin profile "Last Password Change" shipped the placeholder word "Date".
+  root.querySelectorAll<HTMLElement>(".security-sub").forEach((el) => {
+    if ((el.textContent || "").trim() === "Date") el.textContent = BLANK;
+  });
+
+  // Report preview: the design's sample report text; the generated Smart Report
+  // (or a "generate it first" note) replaces it.
+  root.querySelectorAll<HTMLElement>(".rg-preview-doc p").forEach((el) => {
+    el.textContent = "";
+  });
+
   // Sample activity log entries.
   root.querySelectorAll<HTMLElement>("time").forEach((el) => {
     if (!SAMPLE_ACTIVITY_TIMES.has((el.textContent || "").trim())) return;

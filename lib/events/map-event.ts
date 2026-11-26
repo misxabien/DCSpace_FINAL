@@ -17,7 +17,9 @@ export type SanitizedEvent = {
   startsAt?: string;
   endsAt?: string;
   attendanceRequired?: string;
+  attendanceRequiredMinutes?: number;
   gracePeriod?: string;
+  gracePeriodMinutes?: number;
   venueType?: string;
   announcements?: string;
   allowedCourses?: string[];
@@ -371,6 +373,28 @@ function buildAttachmentFiles(
   return files;
 }
 
+/**
+ * What the event actually requires. When the organizer set no minimum, the
+ * certificate only needs a tap-out (see resolveRequiredAttendanceMinutes), so
+ * never show a made-up "30 minutes".
+ */
+export function attendanceRequirementLabel(
+  e: Pick<SanitizedEvent, "attendanceRequired" | "attendanceRequiredMinutes">,
+) {
+  const text = String(e.attendanceRequired || "").trim();
+  if (text) return text;
+  const minutes = Number(e.attendanceRequiredMinutes || 0);
+  return minutes > 0 ? `${minutes} minutes` : "No minimum";
+}
+
+/** Grace period as set; 15 minutes is the system default used for on-time checks. */
+export function gracePeriodLabel(e: Pick<SanitizedEvent, "gracePeriod" | "gracePeriodMinutes">) {
+  const text = String(e.gracePeriod || "").trim();
+  if (text) return text;
+  const minutes = Number(e.gracePeriodMinutes || 0);
+  return `${minutes > 0 ? minutes : 15} minutes`;
+}
+
 export function mapDbEventToCard(
   e: SanitizedEvent,
   category = bucketCategory(e),
@@ -391,8 +415,8 @@ export function mapDbEventToCard(
     organization: e.organizerName || "—",
     course: courses.length ? courses.join(", ") : "—",
     department: e.department || "—",
-    attendanceRequired: e.attendanceRequired || "30 minutes",
-    gracePeriod: e.gracePeriod || "15 minutes",
+    attendanceRequired: attendanceRequirementLabel(e),
+    gracePeriod: gracePeriodLabel(e),
     requiresFiles: requiredFiles.length > 0,
     requiredFiles,
     filesApproved: false,

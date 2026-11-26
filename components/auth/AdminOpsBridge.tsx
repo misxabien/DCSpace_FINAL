@@ -12,6 +12,15 @@ import {
 } from "@/lib/legacy-dom-patch";
 import { startSmartPoll } from "@/lib/client/smart-poll";
 import { attachTablePager } from "@/lib/client/table-pager";
+import {
+  courseCode,
+  courseLabel,
+  humanizeCode,
+  organizationRoleCode,
+  roleLabel,
+  schoolCode,
+  schoolLabel,
+} from "@/lib/labels/academic";
 
 function pageIdFromPath(pathname: string) {
   if (!pathname.startsWith("/admin")) return "";
@@ -354,7 +363,7 @@ async function hydrateSchoolDirectory(root: Element) {
       const cells = tr.querySelectorAll("td");
       if (cells[1]) cells[1].textContent = user.fullName;
       if (cells[2]) cells[2].textContent = user.studentNumber || "—";
-      if (cells[3]) cells[3].textContent = user.course || "—";
+      if (cells[3]) cells[3].textContent = courseLabel(user.course) || "—";
       if (cells[4]) cells[4].textContent = user.organizationPart || "—";
       const pill = cells[5]?.querySelector(".role-pill");
       if (pill) {
@@ -698,13 +707,13 @@ async function hydrateUserInfo() {
   setInput("field-name", user.fullName);
   setInput("field-number", user.studentNumber || "");
   setInput("field-email", user.email);
-  setInput("field-course", user.course || "");
-  setInput("field-school", user.school || "");
+  setInput("field-course", courseLabel(user.course));
+  setInput("field-school", schoolLabel(user.school));
   setInput("field-org", user.organizationPart || "");
   const orgRole = String(user.organizationRole || "");
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
-  setInput("field-org-role", rolePart);
-  setInput("field-org-pos", posPart);
+  setInput("field-org-role", roleLabel(rolePart));
+  setInput("field-org-pos", humanizeCode(posPart));
   ensureRfidProfileField(user, false);
   fillAccountStatus(user);
 
@@ -813,7 +822,7 @@ async function hydrateUserInfo() {
   saveBtn?.addEventListener("click", async () => {
     const fullName = (document.getElementById("field-name") as HTMLInputElement | null)?.value || "";
     const parts = fullName.trim().split(/\s+/);
-    const orgRoleValue = (document.getElementById("field-org-role") as HTMLInputElement | null)?.value || "";
+    const orgRoleValue = organizationRoleCode((document.getElementById("field-org-role") as HTMLInputElement | null)?.value);
     const orgPos = (document.getElementById("field-org-pos") as HTMLInputElement | null)?.value || "";
     const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -823,8 +832,8 @@ async function hydrateUserInfo() {
         lastName: parts.slice(1).join(" ") || user.lastName,
         studentNumber: (document.getElementById("field-number") as HTMLInputElement | null)?.value,
         email: (document.getElementById("field-email") as HTMLInputElement | null)?.value,
-        course: (document.getElementById("field-course") as HTMLInputElement | null)?.value,
-        school: (document.getElementById("field-school") as HTMLInputElement | null)?.value,
+        course: courseCode((document.getElementById("field-course") as HTMLInputElement | null)?.value),
+        school: schoolCode((document.getElementById("field-school") as HTMLInputElement | null)?.value),
         organizationPart: (document.getElementById("field-org") as HTMLInputElement | null)?.value,
         organizationRole: orgPos ? `${orgRoleValue}:${orgPos}` : orgRoleValue,
       }),
@@ -856,13 +865,13 @@ async function hydrateAdminProfile() {
   if (studentNo) studentNo.textContent = `STUDENT NUMBER: ${profile.studentNumber || "—"}`;
   if (email) email.textContent = profile.email;
   const role = document.getElementById("profile-account-role");
-  if (role) role.textContent = (profile.role || "admin").replace(/-/g, " ");
+  if (role) role.textContent = roleLabel(profile.role || "admin");
 
   const metaItem = document.querySelector(".profile-meta-item");
   if (metaItem) {
     const paragraphs = metaItem.querySelectorAll("p");
-    if (paragraphs[0]) paragraphs[0].textContent = profile.course || "—";
-    if (paragraphs[1]) paragraphs[1].textContent = profile.school || "—";
+    if (paragraphs[0]) paragraphs[0].textContent = courseLabel(profile.course) || "—";
+    if (paragraphs[1]) paragraphs[1].textContent = schoolLabel(profile.school) || "—";
   }
 
   const approvedBy = document.getElementById("profile-approved-by-value");
@@ -890,15 +899,23 @@ async function hydrateAdminProfile() {
       avatar.style.backgroundSize = "cover";
       avatar.style.backgroundPosition = "center";
       avatar.classList.add("has-photo");
+      avatar.textContent = "";
     }
   });
 
-  const profileAvatar = document.getElementById("profile-avatar");
-  if (profileAvatar instanceof HTMLElement && profile.photoUrl) {
-    profileAvatar.style.backgroundImage = `url("${profile.photoUrl}")`;
-    profileAvatar.style.backgroundSize = "cover";
-    profileAvatar.style.backgroundPosition = "center";
-    profileAvatar.classList.add("is-photo");
+  // The admin profile page's circle is #profile-avatar-preview (older pages: #profile-avatar).
+  const profileAvatar =
+    document.getElementById("profile-avatar-preview") || document.getElementById("profile-avatar");
+  if (profileAvatar instanceof HTMLElement) {
+    if (profile.photoUrl) {
+      profileAvatar.style.backgroundImage = `url("${profile.photoUrl}")`;
+      profileAvatar.style.backgroundSize = "cover";
+      profileAvatar.style.backgroundPosition = "center";
+      profileAvatar.classList.add("is-photo");
+      profileAvatar.textContent = "";
+    } else {
+      paintInitialsAvatar(profileAvatar, fullName, 26);
+    }
   }
 
   const dash = await fetchJson<{
@@ -910,8 +927,47 @@ async function hydrateAdminProfile() {
   patchTableRows(document.querySelector(".activity-table"), mine.slice(0, 8), (tr, row) => {
     const cells = tr.querySelectorAll("td");
     if (cells[0]) cells[0].textContent = row.dateLabel || "—";
-    if (cells[1]) cells[1].textContent = row.targetTitle || row.type.replace(/_/g, " ");
+    if (cells[1]) cells[1].textContent = row.targetTitle || humanizeActivityType(row.type);
   });
+
+  // "Account Summary": this admin's real counts (the design shipped 20 / 3 / 0).
+  const summary = await fetchJson<{
+    eventsApproved: number;
+    usersAdded: number;
+    reportsExported: number;
+    passwordChangedAt?: string;
+  }>(
+    "/api/admin/me/summary",
+  );
+  document.querySelectorAll(".summary-list li").forEach((li) => {
+    const label = (li.querySelector("span")?.textContent || "").toLowerCase();
+    const val = li.querySelector(".val");
+    if (!val) return;
+    if (!summary) val.textContent = "—";
+    else if (label.includes("events approved")) val.textContent = String(summary.eventsApproved);
+    else if (label.includes("users added")) val.textContent = String(summary.usersAdded);
+    else if (label.includes("reports exported")) val.textContent = String(summary.reportsExported);
+  });
+
+  // "Last Password Change": the design shipped the word "Date" here.
+  document.querySelectorAll(".security-row").forEach((row) => {
+    if (!/last password change/i.test(row.textContent || "")) return;
+    const sub = row.querySelector(".security-sub");
+    if (!sub) return;
+    const at = summary?.passwordChangedAt ? new Date(summary.passwordChangedAt) : null;
+    sub.textContent =
+      at && !Number.isNaN(at.getTime())
+        ? at.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+        : summary
+          ? "Not changed yet"
+          : "—";
+  });
+}
+
+/** "event_approved" → "Event approved". */
+function humanizeActivityType(type: string) {
+  const text = String(type || "").replace(/[_-]+/g, " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "—";
 }
 
 function ensureUnreadDot(host: HTMLElement) {
@@ -1592,11 +1648,11 @@ function applyRfidParticipantProfile(profile: {
     const values = [
       profile?.studentNumber || (profile?.rfidNumber ? `RFID ${profile.rfidNumber}` : ""),
       profile?.email || "",
-      profile?.course || "",
-      profile?.school || "",
+      courseLabel(profile?.course),
+      schoolLabel(profile?.school),
       profile?.organization || "",
-      profile?.organizationRole || "",
-      profile?.organizationPosition || "",
+      roleLabel(profile?.organizationRole),
+      humanizeCode(profile?.organizationPosition),
     ];
     spans.forEach((span, index) => {
       span.textContent = values[index] ?? "";
@@ -1612,9 +1668,13 @@ function applyRfidParticipantProfile(profile: {
       avatar.style.backgroundSize = "cover";
       avatar.style.backgroundPosition = "center";
       avatar.classList.add("has-photo");
+      avatar.textContent = "";
     } else {
       avatar.style.backgroundImage = "";
       avatar.classList.remove("has-photo");
+      // Tapped participant without a photo: initials; waiting for a tap: empty.
+      if (profile?.name) paintInitialsAvatar(avatar, profile.name, 26);
+      else avatar.textContent = "";
     }
   }
 }
@@ -2752,8 +2812,8 @@ async function hydrateCertificateDetails() {
         const cells = tr.querySelectorAll("td");
         if (cells[1]) cells[1].textContent = cert.userName || cert.email;
         if (cells[2]) cells[2].textContent = cert.studentNumber || "—";
-        if (cells[3]) cells[3].textContent = cert.course || "—";
-        if (cells[4]) cells[4].textContent = cert.school || "—";
+        if (cells[3]) cells[3].textContent = courseLabel(cert.course) || "—";
+        if (cells[4]) cells[4].textContent = schoolLabel(cert.school) || "—";
         if (cells[5]) cells[5].textContent = "Eligible";
         if (cells[6]) cells[6].textContent = certStatusLabel(cert.status);
       });
@@ -2901,8 +2961,8 @@ async function hydrateCertificateDetails() {
     }
     if (cells[1]) cells[1].textContent = row.userName;
     if (cells[2]) cells[2].textContent = row.studentNumber || "—";
-    if (cells[3]) cells[3].textContent = row.course || "—";
-    if (cells[4]) cells[4].textContent = row.school || "—";
+    if (cells[3]) cells[3].textContent = courseLabel(row.course) || "—";
+    if (cells[4]) cells[4].textContent = schoolLabel(row.school) || "—";
     if (cells[5]) cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
     if (cells[6]) cells[6].textContent = row.status;
     // Read at click time by the table's delegated handler (rows are cloned and
@@ -3203,7 +3263,7 @@ function wireTopbarShortcuts(root: Element) {
       name.textContent = user.fullName || user.email;
       const meta = document.createElement("span");
       meta.className = "dc-people-meta";
-      meta.textContent = [user.email, user.studentNumber, user.course].filter(Boolean).join(" · ");
+      meta.textContent = [user.email, user.studentNumber, courseLabel(user.course)].filter(Boolean).join(" · ");
       text.append(name, meta);
       const chip = document.createElement("span");
       const hasCard = Boolean(String(user.rfidNumber || "").trim());
@@ -3372,13 +3432,13 @@ async function hydrateNew41() {
   setInput("field-name", user.fullName);
   setInput("field-number", user.studentNumber || "");
   setInput("field-email", user.email);
-  setInput("field-course", user.course || "");
-  setInput("field-school", user.school || "");
+  setInput("field-course", courseLabel(user.course));
+  setInput("field-school", schoolLabel(user.school));
   setInput("field-org", user.organizationPart || "");
   const orgRole = String(user.organizationRole || "");
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
-  setInput("field-org-role", rolePart);
-  setInput("field-org-pos", posPart);
+  setInput("field-org-role", roleLabel(rolePart));
+  setInput("field-org-pos", humanizeCode(posPart));
   fillAccountStatus(user);
   applyParticipantAttendanceSummary(data.attendanceSummary);
 
@@ -3416,13 +3476,13 @@ async function hydratePerinfo31() {
   setInput("field-name", user.fullName);
   setInput("field-number", user.studentNumber || "");
   setInput("field-email", user.email);
-  setInput("field-course", user.course || "");
-  setInput("field-school", user.school || "");
+  setInput("field-course", courseLabel(user.course));
+  setInput("field-school", schoolLabel(user.school));
   setInput("field-org", user.organizationPart || "");
   const orgRole = String(user.organizationRole || "");
   const [rolePart, posPart] = orgRole.includes(":") ? orgRole.split(":") : [orgRole, ""];
-  setInput("field-org-role", rolePart);
-  setInput("field-org-pos", posPart);
+  setInput("field-org-role", roleLabel(rolePart));
+  setInput("field-org-pos", humanizeCode(posPart));
   ensureRfidProfileField(user, true);
 
   const form = document.getElementById("update-info-form") as HTMLFormElement | null;
@@ -3435,7 +3495,7 @@ async function hydratePerinfo31() {
       ev.stopImmediatePropagation();
       const fullName = (document.getElementById("field-name") as HTMLInputElement | null)?.value || "";
       const parts = fullName.trim().split(/\s+/);
-      const orgRoleVal = (document.getElementById("field-org-role") as HTMLInputElement | null)?.value || "";
+      const orgRoleVal = organizationRoleCode((document.getElementById("field-org-role") as HTMLInputElement | null)?.value);
       const orgPos = (document.getElementById("field-org-pos") as HTMLInputElement | null)?.value || "";
       const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -3445,8 +3505,8 @@ async function hydratePerinfo31() {
           lastName: parts.slice(1).join(" ") || "",
           studentNumber: (document.getElementById("field-number") as HTMLInputElement | null)?.value,
           email: (document.getElementById("field-email") as HTMLInputElement | null)?.value,
-          course: (document.getElementById("field-course") as HTMLInputElement | null)?.value,
-          school: (document.getElementById("field-school") as HTMLInputElement | null)?.value,
+          course: courseCode((document.getElementById("field-course") as HTMLInputElement | null)?.value),
+          school: schoolCode((document.getElementById("field-school") as HTMLInputElement | null)?.value),
           organizationPart: (document.getElementById("field-org") as HTMLInputElement | null)?.value,
           organizationRole: orgPos ? `${orgRoleVal}:${orgPos}` : orgRoleVal,
           rfidNumber: (document.getElementById("field-rfid") as HTMLInputElement | null)?.value,
@@ -4266,13 +4326,14 @@ function selectListpParticipant(
     );
   });
   setText("d-name", participant.name);
+  paintInitialsAvatar(document.querySelector<HTMLElement>("#listp-detail .big-avatar"), participant.name, 30);
   setText("d-number", participant.studentNumber || "—");
   setText("d-email", participant.email);
-  setText("d-course", participant.course || "—");
-  setText("d-school", participant.school || "—");
+  setText("d-course", courseLabel(participant.course) || "—");
+  setText("d-school", schoolLabel(participant.school) || "—");
   setText("d-org", participant.organization || "—");
-  setText("d-org-role", participant.organizationRole || "—");
-  setText("d-org-pos", participant.organizationPosition || "—");
+  setText("d-org-role", roleLabel(participant.organizationRole) || "—");
+  setText("d-org-pos", humanizeCode(participant.organizationPosition) || "—");
   setText("d-tap-in", participant.tapInLabel || "—");
   setText("d-tap-out", participant.tapOutLabel || "—");
   setText("d-duration", participant.durationLabel || "—");
@@ -4298,6 +4359,28 @@ function clearListpParticipantDetail() {
   ].forEach((id) => setText(id, "—"));
 }
 
+/** Same initials rule as the profile pages: first letters of the first two names. */
+function nameInitials(name: string) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+}
+
+/** The participant avatars are empty gradient circles in the design: put the initials in. */
+function paintInitialsAvatar(el: HTMLElement | null, name: string, fontPx: number) {
+  if (!el) return;
+  const initials = nameInitials(name);
+  if (el.textContent !== initials) el.textContent = initials;
+  el.style.display = "flex";
+  el.style.alignItems = "center";
+  el.style.justifyContent = "center";
+  el.style.color = "#fff";
+  el.style.fontWeight = "700";
+  el.style.fontSize = `${fontPx}px`;
+  el.style.letterSpacing = "0.02em";
+  el.style.lineHeight = "1";
+  el.style.userSelect = "none";
+}
+
 function renderListp44Table(participants: ListpParticipant[], selectedEmail = "") {
   const selected = selectedEmail.trim().toLowerCase();
   patchTableRows(document.querySelector(".listp-table"), participants, (tr, row, index) => {
@@ -4311,9 +4394,10 @@ function renderListp44Table(participants: ListpParticipant[], selectedEmail = ""
 
     const nameSpan = tr.querySelector(".name-cell span:last-child");
     if (nameSpan) nameSpan.textContent = row.name;
+    paintInitialsAvatar(tr.querySelector<HTMLElement>(".listp-avatar"), row.name, 12);
     const cells = tr.querySelectorAll("td");
     if (cells[1]) cells[1].textContent = row.studentNumber || "—";
-    if (cells[2]) cells[2].textContent = row.course || "—";
+    if (cells[2]) cells[2].textContent = courseLabel(row.course) || "—";
     if (cells[3]) cells[3].textContent = row.statusLabel || "—";
   });
 }

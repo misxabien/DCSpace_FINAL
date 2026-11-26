@@ -3,6 +3,7 @@ import { eventsCollection } from "@/lib/events/types";
 import { feedbackCollection } from "@/lib/user-server/activity";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
+import { courseLabel } from "@/lib/labels/academic";
 
 export type FeedbackCategoryRating = {
   label: string;
@@ -199,7 +200,12 @@ export async function loadFeedbackAnalytics(
     feedbackDocs = feedbackDocs.filter((row) => {
       const email = String(row.email || "").trim().toLowerCase();
       const profile = userByEmail.get(email);
-      return profile?.course?.toLowerCase().includes(course);
+      // Match the stored code and its display name ("bs-information-technology" / "BS Information Technology").
+      const stored = String(profile?.course || "");
+      return (
+        stored.toLowerCase().includes(course) ||
+        courseLabel(stored).toLowerCase().includes(course)
+      );
     });
   }
 

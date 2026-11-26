@@ -44,9 +44,21 @@ function applySidebarUserCard(
       avatar.style.backgroundPosition = "center";
       avatar.style.backgroundRepeat = "no-repeat";
       avatar.classList.add("has-photo");
+      if (avatar.textContent) avatar.textContent = "";
     } else {
       avatar.style.backgroundImage = "";
       avatar.classList.remove("has-photo");
+      // No photo: show the admin's initials instead of an empty blue dot.
+      const parts = String(user.name || user.email || "").trim().split(/\s+/).filter(Boolean);
+      const initials = ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase();
+      if (avatar.textContent !== initials) avatar.textContent = initials;
+      avatar.style.display = "flex";
+      avatar.style.alignItems = "center";
+      avatar.style.justifyContent = "center";
+      avatar.style.color = "#fff";
+      avatar.style.fontWeight = "700";
+      avatar.style.fontSize = "14px";
+      avatar.style.lineHeight = "1";
     }
   });
 

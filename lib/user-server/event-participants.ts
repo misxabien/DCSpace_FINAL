@@ -5,6 +5,7 @@ import { attendanceCollection } from "@/lib/user-server/activity";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { attendanceSecurityCollection } from "@/lib/user-server/attendance-security";
 import { profileFromUserDoc } from "@/lib/user-server/record-attendance";
+import { courseLabel, humanizeCode, roleLabel, schoolLabel } from "@/lib/labels/academic";
 
 export type EventParticipantFilters = {
   errors: boolean;
@@ -178,11 +179,12 @@ function buildParticipantRow(input: {
     email: input.email,
     name: input.name,
     studentNumber: input.studentNumber || "—",
-    course: input.course || "—",
-    school: input.school || "—",
+    // Stored codes ("bs-information-technology", "scmcs", "officer") → display names.
+    course: courseLabel(input.course) || "—",
+    school: schoolLabel(input.school) || "—",
     organization: input.organization || "—",
-    organizationRole: input.organizationRole || "—",
-    organizationPosition: input.organizationPosition || "—",
+    organizationRole: roleLabel(input.organizationRole) || "—",
+    organizationPosition: humanizeCode(input.organizationPosition) || "—",
     statusLabel,
     tapInLabel: tapInAt ? formatClock(tapInAt) : "—",
     tapOutLabel: tapOutAt ? formatClock(tapOutAt) : "—",

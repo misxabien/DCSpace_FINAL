@@ -223,20 +223,26 @@
       return;
     }
 
-    var required = rfid.requiredMinutes || event?.attendanceRequired || '30 minutes';
+    // Real requirement only: the server's minimum (minutes), else the event's own
+    // text; with no minimum a tap-out is enough.
+    var requiredMinutes = Number(rfid.requiredMinutes || 0);
+    var eventRequired = String(event?.attendanceRequired || '').trim();
+    var requiredText = requiredMinutes > 0
+      ? requiredMinutes + ' minutes'
+      : (eventRequired && eventRequired !== '—' && eventRequired !== 'No minimum' ? eventRequired : '');
     var minutes = rfid.attendanceMinutes || 0;
-    if (minutes > 0) {
+    if (minutes > 0 && requiredText) {
       note.textContent =
-        'Attendance progress: ' + minutes + ' of ' + String(required).replace(/\D/g, '') +
-        ' minutes recorded. Complete the requirement to receive your certificate.';
+        'Attendance progress: ' + minutes + ' minutes recorded of the required ' + requiredText +
+        '. Complete the requirement to receive your certificate.';
       note.classList.add('is-incomplete');
       if (progressEl) progressEl.classList.add('is-incomplete');
       return;
     }
 
-    note.textContent =
-      'Complete the attendance requirement (' + (event?.attendanceRequired || '30 minutes') +
-      ') to receive your certificate.';
+    note.textContent = requiredText
+      ? 'Complete the attendance requirement (' + requiredText + ') to receive your certificate.'
+      : 'Tap in when you arrive and tap out when you leave to receive your certificate.';
   }
 
   function applyRfidMetrics(rfid, event) {

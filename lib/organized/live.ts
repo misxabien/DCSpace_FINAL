@@ -10,6 +10,12 @@ import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventRegistration, ParticipantDetail } from "@/lib/organizedRegistrations";
 import type { InviteAudience, InviteCandidate } from "@/lib/organizedInvitations";
 import { authFetch } from "@/lib/user-api";
+import {
+  courseCode,
+  courseLabel,
+  organizationRoleText,
+  schoolLabel,
+} from "@/lib/labels/academic";
 
 type LiveEvent = SanitizedEvent & { submissions?: number };
 
@@ -89,10 +95,10 @@ export function mapLiveParticipant(
     id: row.id,
     studentNumber: row.studentNumber || "—",
     studentName: row.studentName,
-    course: row.course || "—",
-    courseSchool: row.school || row.course || "—",
+    course: courseLabel(row.course) || "—",
+    courseSchool: schoolLabel(row.school) || courseLabel(row.course) || "—",
     organization: row.organization || "None",
-    organizationRole: row.organizationRole || "Member",
+    organizationRole: organizationRoleText(row.organizationRole) || "Member",
     files,
     gracePeriodStatus: (row.attendanceMinutes || 0) > 0 ? "On Time" : "Pending",
     attendanceRequirementStatus: row.qualifiedForCertificate
@@ -125,7 +131,7 @@ export async function fetchInviteCandidatesLive(
     audience,
     number: user.studentNumber || "—",
     name: user.name || user.email,
-    course: user.course || "—",
+    course: courseLabel(user.course) || "—",
     organization: user.organization || "—",
   }));
 }
@@ -157,7 +163,8 @@ export async function toggleEventInvitationLive(
         userId: candidate.id,
         userName: candidate.name,
         studentNumber: candidate.number,
-        course: candidate.course,
+        // Store the course code; the table shows its display name.
+        course: courseCode(candidate.course === "—" ? "" : candidate.course),
         organization: candidate.organization,
         audience: candidate.audience,
         invited,
@@ -177,7 +184,7 @@ export function mapLiveRegistration(row: LiveRegistration): EventRegistration {
     id: row.id,
     studentNumber: row.studentNumber || "—",
     studentName: row.studentName,
-    course: row.course || "—",
+    course: courseLabel(row.course) || "—",
   };
 }
 

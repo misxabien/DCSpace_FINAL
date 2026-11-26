@@ -19,6 +19,7 @@ import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventGalleryPhoto } from "@/lib/organizedEventGallery";
 import type { InvitationListEntry } from "@/lib/organizedInvitations";
 import styles from "@/components/organized/OrganizedDetail.module.css";
+import { courseLabel } from "@/lib/labels/academic";
 
 export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetail }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,7 +72,7 @@ export function OrganizedEventDetailView({ event }: { event: OrganizedEventDetai
           (payload.invitations || []).map((row) => ({
             id: row.id,
             name: row.userName,
-            course: row.course || "—",
+            course: courseLabel(row.course) || "—",
             organization: row.organization || "—",
             status: row.status === "joined" ? "joined" : "pending",
           })),

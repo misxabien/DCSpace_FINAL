@@ -12,6 +12,7 @@ import {
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { createCertificateDoc } from "@/lib/user-server/certificates";
 import { resolveRequiredAttendanceMinutes } from "@/lib/user-server/certificate-eligibility";
+import { courseLabel, humanizeCode, roleLabel, schoolLabel } from "@/lib/labels/academic";
 
 export type AttendanceAction = "in" | "out";
 
@@ -926,11 +927,11 @@ export async function buildLiveAttendanceFeed(
         scannedAt: String(latestDoc.scannedAt || latestDoc.createdAt || ""),
         rfidNumber: latestProfile.rfidNumber || String(latestDoc.rfidNumber || ""),
         studentNumber: latestProfile.studentNumber,
-        course: latestProfile.course,
-        school: latestProfile.school,
+        course: courseLabel(latestProfile.course),
+        school: schoolLabel(latestProfile.school),
         organization: latestProfile.organization,
-        organizationRole: latestProfile.organizationRole,
-        organizationPosition: latestProfile.organizationPosition,
+        organizationRole: roleLabel(latestProfile.organizationRole),
+        organizationPosition: humanizeCode(latestProfile.organizationPosition),
         photoUrl: latestProfile.photoUrl,
         eventTitle: String(latestDoc.eventTitle || event?.title || ""),
       }
@@ -964,7 +965,7 @@ export async function buildLiveAttendanceFeed(
             email,
             userName: String(row.userName || ""),
             studentNumber: String(row.studentNumber || ""),
-            course: String(row.course || ""),
+            course: courseLabel(row.course),
             rfidNumber: rfid,
           };
         })

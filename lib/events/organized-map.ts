@@ -1,5 +1,7 @@
 import {
+  attendanceRequirementLabel,
   eventDateFromStartsAt,
+  gracePeriodLabel,
   formatEventTimeRange,
   type SanitizedEvent,
 } from "@/lib/events/map-event";
@@ -137,8 +139,8 @@ export function mapSanitizedToOrganizedDetail(
     organization: event.organizerName || "—",
     course: courses.length ? courses.join(", ") : "—",
     department: event.department || "—",
-    attendanceRequired: event.attendanceRequired || "30 minutes",
-    gracePeriod: event.gracePeriod || "15 minutes",
+    attendanceRequired: attendanceRequirementLabel(event),
+    gracePeriod: gracePeriodLabel(event),
     requiredFiles: requiredFiles.length ? requiredFiles.join(", ") : "None",
     speakers: Array.isArray(event.speakers) ? event.speakers : [],
     programActivities: Array.isArray(event.programActivities) ? event.programActivities : [],

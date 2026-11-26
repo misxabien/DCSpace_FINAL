@@ -24,43 +24,7 @@ import {
   readCachedAccountImages,
 } from "@/lib/profile-images";
 import { preloadImageUrls } from "@/lib/image-preload";
-
-const COURSE_LABELS: Record<string, string> = {
-  "bs-medical-laboratory-science": "BS Medical Laboratory Science (Medical Technology)",
-  "bs-biology": "BS Biology",
-  "bs-pharmacy": "BS Pharmacy",
-  "bs-accountancy": "BS Accountancy",
-  "bs-accounting-information-system": "BS Accounting Information System",
-  "bs-psychology": "BS Psychology",
-  beed: "BEED",
-  bsed: "BSED",
-  "bs-information-technology": "BS Information Technology",
-  bma: "BMA",
-  "ba-communication": "BA Communication",
-  "bsba-financial-management": "BSBA Financial Management",
-  "bsba-marketing-management": "BSBA Marketing Management",
-  "bsba-human-resource-management": "BSBA Human Resource Management",
-  bshm: "BSHM",
-  bstm: "BSTM",
-  "bs-nursing": "BS Nursing",
-  "bs-physical-therapy": "BS Physical Therapy",
-};
-
-const SCHOOL_LABELS: Record<string, string> = {
-  sase: "SASE",
-  scemc: "SCEMC",
-  // legacy key kept so stored scmcs values still display as SCEMC
-  scmcs: "SCEMC",
-  sihtm: "SIHTM",
-  shs: "SHS",
-  snahs: "SNAHS",
-};
-
-function displayLabel(value: string, map: Record<string, string>) {
-  const key = String(value || "").trim();
-  if (!key) return "";
-  return map[key] || key;
-}
+import { courseCode, courseLabel, humanizeCode, schoolCode, schoolLabel } from "@/lib/labels/academic";
 
 /** Split legacy "officer:Vice President" into role + position. */
 function parseOrganizationRole(raw: string | undefined | null) {
@@ -148,13 +112,13 @@ function applyProfileToDom(profile: UserProfile) {
   setInputValue("profile-name", fullName);
   setInputValue("profile-email", profile.email || "");
   setInputValue("profile-student-number", profile.studentNumber || "");
-  setInputValue("profile-course", displayLabel(profile.course || "", COURSE_LABELS));
-  setInputValue("profile-department", displayLabel(profile.school || "", SCHOOL_LABELS));
+  setInputValue("profile-course", courseLabel(profile.course));
+  setInputValue("profile-department", schoolLabel(profile.school));
   setInputValue("profile-organization", profile.organizationPart || "None");
   const org = parseOrganizationRole(profile.organizationRole);
   setInputValue("profile-org-role", org.roleLabel);
   // Position is separate — never copy the role string into this field.
-  setInputValue("profile-org-position", org.position);
+  setInputValue("profile-org-position", humanizeCode(org.position));
   setInputValue("profile-rfid", profile.rfidNumber || "");
   setInputValue("profile-rfid-verify", profile.rfidNumber || "");
   syncRfidVerificationUi(profile.rfidNumber || "");
@@ -176,11 +140,11 @@ function applyProfileToDom(profile: UserProfile) {
         name: fullName,
         email: profile.email || "",
         studentNumber: profile.studentNumber || "",
-        course: displayLabel(profile.course || "", COURSE_LABELS),
-        department: displayLabel(profile.school || "", SCHOOL_LABELS),
+        course: courseLabel(profile.course),
+        department: schoolLabel(profile.school),
         organization: profile.organizationPart || "None",
         orgRole: org.roleLabel,
-        orgPosition: org.position,
+        orgPosition: humanizeCode(org.position),
         rfidNumber: profile.rfidNumber || "",
         accountType: profile.role?.toLowerCase() === "faculty" ? "Faculty" : "Student",
       }),
@@ -324,10 +288,13 @@ export function useProfileHydration() {
         const name =
           (document.getElementById("profile-name") as HTMLInputElement | null)?.value || "";
         const { firstName, lastName } = splitFullName(name);
-        const course =
-          (document.getElementById("profile-course") as HTMLInputElement | null)?.value || "";
-        const school =
-          (document.getElementById("profile-department") as HTMLInputElement | null)?.value || "";
+        // The fields show display names; save the stored codes so nothing drifts.
+        const course = courseCode(
+          (document.getElementById("profile-course") as HTMLInputElement | null)?.value || "",
+        );
+        const school = schoolCode(
+          (document.getElementById("profile-department") as HTMLInputElement | null)?.value || "",
+        );
         const organizationPart =
           (document.getElementById("profile-organization") as HTMLInputElement | null)?.value || "";
         const organizationRoleRaw =

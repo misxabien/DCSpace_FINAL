@@ -10,6 +10,14 @@ import {
 } from "@/lib/profile-images";
 import { readAuthSession, saveAuthSession, syncProfileToLegacyStorage, type UserProfile } from "@/lib/user-api";
 import { startSmartPoll } from "@/lib/client/smart-poll";
+import {
+  courseCode,
+  courseLabel,
+  organizationRoleCode,
+  organizationRoleParts,
+  schoolCode,
+  schoolLabel,
+} from "@/lib/labels/academic";
 
 type AttendanceRow = {
   eventTitle?: string;
@@ -121,11 +129,14 @@ function applyProfile(profile: UserProfile) {
   setInputValue("#profile-name", displayName);
   setInputValue("#profile-email", profile.email || "");
   setInputValue("#profile-student-number", profile.studentNumber || "");
-  setInputValue("#profile-course", profile.course || "");
-  setInputValue("#profile-department", profile.school || "");
+  // Display names, not the stored codes ("bs-information-technology", "scmcs", "officer").
+  const org = organizationRoleParts(profile.organizationRole);
+  setInputValue("#profile-course", courseLabel(profile.course));
+  setInputValue("#profile-department", schoolLabel(profile.school));
   setInputValue("#profile-organization", profile.organizationPart || "None");
-  setInputValue("#profile-org-role", profile.organizationRole || "None");
-  setInputValue("#profile-org-position", profile.role || "Student");
+  setInputValue("#profile-org-role", org.role || "None");
+  // Organization position — never the account role.
+  setInputValue("#profile-org-position", org.position);
   setText(
     "#profile-about-title",
     `About ${profile.firstName?.trim() || displayName.split(/\s+/)[0] || "Student"}`,
@@ -137,11 +148,11 @@ function applyProfile(profile: UserProfile) {
     name: displayName,
     email: profile.email || "",
     studentNumber: profile.studentNumber || "",
-    course: profile.course || "",
-    department: profile.school || "",
+    course: courseLabel(profile.course),
+    department: schoolLabel(profile.school),
     organization: profile.organizationPart || "None",
-    orgRole: profile.organizationRole || "None",
-    orgPosition: profile.role || "Student",
+    orgRole: organizationRoleParts(profile.organizationRole).role || "None",
+    orgPosition: organizationRoleParts(profile.organizationRole).position,
   };
   safeSetLocalStorage(getProfileInfoStorageKey(profile.id || profile.email), JSON.stringify(info));
   syncProfileToLegacyStorage(profile);
@@ -220,7 +231,6 @@ export function ProfileDataBridge() {
         } else if (userName) {
           setText(".main__user-name", userName);
           setInputValue("#profile-name", userName);
-          setInputValue("#profile-org-position", userRole || "Student");
         }
       } finally {
         inFlight = false;
@@ -249,10 +259,12 @@ export function ProfileDataBridge() {
         headers: authHeaders(),
         body: JSON.stringify({
           fullName: name,
-          course,
-          school,
+          // The fields show display names; save the stored codes (role key only,
+          // same rule as sign-up and the profile hydration save).
+          course: courseCode(course),
+          school: schoolCode(school),
           organizationPart: organizationPart === "None" ? "" : organizationPart,
-          organizationRole: organizationRole === "None" ? "" : organizationRole,
+          organizationRole: organizationRoleCode(organizationRole),
           rfidNumber,
           ...extra,
         }),

@@ -9,6 +9,7 @@ import {
 import { loadAttendanceSecurityStats } from "@/lib/user-server/attendance-security";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
+import { courseLabel, organizationRoleText, roleLabel, schoolLabel } from "@/lib/labels/academic";
 
 function hourLabel(iso: string) {
   const date = new Date(iso);
@@ -292,11 +293,11 @@ export async function loadUserAiContext(userId: string) {
     user: {
       id: userId,
       name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-      role: String(user.role || "student"),
-      course: String(user.course || ""),
-      school: String(user.school || ""),
+      role: roleLabel(user.role || "student"),
+      course: courseLabel(user.course),
+      school: schoolLabel(user.school),
       organization: String(user.organizationPart || ""),
-      organizationRole: String(user.organizationRole || ""),
+      organizationRole: organizationRoleText(user.organizationRole),
     },
     stats: {
       registrations: registrationCount,
@@ -377,8 +378,8 @@ export async function loadStudentAiContext(email: string) {
   return {
     student: {
       name: user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "",
-      course: String(user?.course || ""),
-      school: String(user?.school || ""),
+      course: courseLabel(user?.course),
+      school: schoolLabel(user?.school),
       organization: String(user?.organizationPart || ""),
       registrations: registrationCount,
       attendanceRecords: attendanceCount,

@@ -84,6 +84,7 @@ export async function POST(request: Request) {
         $set: {
           passwordHash: hashPassword(newPassword),
           updatedAt: new Date().toISOString(),
+          passwordChangedAt: new Date().toISOString(),
         },
       },
     );

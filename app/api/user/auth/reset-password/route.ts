@@ -39,7 +39,13 @@ export async function POST(request: Request) {
     const db = await getUserDb();
     const result = await db.collection("users").updateOne(
       { email },
-      { $set: { passwordHash: hashPassword(newPassword), updatedAt: new Date().toISOString() } },
+      {
+        $set: {
+          passwordHash: hashPassword(newPassword),
+          updatedAt: new Date().toISOString(),
+          passwordChangedAt: new Date().toISOString(),
+        },
+      },
     );
     if (!result.matchedCount) {
       return withCors(NextResponse.json({ error: "Account not found." }, { status: 404 }));
