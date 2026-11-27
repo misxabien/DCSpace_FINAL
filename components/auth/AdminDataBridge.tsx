@@ -117,6 +117,7 @@ type DashboardPayload = {
     course: string;
     organizationPart: string;
     studentNumber: string;
+    createdAt?: string;
   }>;
   activities: Array<{
     type: string;
@@ -450,6 +451,12 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+function accountCreatedLabel(createdAt?: string) {
+  const date = createdAt ? new Date(createdAt) : null;
+  if (!date || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 function hydrateUsers(root: Element, data: DashboardPayload) {
   setStatByLabel(root, "Total Users", data.stats.totalUsers);
   setStatByLabel(root, "Active Users", data.stats.activeUsers);
@@ -469,7 +476,8 @@ function hydrateUsers(root: Element, data: DashboardPayload) {
             actorEmail: user.email,
             actorRole: user.role,
             type: activity?.type || "user_registered",
-            dateLabel: activity?.dateLabel || "—",
+            // No logged activity: "Registered account" on the day the account was made.
+            dateLabel: activity?.dateLabel || accountCreatedLabel(user.createdAt),
           };
         })
       : data.activities.map((row) => ({

@@ -806,12 +806,21 @@ async function hydrateUserInfo() {
     "field-org",
     "field-org-role",
     "field-org-pos",
+    // The RFID field is added after the page loads, so the page's own Edit
+    // button never unlocked it — include it here.
+    "field-rfid",
   ];
   const setReadonly = (readonly: boolean) => {
     fields.forEach((fieldId) => {
       const el = document.getElementById(fieldId) as HTMLInputElement | null;
       if (el) el.readOnly = readonly;
     });
+    const rfidInput = document.getElementById("field-rfid") as HTMLInputElement | null;
+    if (rfidInput) {
+      rfidInput.placeholder = readonly
+        ? "No RFID card linked"
+        : "Tap the card on the reader or type its number";
+    }
     saveBtn?.toggleAttribute("hidden", readonly);
     cancelBtn?.toggleAttribute("hidden", readonly);
   };
@@ -837,6 +846,7 @@ async function hydrateUserInfo() {
         school: schoolCode((document.getElementById("field-school") as HTMLInputElement | null)?.value),
         organizationPart: (document.getElementById("field-org") as HTMLInputElement | null)?.value,
         organizationRole: orgPos ? `${orgRoleValue}:${orgPos}` : orgRoleValue,
+        rfidNumber: ((document.getElementById("field-rfid") as HTMLInputElement | null)?.value || "").trim(),
       }),
     });
     const payload = await res.json().catch(() => ({}));
@@ -3471,16 +3481,27 @@ function ensureRfidProfileField(user: AdminUser, editable: boolean) {
 }
 
 function wireUser27Views(root: Element) {
-  root.querySelectorAll(".users-table-panel .view-btn, .panel-box .view-btn").forEach((btn) => {
-    if (!(btn instanceof HTMLElement) || btn.dataset.dcWired === "1") return;
-    btn.dataset.dcWired = "1";
-    btn.addEventListener("click", (event) => {
+  // One listener on the page: the table rows are rebuilt and cloned after load
+  // (real users, paging), so per-button listeners were lost and View did nothing.
+  const host = root as HTMLElement;
+  if (host.dataset.dcUserViewsWired === "1") return;
+  host.dataset.dcUserViewsWired = "1";
+  // Capture phase: runs before the page's own script, which opened the user by
+  // name (?name=…) — a link that can't load anyone.
+  host.addEventListener(
+    "click",
+    (event) => {
+      const btn = (event.target as Element | null)?.closest?.<HTMLElement>(".view-btn");
+      if (!btn || !host.contains(btn)) return;
+      if (!btn.closest(".users-table-panel, .panel-box")) return;
       const id = btn.getAttribute("data-user-id") || btn.closest("tr")?.getAttribute("data-user-id");
       if (!id) return;
       event.preventDefault();
-      window.location.assign(`/admin/info30?id=${encodeURIComponent(id)}`);
-    });
-  });
+      event.stopPropagation();
+      adminNavigate(`/admin/info30?id=${encodeURIComponent(id)}`);
+    },
+    true,
+  );
 }
 
 // ─── helpers shared by sub-detail pages ────────────────────────────────────
