@@ -1252,7 +1252,10 @@ function hydrateFeedbackAdmin(
   hydrateFeedbackEventCards(root, analytics.events, pageId);
   if (analytics.systemFeedback) hydrateSystemFeedback(root, analytics.systemFeedback);
 
-  const table = root.querySelector(".fd-table, .fb-table, #feedback-table");
+  // Feedback Details has its own participant table (filled per participant by
+  // AdminOpsBridge); the generic recent-feedback columns don't match it.
+  const table =
+    pageId === "feeddeets49" ? null : root.querySelector(".fd-table, .fb-table, #feedback-table");
   patchTableRows(table, analytics.recent, (tr, row) => {
     const cells = tr.querySelectorAll("td");
     if (cells[0]) cells[0].textContent = row.submittedBy;

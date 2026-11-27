@@ -33,6 +33,11 @@ const SAMPLE_VALUES = new Set([
   "4.5/5",
   "5/5",
   "First Name Last Name",
+  // Feedback details / responses sample event and comments.
+  "Mental Health and Wellness Awareness Seminar",
+  "DRA HALL",
+  "DOMINIXODE",
+  "Detailed comment mentioned here",
   "EVENT NAME",
   "Event Name",
 ]);

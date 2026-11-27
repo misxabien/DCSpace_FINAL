@@ -3504,6 +3504,312 @@ function wireUser27Views(root: Element) {
   );
 }
 
+// ─── /admin/feeddeets49 + /admin/responses50 — real event feedback ──────────
+
+type FeedbackPhaseEntry = { at: string; rating: number; title: string; type: string; comment: string };
+type EventFeedbackPayload = {
+  event: {
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    venue: string;
+    startsAt: string;
+    endsAt: string;
+    venueType: string;
+    eventType: string;
+    organization: string;
+    minimumAttendance: string;
+    gracePeriod: string;
+  };
+  registered: number;
+  midEvent: { responses: number; averageRating: number | null; responseRate: number | null };
+  postEvent: { responses: number; averageRating: number | null; responseRate: number | null };
+  participants: Array<{
+    email: string;
+    name: string;
+    course: string;
+    mid: FeedbackPhaseEntry | null;
+    post: FeedbackPhaseEntry | null;
+  }>;
+};
+
+function fbDate(value?: string) {
+  const d = value ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
+function fbTime(value?: string) {
+  const d = value ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function fbDateTime(value?: string) {
+  const d = value ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  return `${fbDate(value)} ${fbTime(value)}`.toUpperCase();
+}
+
+function fbDuration(startsAt?: string, endsAt?: string) {
+  const start = startsAt ? new Date(startsAt).getTime() : NaN;
+  const end = endsAt ? new Date(endsAt).getTime() : NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return "—";
+  const minutes = Math.round((end - start) / 60000);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (!hours) return `${rest} MINS`;
+  return `${hours} ${hours === 1 ? "HOUR" : "HOURS"}${rest ? ` ${rest} MINS` : ""}`;
+}
+
+function fbStatusLabel(status: string) {
+  const s = String(status || "").toLowerCase();
+  if (s === "approved") return "UPCOMING";
+  return s ? s.toUpperCase() : "—";
+}
+
+/** Fill "LABEL → value" boxes (both pages use label/value spans). */
+function fillLabeledFields(root: ParentNode, boxSelector: string, values: Record<string, string>) {
+  root.querySelectorAll(boxSelector).forEach((box) => {
+    const label = (box.querySelector(".label")?.textContent || "").trim().toUpperCase();
+    const value = box.querySelector(".value");
+    if (value && label in values) value.textContent = values[label] || "—";
+  });
+}
+
+function eventInfoValues(event: EventFeedbackPayload["event"]) {
+  return {
+    DATE: fbDate(event.startsAt),
+    VENUE: event.venue || "—",
+    "START TIME": fbTime(event.startsAt),
+    "END TIME": fbTime(event.endsAt),
+    "VENUE TYPE": (event.venueType || "—").toUpperCase(),
+    "EVENT TYPE": (event.eventType || "—").toUpperCase(),
+    ORGANIZATION: (event.organization || "—").toUpperCase(),
+    DURATION: fbDuration(event.startsAt, event.endsAt),
+    "MINIMUM ATTENDANCE": (event.minimumAttendance || "—").toUpperCase(),
+    "GRACE PERIOD": (event.gracePeriod || "—").toUpperCase(),
+    "EVENT STATUS": fbStatusLabel(event.status),
+  };
+}
+
+function paintRing(item: HTMLElement, pct: number, text: string, note: string) {
+  item.classList.remove("muted");
+  const ring = item.querySelector<HTMLElement>(".fd-ring");
+  const span = ring?.querySelector("span");
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  if (ring) {
+    // The page CSS fixes the arc at 21% with !important — override it.
+    ring.style.setProperty("background", `conic-gradient(#448aff 0 ${p}%, #b2cfff ${p}% 100%)`, "important");
+    ring.setAttribute("aria-label", `${note}: ${text}`);
+  }
+  if (span) span.textContent = text;
+  const noteEl = item.querySelector(".note");
+  if (noteEl) noteEl.textContent = note;
+}
+
+function feedbackStatusText(status: string) {
+  const s = String(status || "").toLowerCase();
+  if (s === "live") return "Collecting mid-event feedback";
+  if (s === "completed") return "Collecting post-event feedback";
+  if (s === "approved") return "Opens when the event starts";
+  return "Closed";
+}
+
+async function hydrateEventFeedbackPages(pageId: string) {
+  const query = new URLSearchParams(window.location.search);
+  const eventId = query.get("eventId") || query.get("id") || "";
+  const email = (query.get("email") || "").trim().toLowerCase();
+  if (!eventId) return;
+  const url =
+    pageId === "responses50" && email
+      ? `/api/admin/events/${encodeURIComponent(eventId)}/feedback?email=${encodeURIComponent(email)}`
+      : `/api/admin/events/${encodeURIComponent(eventId)}/feedback`;
+  const data = await fetchJson<EventFeedbackPayload>(url);
+  if (!data?.event) return;
+  if (pageId === "feeddeets49") fillFeedbackDetails(data);
+  else fillParticipantResponses(data, email);
+}
+
+function fillFeedbackDetails(data: EventFeedbackPayload) {
+  const { event } = data;
+  // Event information card.
+  const card = document.querySelector<HTMLElement>("#event-info .fd-card");
+  if (card) {
+    const title = card.querySelector("h3");
+    if (title) title.textContent = event.title || "Untitled event";
+    const desc = card.querySelector(".desc");
+    if (desc) desc.textContent = event.description || "No description provided.";
+    const status = card.querySelector(".fd-status-label");
+    if (status) status.textContent = `EVENT STATUS: ${fbStatusLabel(event.status)}`;
+    fillLabeledFields(card, ".fd-field", eventInfoValues(event));
+  }
+
+  // Collection progress: the design's per-question rings don't match the survey
+  // (one rating + comment per phase), so show the real summary per phase.
+  document.querySelectorAll<HTMLElement>(".fd-panel").forEach((panel) => {
+    const phase = (panel.querySelector(".phase")?.textContent || "").toUpperCase();
+    if (!phase.includes("FEEDBACK")) return;
+    const stats = phase.includes("MID") ? data.midEvent : data.postEvent;
+    const cats = Array.from(panel.querySelectorAll<HTMLElement>(".fd-cat"));
+    cats.forEach((cat, index) => {
+      if (index > 0) cat.style.setProperty("display", "none", "important");
+    });
+    const first = cats[0];
+    if (!first) return;
+    const heading = first.querySelector("h4");
+    if (heading) heading.textContent = "Summary";
+    const items = Array.from(first.querySelectorAll<HTMLElement>(".fd-ring-item"));
+    const avg = stats.averageRating;
+    if (items[0]) paintRing(items[0], avg ? (avg / 5) * 100 : 0, avg ? `${avg}/5` : "—", "Average rating");
+    if (items[1]) {
+      paintRing(
+        items[1],
+        data.registered ? (stats.responses / data.registered) * 100 : 0,
+        `${stats.responses}/${data.registered}`,
+        "Responses from registered participants",
+      );
+    }
+    if (items[2]) {
+      paintRing(items[2], stats.responseRate || 0, stats.responseRate == null ? "—" : `${stats.responseRate}%`, "Response rate");
+    }
+  });
+
+  // Overview.
+  document.querySelectorAll<HTMLElement>(".fd-ov-block").forEach((block) => {
+    const key = (block.querySelector(".k")?.textContent || "").trim().toLowerCase();
+    const stats = key.includes("mid") ? data.midEvent : data.postEvent;
+    if (key.startsWith("total")) {
+      const v = block.querySelector(".v");
+      if (v) v.textContent = `${stats.responses}/${data.registered}`;
+    } else if (key.includes("feedback status")) {
+      const v = block.querySelector(".v");
+      if (v) v.textContent = feedbackStatusText(event.status);
+    } else if (key.includes("feedback")) {
+      const score = block.querySelector(".score");
+      if (score) score.textContent = stats.averageRating ? `${stats.averageRating}/5` : "—";
+      const filled = Math.round(stats.averageRating || 0);
+      block.querySelectorAll<SVGElement>(".stars svg").forEach((star, index) => {
+        star.style.opacity = index < filled ? "1" : "0.25";
+      });
+    }
+  });
+
+  // Participant table: one row per participant, their mid/post submissions.
+  const headLink = document.querySelector<HTMLAnchorElement>(".fd-part-head h3 a");
+  if (headLink) headLink.removeAttribute("href");
+  const table = document.querySelector(".fd-part .fd-table, .fd-table");
+  patchTableRows(table, data.participants, (tr, row) => {
+    const cells = tr.querySelectorAll("td");
+    const box = cells[0]?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (box) {
+      box.checked = false;
+      box.setAttribute("aria-label", `Select ${row.name}`);
+    }
+    if (cells[1]) {
+      let link = cells[1].querySelector<HTMLAnchorElement>("a");
+      if (!link) {
+        cells[1].textContent = "";
+        link = document.createElement("a");
+        cells[1].appendChild(link);
+      }
+      link.textContent = row.name;
+      link.href = `/admin/responses50?eventId=${encodeURIComponent(data.event.id)}&email=${encodeURIComponent(row.email)}`;
+    }
+    if (cells[2]) cells[2].textContent = row.course || "—";
+    if (cells[3]) cells[3].textContent = row.mid ? fbDateTime(row.mid.at) : "—";
+    if (cells[4]) cells[4].textContent = row.mid ? "COMPLETE" : "PENDING";
+    if (cells[5]) cells[5].textContent = row.post ? fbDateTime(row.post.at) : "—";
+    if (cells[6]) cells[6].textContent = row.post ? "COMPLETE" : "PENDING";
+  });
+  const tbody = table?.querySelector("tbody");
+  let empty = document.getElementById("dc-fd-empty");
+  if (!data.participants.length && tbody && !empty) {
+    empty = document.createElement("p");
+    empty.id = "dc-fd-empty";
+    empty.textContent = "No registered participants or feedback for this event yet.";
+    empty.style.cssText = "margin:12px 0;color:#64748b;font-size:14px;text-align:center;";
+    table?.insertAdjacentElement("afterend", empty);
+  } else if (data.participants.length && empty) {
+    empty.remove();
+  }
+}
+
+function fillParticipantResponses(data: EventFeedbackPayload, email: string) {
+  const { event } = data;
+  const person = data.participants.find((row) => row.email === email) || data.participants[0] || null;
+  const name = person?.name || email || "Participant";
+  setText("user-name", name);
+  setText("user-email", person?.email || email || "");
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  setText("user-initials", ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase());
+
+  const latest = person?.post || person?.mid || null;
+  setText("fb-title", latest?.title || "No feedback submitted yet");
+  setText("fb-type", latest?.type || "—");
+  const right = document.querySelector(".rs-info-head .right");
+  if (right) {
+    const eyebrow = right.querySelector(".eyebrow");
+    if (eyebrow) eyebrow.textContent = latest ? `SUBMITTED ${fbDateTime(latest.at)}` : "NOT SUBMITTED";
+    const ratings = [person?.mid?.rating, person?.post?.rating].filter((n): n is number => Boolean(n && n > 0));
+    const avg = ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : 0;
+    const title = right.querySelector(".title");
+    if (title) title.textContent = avg ? `Overall Rating: ${avg}/5` : "Overall Rating: —";
+    const stars = right.querySelector(".rs-overall-stars");
+    if (stars) stars.setAttribute("aria-label", avg ? `${avg} out of 5 stars` : "No rating");
+  }
+
+  setText("event-name", event.title || "Untitled event");
+  fillLabeledFields(document, ".rs-field", eventInfoValues(event));
+
+  // Each phase card: the person's real rating, title and comment.
+  document.querySelectorAll<HTMLElement>(".rs-card").forEach((card) => {
+    const phaseEl = card.querySelector(".rs-phase");
+    if (!phaseEl) return;
+    const isMid = (phaseEl.textContent || "").toUpperCase().includes("MID");
+    const entry = isMid ? person?.mid : person?.post;
+    card.querySelectorAll(".rs-q-row, .rs-q-only, .rs-comment, .dc-rs-generated").forEach((el) => el.remove());
+    const add = (el: HTMLElement) => {
+      el.classList.add("dc-rs-generated");
+      card.appendChild(el);
+    };
+    if (!entry) {
+      const none = document.createElement("div");
+      none.className = "rs-comment";
+      none.textContent = `No ${isMid ? "mid-event" : "post-event"} feedback submitted yet.`;
+      add(none);
+      return;
+    }
+    const row = document.createElement("div");
+    row.className = "rs-q-row";
+    const q = document.createElement("p");
+    q.className = "q";
+    q.textContent = `Rating · submitted ${fbDateTime(entry.at)}`;
+    const rate = document.createElement("div");
+    rate.className = "rate";
+    const score = document.createElement("span");
+    score.className = "score";
+    score.textContent = entry.rating ? `${entry.rating}/5` : "—";
+    rate.appendChild(score);
+    row.append(q, rate);
+    add(row);
+    for (const [label, text] of [
+      ["Feedback title", entry.title],
+      ["Comment", entry.comment],
+    ] as const) {
+      const l = document.createElement("p");
+      l.className = "rs-q-only";
+      l.textContent = label;
+      add(l);
+      const c = document.createElement("div");
+      c.className = "rs-comment";
+      c.textContent = text || "—";
+      add(c);
+    }
+  });
+}
+
 // ─── helpers shared by sub-detail pages ────────────────────────────────────
 
 function setText(id: string, value: string) {
@@ -4796,13 +5102,16 @@ export function AdminOpsBridge() {
         else await updateAdminNotifBadge();
         if (pageId === "rfid17") await hydrateRfid({ light: true });
         if (pageId === "certdeets46" || pageId === "fulld46") await hydrateCertificateDetails();
+        if (pageId === "feeddeets49" || pageId === "responses50") await hydrateEventFeedbackPages(pageId);
         if (
           pageId === "feeddeets49" ||
           pageId === "cc19" ||
           pageId === "edetails14" ||
           pageId === "aed15"
         ) {
-          const eventId = new URLSearchParams(window.location.search).get("id") || "";
+          // Feedback Details is opened with ?eventId=…; the others with ?id=…
+          const query = new URLSearchParams(window.location.search);
+          const eventId = query.get("id") || query.get("eventId") || "";
           if (eventId) wireEventPdfReportButtons(eventId);
         }
         if (pageId === "report51" || pageId === "reportgen53") wireReportsDownload();
