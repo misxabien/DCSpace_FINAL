@@ -399,7 +399,8 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
 
   const setField = (label: string, value: string, scope?: ParentNode) => {
     const searchRoot = scope || root;
-    searchRoot.querySelectorAll(".field-box").forEach((box) => {
+    // .soft-box holds the long fields (Announcements) with the same label/value markup.
+    searchRoot.querySelectorAll(".field-box, .soft-box").forEach((box) => {
       const lab = box.querySelector(".label");
       if (!lab) return;
       if ((lab.textContent || "").trim().toLowerCase() !== label.toLowerCase()) return;

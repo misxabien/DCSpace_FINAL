@@ -835,24 +835,43 @@ async function hydrateReportEvents(root: ParentNode) {
 }
 
 async function hydrateRetrievedEvent(root: ParentNode) {
+  // Start from blanks: the design shipped a sample event (COMPLETE, SEMINAR,
+  // "SCEMC, CORPCOMM", "Event program flow mentioned here").
+  root.querySelectorAll(".rg-meta .value").forEach((value) => {
+    value.textContent = "—";
+  });
+  const flow = root.querySelector(".rg-flow-box p");
+  if (flow) flow.textContent = "—";
   const ids = readJson<string[]>(REPORT_STORAGE.eventIds, []);
   const eventId = ids[0];
-  if (!eventId) return;
+  const blankTitle = root.querySelector(".rg-card h3");
+  if (!eventId) {
+    if (blankTitle) blankTitle.textContent = "No event selected";
+    if (flow) flow.textContent = "Go back and choose an event to review its data.";
+    return;
+  }
   const res = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
   if (!res.ok) return;
   const payload = (await res.json()) as {
     event?: {
       title?: string;
       location?: string;
+      reservationRoomName?: string;
       status?: string;
       category?: string;
       startsAt?: string;
       endsAt?: string;
       organizerName?: string;
+      department?: string;
+      programActivities?: string[];
     };
   };
   const event = payload.event;
   if (!event) return;
+  if (flow) {
+    const steps = (event.programActivities || []).filter(Boolean);
+    flow.textContent = steps.length ? steps.join(" → ") : "No program activities listed.";
+  }
   const cardTitle = root.querySelector(".rg-card h3");
   if (cardTitle) cardTitle.textContent = event.title || "Event";
   root.querySelectorAll(".rg-meta").forEach((meta) => {
@@ -863,10 +882,10 @@ async function hydrateRetrievedEvent(root: ParentNode) {
     if (label === "END DATE") value.textContent = formatDate(event.endsAt || event.startsAt);
     if (label === "START TIME") value.textContent = formatTime(event.startsAt);
     if (label === "END TIME") value.textContent = formatTime(event.endsAt);
-    if (label === "VENUE") value.textContent = event.location || "—";
+    if (label === "VENUE") value.textContent = event.reservationRoomName || event.location || "—";
     if (label === "EVENT STATUS") value.textContent = (event.status || "—").toUpperCase();
-    if (label === "EVENT TYPE") value.textContent = event.category || "—";
-    if (label === "ORGANIZATION/COMMITTEE") value.textContent = event.organizerName || "—";
+    if (label === "EVENT TYPE") value.textContent = (event.category || "—").toUpperCase();
+    if (label === "ORGANIZATION/COMMITTEE") value.textContent = event.department || event.organizerName || "—";
   });
   await fillCollectedEventStats(root, eventId);
 }

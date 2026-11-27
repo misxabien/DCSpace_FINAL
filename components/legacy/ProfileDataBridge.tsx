@@ -123,7 +123,11 @@ function buildActivityFeed(input: {
     .map((item) => item.text);
 }
 
+/** Last profile shown, so the form can be refilled if the page recreates it. */
+let lastAppliedProfile: UserProfile | null = null;
+
 function applyProfile(profile: UserProfile) {
+  lastAppliedProfile = profile;
   const displayName = profile.fullName || `${profile.firstName} ${profile.lastName}`.trim();
   setText(".main__user-name", displayName || profile.email);
   setInputValue("#profile-name", displayName);
@@ -137,6 +141,16 @@ function applyProfile(profile: UserProfile) {
   setInputValue("#profile-org-role", org.role || "None");
   // Organization position — never the account role.
   setInputValue("#profile-org-position", org.position);
+  // RFID card: number, "Registered"/"Not Registered", and hide the "link your
+  // card" prompts when one is linked (the page otherwise kept its default).
+  const rfid = String(profile.rfidNumber || "").trim();
+  setInputValue("#profile-rfid", rfid);
+  setInputValue("#profile-rfid-status", rfid ? "Registered" : "Not Registered");
+  const banner = document.getElementById("rfid-verify-banner");
+  if (banner) banner.hidden = Boolean(rfid);
+  const panel = document.getElementById("rfid-verify-panel");
+  if (panel && rfid) panel.hidden = true;
+  if (rfid) setInputValue("#profile-rfid-verify", rfid);
   setText(
     "#profile-about-title",
     `About ${profile.firstName?.trim() || displayName.split(/\s+/)[0] || "Student"}`,
@@ -164,6 +178,31 @@ export function ProfileDataBridge() {
   // "dcspace-profile-updated" event, which used to restart this effect in a loop.
   const userName = user?.name || "";
   const userRole = user?.role || "";
+
+  // Opening/refreshing /profile directly, the page inserts its form again after
+  // its own scripts load, which wiped the values we filled (it then showed blanks
+  // or the design's sample profile). Refill whenever a fresh, empty form appears —
+  // never while the person is editing.
+  useEffect(() => {
+    let frame = 0;
+    const refill = () => {
+      frame = 0;
+      const profile = lastAppliedProfile;
+      const nameInput = document.getElementById("profile-name") as HTMLInputElement | null;
+      if (!profile || !nameInput || nameInput.value.trim()) return;
+      const editing = document.getElementById("save-profile-btn")?.classList.contains("is-editing");
+      if (editing) return;
+      applyProfile(profile);
+    };
+    const observer = new MutationObserver(() => {
+      if (!frame) frame = window.requestAnimationFrame(refill);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

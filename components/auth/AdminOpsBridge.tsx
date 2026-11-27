@@ -4014,15 +4014,39 @@ async function hydrateFbDeets01() {
     }
   }
 
-  if (!feedbackId) return;
+  // Opened from a profile ("Feedback Submitted") there is no feedback id: show
+  // that person's latest feedback instead of the design's sample card.
   const fbData = await fetchJson<{
     feedback: Array<{
       id: string; title: string; type: string; rating: number; comment: string;
       eventId: string; eventName: string; email: string; userName: string; createdAt: string;
     }>;
   }>(`/api/user/feedback?mine=0`);
-  const item = fbData?.feedback?.find((f) => f.id === feedbackId) ?? fbData?.feedback?.[0];
-  if (!item) return;
+  const list = fbData?.feedback || [];
+  let userEmail = "";
+  if (userId && !feedbackId) {
+    const userData = await fetchJson<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}`);
+    userEmail = (userData?.user?.email || "").toLowerCase();
+  }
+  const item = feedbackId
+    ? list.find((f) => f.id === feedbackId)
+    : userEmail
+      ? list
+          .filter((f) => String(f.email || "").toLowerCase() === userEmail)
+          .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))[0]
+      : undefined;
+
+  const commentEls = document.querySelectorAll<HTMLElement>("#comment, .fb-comment");
+  const eyebrow = document.querySelector(".fb-eyebrow");
+  if (!item) {
+    setText("fb-title", "No feedback submitted yet");
+    setText("fb-type", "—");
+    setText("event-name", "—");
+    commentEls.forEach((el) => (el.textContent = "—"));
+    if (eyebrow) eyebrow.textContent = "NOT SUBMITTED";
+    blankEventMeta();
+    return;
+  }
 
   setText("fb-title", item.title || "Feedback");
   setText("fb-type", item.type || "General Feedback");
@@ -4036,16 +4060,8 @@ async function hydrateFbDeets01() {
     initials.textContent = ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "U";
   }
 
-  const createdAt = item.createdAt ? new Date(item.createdAt) : null;
-  const dateStr = createdAt && !Number.isNaN(createdAt.getTime())
-    ? createdAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-    : "—";
-  setText("ev-date", dateStr);
-  setText("ev-status", "SUBMITTED");
-  setText("ev-org", "—");
-
-  const commentEl = document.getElementById("comment");
-  if (commentEl) commentEl.textContent = item.comment || "No comment provided.";
+  if (eyebrow) eyebrow.textContent = `SUBMITTED ${fbDateTime(item.createdAt)}`;
+  commentEls.forEach((el) => (el.textContent = item.comment || "No comment provided."));
 
   // update star rating display
   const starsEl = document.querySelector(".fb-stars");
@@ -4058,6 +4074,96 @@ async function hydrateFbDeets01() {
       svg.setAttribute("stroke", "currentColor");
     });
   }
+
+  // The event it was about — real date, venue, times, type, organization…
+  blankEventMeta();
+  if (item.eventId) {
+    const eventData = await fetchJson<{ event: RvEvent }>(`/api/events/${encodeURIComponent(item.eventId)}`);
+    if (eventData?.event) {
+      setText("event-name", eventData.event.title || item.eventName || "—");
+      fillRvEventMeta(eventData.event);
+    }
+  }
+}
+
+/** Event fields as /api/events/:id returns them (sanitizeEvent). */
+type RvEvent = {
+  id?: string;
+  title?: string;
+  description?: string;
+  status?: string;
+  startsAt?: string;
+  endsAt?: string;
+  location?: string;
+  reservationRoomName?: string;
+  venueType?: string;
+  category?: string;
+  department?: string;
+  organizerName?: string;
+  attendanceRequired?: string;
+  attendanceRequiredMinutes?: number;
+  gracePeriod?: string;
+  gracePeriodMinutes?: number;
+  announcements?: string;
+  speakers?: string[];
+  audienceSchools?: string[];
+  allowedCourses?: string[];
+  requiredFiles?: string[];
+  programFileName?: string;
+  conceptPaperName?: string;
+  certificateTemplateName?: string;
+  hasProgramFile?: boolean;
+  attachments?: { programFile?: string; conceptPaper?: string; certificateTemplate?: string };
+};
+
+/**
+ * Fill the "Event Information" grid (.rv-meta k/v cells), announcements and the
+ * file cards from the real event — the design shipped DRA HALL, SEMINAR,
+ * programflow.pdf, "Event announcements mentioned here"…
+ */
+function fillRvEventMeta(ev: RvEvent) {
+  const minimum =
+    ev.attendanceRequired ||
+    (ev.attendanceRequiredMinutes ? `${ev.attendanceRequiredMinutes} minutes` : "Not set");
+  const grace =
+    ev.gracePeriod || `${ev.gracePeriodMinutes && ev.gracePeriodMinutes > 0 ? ev.gracePeriodMinutes : 15} minutes`;
+  const audience = ev.audienceSchools?.length ? ev.audienceSchools : ev.allowedCourses || [];
+  const values: Record<string, string> = {
+    DATE: fbDate(ev.startsAt),
+    VENUE: ev.reservationRoomName || ev.location || "—",
+    "START TIME": fbTime(ev.startsAt),
+    "END TIME": fbTime(ev.endsAt),
+    "EVENT STATUS": fbStatusLabel(ev.status || ""),
+    "VENUE TYPE": (ev.venueType || "—").toUpperCase(),
+    "EVENT TYPE": (ev.category || "—").toUpperCase(),
+    ORGANIZATION: (ev.department || ev.organizerName || "—").toUpperCase(),
+    DURATION: fbDuration(ev.startsAt, ev.endsAt),
+    "MINIMUM ATTENDANCE": minimum.toUpperCase(),
+    "GRACE PERIOD": grace.toUpperCase(),
+    ANNOUNCEMENTS: ev.announcements || "No announcements.",
+    "EVENT SPEAKERS": (ev.speakers || []).join(", ") || "—",
+    "EVENT AUDIENCE": audience.join(", ") || "—",
+  };
+  document.querySelectorAll(".rv-meta, .vorg-announce").forEach((cell) => {
+    const key = (cell.querySelector(".k")?.textContent || "").trim().toUpperCase();
+    const value = cell.querySelector(".v");
+    if (value && key in values) value.textContent = values[key];
+  });
+  document.querySelectorAll<HTMLElement>(".rv-file-card").forEach((card) => {
+    const titleEl = card.querySelector(".title");
+    const title = (titleEl?.textContent || "").toLowerCase();
+    const fname = card.querySelector(".fname");
+    const set = (name: string | undefined, has: boolean) => {
+      if (fname) fname.textContent = has ? name || "Uploaded file" : "Not uploaded";
+    };
+    if (title.includes("program")) set(ev.programFileName, Boolean(ev.hasProgramFile || ev.attachments?.programFile));
+    else if (title.includes("concept")) set(ev.conceptPaperName, Boolean(ev.attachments?.conceptPaper));
+    else if (title.includes("certificate")) set(ev.certificateTemplateName, Boolean(ev.attachments?.certificateTemplate));
+    else if (titleEl && !fname) {
+      // Required-files card (the design's sample was "Parent's Consent Form").
+      titleEl.textContent = (ev.requiredFiles || []).join(", ") || "No required files";
+    }
+  });
 }
 
 function blankEventMeta() {
@@ -4128,6 +4234,7 @@ async function hydrateVorg36() {
   setKV(root, "ANNOUNCEMENTS", ev.announcements || "—");
   setKV(root, "EVENT SPEAKERS", ev.eventSpeakers || "—");
   setKV(root, "EVENT AUDIENCE", ev.audience || "—");
+  fillRvEventMeta(ev as unknown as RvEvent);
 
   // approval status label
   const approvalEl = document.getElementById("approval-status");
@@ -4203,6 +4310,8 @@ async function hydrateVsaved1() {
   setKV(root, "ORGANIZATION", ev.organization || "—");
   setKV(root, "DURATION", ev.duration || "—");
   setKV(root, "MINIMUM ATTENDANCE", ev.minimumAttendance || "—");
+  fillRvEventMeta(ev as unknown as RvEvent);
+  setText("ev-type", (String((ev as unknown as RvEvent).category || "") || "—").toUpperCase());
 
   setText("reg-status", "SAVED");
 }

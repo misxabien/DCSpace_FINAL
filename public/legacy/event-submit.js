@@ -54,6 +54,13 @@
     if (!event) {
       document.body.classList.add('detail-page--missing');
       setText('detail-title', 'Event Not Found');
+      // Clear the design's sample card ("Event Name", "Month 00 Year").
+      setText('detail-name', 'Event not found');
+      setText('detail-month', '');
+      setText('detail-day', '—');
+      setText('detail-year', '');
+      setText('detail-venue', '—');
+      setText('detail-time', '—');
       toggleBlock('submit-action', false);
       return;
     }

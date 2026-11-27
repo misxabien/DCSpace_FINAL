@@ -90,6 +90,21 @@ export function scrubSampleContent(root: ParentNode | null | undefined) {
     if (/^\d+$/.test((el.textContent || "").trim())) el.textContent = BLANK;
   });
 
+  // Event analytics (registration status, capacity, risk pills, AI conclusions):
+  // filled by the event-insights request, which can take 10s+ (AI). Until then the
+  // design's samples ("50 Users", "400 People", "Critical Risk", "…92%…") showed.
+  root.querySelectorAll<HTMLElement>(".metric-row .progress-fill").forEach((el) => {
+    el.textContent = "";
+    el.style.width = "0%";
+  });
+  root.querySelectorAll<HTMLElement>(".metric-row .metric-value, .metric-row .flow-pill").forEach((el) => {
+    el.textContent = BLANK;
+    el.classList.remove("bad", "warn", "good", "alert");
+  });
+  root.querySelectorAll<HTMLElement>(".ai-conclusion-box, .ai-reco-box").forEach((el) => {
+    el.textContent = "";
+  });
+
   // Admin profile "Last Password Change" shipped the placeholder word "Date".
   root.querySelectorAll<HTMLElement>(".security-sub").forEach((el) => {
     if ((el.textContent || "").trim() === "Date") el.textContent = BLANK;
