@@ -41,7 +41,8 @@ export async function createCertificateDoc(input: {
   };
   recipient: { email: string; userName: string };
   generatedBy: { email: string; name: string; role: string };
-  qualificationSource: "admin" | "attendance";
+  /** "admin-override" = issued by an admin without meeting the attendance rule. */
+  qualificationSource: "admin" | "attendance" | "admin-override";
   attendanceMinutes?: number;
 }) {
   if (!input.event.certificateTemplateBase64) {

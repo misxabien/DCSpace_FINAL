@@ -2452,11 +2452,17 @@ function paintCertificateStatuses(
 }
 
 /** Issue (or regenerate) one participant's certificate for an event. */
-async function issueCertificateFor(eventId: string, email: string, name: string, regenerate = false) {
+async function issueCertificateFor(
+  eventId: string,
+  email: string,
+  name: string,
+  regenerate = false,
+  override = false,
+) {
   const res = await fetch("/api/user/certificates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ eventId, email, name, regenerate }),
+    body: JSON.stringify({ eventId, email, name, regenerate, override }),
   });
   const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw new Error(String(payload.error || "Failed to issue certificate."));
@@ -2468,13 +2474,14 @@ async function issueCertificatesBulk(
   emails: string[],
   names: string[],
   regenerate = false,
+  override = false,
 ) {
   const res = await fetch("/api/user/certificates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(
       emails.length
-        ? { eventId, emails, name: names[0] || undefined, regenerate }
+        ? { eventId, emails, name: names[0] || undefined, regenerate, override }
         : { eventId, regenerate },
     ),
   });
@@ -2632,13 +2639,39 @@ function ensureCertificateRowActionsWired() {
 
         if (!label.includes("generate") || label.includes("stop")) return;
         const regenerate = label.includes("regenerate");
+        // Not-eligible people among the selection: the admin decides (exception).
+        const notEligible = selected.filter((input) => {
+          const row = input.closest<HTMLTableRowElement>("tr");
+          return row?.dataset.eligible !== "1" || row?.dataset.adminException === "1";
+        });
+        let override = false;
+        let sendEmails = emails;
+        let sendNames = names;
+        if (notEligible.length) {
+          override = window.confirm(
+            `${notEligible.length} of the selected participant(s) haven't met the attendance requirement ` +
+              "(tap in, tap out and the minimum attendance time).\n\n" +
+              "OK = also generate certificates for them as an admin exception.\n" +
+              "Cancel = generate only for the eligible participants.",
+          );
+          if (!override) {
+            const skip = new Set(notEligible.map((input) => input.dataset.email || ""));
+            sendEmails = emails.filter((email) => !skip.has(email));
+            sendNames = selected.filter((input) => !skip.has(input.dataset.email || "")).map((input) => input.dataset.name || "");
+            if (!sendEmails.length) {
+              window.alert("None of the selected participants are eligible, so no certificates were generated.");
+              return;
+            }
+          }
+        }
         void (async () => {
           try {
             const payload = await issueCertificatesBulk(
               eventId,
-              emails,
-              names,
+              sendEmails,
+              sendNames,
               regenerate,
+              override,
             );
             const painted = collectCertificateResults(payload);
             if (painted.length) paintCertificateStatuses(painted);
@@ -2735,15 +2768,23 @@ function ensureCertificateRowActionsWired() {
       }
       if (!label.includes("generate") || !eventId) return;
       const regenerate = label.includes("regenerate");
-      if (!eligible && !regenerate) {
-        window.alert(
-          `${userName} is not eligible yet. They must tap out and meet the minimum attendance time.`,
+      // Certificates are for participants who met the attendance rule; anyone
+      // else needs the admin to confirm an exception (e.g. attended but never
+      // tapped out). Regenerating an earlier exception keeps it an exception.
+      const wasException = tr?.dataset.adminException === "1";
+      let override = wasException;
+      if (!eligible && !wasException) {
+        const reason = tr?.dataset.reason || "";
+        override = window.confirm(
+          `${userName} hasn't met the attendance requirement yet${reason ? ` (${reason})` : ""}.\n\n` +
+            "Certificates are meant for participants who tapped in, tapped out and met the minimum attendance time.\n\n" +
+            `Generate a certificate for ${userName} anyway as an admin exception?`,
         );
-        return;
+        if (!override) return;
       }
       void (async () => {
         try {
-          const payload = await issueCertificateFor(eventId, email, userName, regenerate);
+          const payload = await issueCertificateFor(eventId, email, userName, regenerate, override);
           const painted = collectCertificateResults(payload);
           if (painted.length) paintCertificateStatuses(painted);
           else paintCertificateStatuses([{ email, status: "Issued" }]);
@@ -2797,6 +2838,7 @@ async function hydrateCertificateDetails() {
         studentNumber?: string;
         course?: string;
         school?: string;
+        qualificationSource?: string;
       }>;
     }>(
       eventId
@@ -2950,6 +2992,7 @@ async function hydrateCertificateDetails() {
     bestMinutes: number;
     qualified: boolean;
     reason: string;
+    adminException: boolean;
   };
 
   // Same rule the server uses to issue certificates (getCertificateEligibility):
@@ -2976,6 +3019,7 @@ async function hydrateCertificateDetails() {
       bestMinutes: 0,
       qualified: false,
       reason: "",
+      adminException: false,
     };
     if (String(row.action || "") === "out") {
       existing.tappedOut = true;
@@ -3013,9 +3057,13 @@ async function hydrateCertificateDetails() {
       bestMinutes: 0,
       qualified: true,
       reason: "",
+      adminException: false,
     };
     existing.status = certStatusLabel(cert.status || "generated");
-    existing.reason = "Certificate already issued.";
+    existing.adminException = String(cert.qualificationSource || "") === "admin-override";
+    existing.reason = existing.adminException
+      ? "Issued by an admin as an exception (attendance requirement not met)."
+      : "Certificate already issued.";
     existing.downloadUrl = cert.downloadUrl || "";
     existing.userName = cert.userName || existing.userName;
     existing.studentNumber = cert.studentNumber || existing.studentNumber;
@@ -3065,7 +3113,7 @@ async function hydrateCertificateDetails() {
     if (cells[3]) cells[3].textContent = courseLabel(row.course) || "—";
     if (cells[4]) cells[4].textContent = schoolLabel(row.school) || "—";
     if (cells[5]) {
-      cells[5].textContent = row.eligible ? "Eligible" : "Not eligible";
+      cells[5].textContent = row.adminException ? "Admin exception" : row.eligible ? "Eligible" : "Not eligible";
       // Hover shows why (e.g. "Stayed 12 of the required 30 minutes.").
       if (row.reason) cells[5].setAttribute("title", row.reason);
       else cells[5].removeAttribute("title");
@@ -3078,6 +3126,8 @@ async function hydrateCertificateDetails() {
     tr.dataset.downloadUrl = row.downloadUrl;
     tr.dataset.eligible = row.eligible ? "1" : "0";
     tr.dataset.certStatus = row.status;
+    tr.dataset.reason = row.reason || "";
+    tr.dataset.adminException = row.adminException ? "1" : "0";
     // Every row starts as "Preview" (the Figma demo rows had other labels).
     const toggle = tr.querySelector<HTMLElement>("[data-action-toggle]");
     if (toggle) {

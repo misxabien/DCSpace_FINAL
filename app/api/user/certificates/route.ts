@@ -70,6 +70,7 @@ export async function GET(request: Request) {
           status: 1,
           category: 1,
           distributedAt: 1,
+          qualificationSource: 1,
         },
       })
       .sort({ createdAt: -1 })
@@ -91,6 +92,7 @@ export async function GET(request: Request) {
         status: String(doc.status || "generated"),
         category: String(doc.category || "cert-month"),
         distributedAt: String(doc.distributedAt || ""),
+        qualificationSource: String(doc.qualificationSource || ""),
         downloadUrl: certificateDownloadUrl(String(doc._id)),
       })),
     });
@@ -128,6 +130,12 @@ export async function POST(request: Request) {
     name?: string;
     emails?: string[];
     regenerate?: boolean;
+    /**
+     * Admin exception: issue even when the participant didn't tap out / meet
+     * the minimum time (e.g. they attended but never tapped out). The admin
+     * confirms this in the UI; the certificate is marked "admin-override".
+     */
+    override?: boolean;
   };
   try {
     body = await request.json();
@@ -161,6 +169,7 @@ export async function POST(request: Request) {
     }
 
     const regenerate = Boolean(body.regenerate);
+    const override = body.override === true;
     const requiredMinutes = resolveRequiredAttendanceMinutes(event);
     const requestedEmails = Array.isArray(body.emails)
       ? body.emails.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
@@ -237,6 +246,7 @@ export async function POST(request: Request) {
     const created = [];
     const skipped = [];
     const ineligible = [];
+    let exceptions = 0;
     for (const target of targets) {
       const eligibility = await getCertificateEligibility({
         userDb,
@@ -244,7 +254,8 @@ export async function POST(request: Request) {
         email: target.email,
         requiredMinutes,
       });
-      if (!eligibility.eligible) {
+      const asException = !eligibility.eligible && override;
+      if (!eligibility.eligible && !asException) {
         ineligible.push({
           email: target.email,
           userName: target.userName,
@@ -292,9 +303,10 @@ export async function POST(request: Request) {
           userName: target.userName,
         },
         generatedBy: auth.session,
-        qualificationSource: "admin",
+        qualificationSource: asException ? "admin-override" : "admin",
         attendanceMinutes: eligibility.attendanceMinutes,
       });
+      if (asException) exceptions += 1;
 
       // Enrich stored certificate with school identity fields for admin tables.
       await certificatesCollection(userDb).updateOne(
@@ -304,6 +316,13 @@ export async function POST(request: Request) {
             studentNumber: target.studentNumber || "",
             course: target.course || "",
             school: target.school || "",
+            ...(asException
+              ? {
+                  overrideReason: eligibility.reason,
+                  overrideBy: auth.session.email,
+                  overrideAt: new Date().toISOString(),
+                }
+              : {}),
           },
         },
       );
@@ -319,6 +338,7 @@ export async function POST(request: Request) {
     const parts = [
       `Issued ${created.length} certificate(s) for "${event.title}".`,
     ];
+    if (exceptions) parts.push(`${exceptions} issued as an admin exception.`);
     if (skipped.length) parts.push(`${skipped.length} already had a certificate.`);
     if (ineligible.length) {
       parts.push(
