@@ -103,7 +103,8 @@ export async function GET(request: Request) {
     const collection = db.collection("users");
     const total = await collection.countDocuments(filter);
     const docs = await collection
-      .find(filter)
+      // The user lists never show photos (stored inline, tens of KB each).
+      .find(filter, { projection: { passwordHash: 0, photoUrl: 0, bannerUrl: 0 } })
       .sort({ createdAt: -1 })
       .limit(limit)
       .toArray();

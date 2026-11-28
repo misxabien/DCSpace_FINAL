@@ -28,9 +28,14 @@ export async function GET(request: Request) {
     }
 
     const docs = await usersCollection(db)
-      .find(filter)
+      // Only what the invite list shows (photos are stored inline and are large).
+      .find(filter, {
+        projection: { email: 1, firstName: 1, lastName: 1, studentNumber: 1, course: 1, organizationPart: 1, role: 1 },
+      })
       .sort({ lastName: 1, firstName: 1 })
-      .limit(200)
+      // The whole directory: the invite table searches and paginates it in the
+      // browser, so a 200 cap hid everyone after the first 200 names.
+      .limit(5000)
       .toArray();
 
     return NextResponse.json({

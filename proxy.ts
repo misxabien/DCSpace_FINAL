@@ -35,9 +35,32 @@ function enforceOrganized(request: NextRequest) {
   return NextResponse.next();
 }
 
+function redirectTo(request: NextRequest, pathname: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
+
+/**
+ * Opening a portal's front door while already signed in goes to its home page
+ * instead of the login form. Only the entry paths ("/" and "/admin") do this —
+ * the login pages themselves stay reachable, so an account whose session is
+ * refused later (suspended, deleted) never bounces in a loop.
+ */
+function signedInEntry(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (pathname !== "/" && pathname !== "/admin") return null;
+  const user = decodeSession(request.cookies.get(SESSION_COOKIE)?.value);
+  if (!user) return null;
+  if (pathname === "/admin") return user.isAdmin ? redirectTo(request, "/admin/home12") : null;
+  return user.isAdmin ? null : redirectTo(request, "/home");
+}
+
 function enforceAdmin(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const user = decodeSession(request.cookies.get(SESSION_COOKIE)?.value);
+  if (pathname === "/admin" && user?.isAdmin) return redirectTo(request, "/admin/home12");
 
   const isPublic =
     ADMIN_PUBLIC.has(pathname) || pathname.startsWith("/admin/login02");
@@ -118,10 +141,12 @@ export function proxy(request: NextRequest) {
     if (pathname.startsWith("/organized")) {
       return enforceOrganized(request);
     }
-    return NextResponse.next();
+    return signedInEntry(request) || NextResponse.next();
   }
 
   // Dual-path mode (hosts unset or unmatched — e.g. local / preview URL).
+  const entry = signedInEntry(request);
+  if (entry) return entry;
   if (pathname.startsWith("/organized")) {
     return enforceOrganized(request);
   }

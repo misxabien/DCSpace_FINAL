@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrganizedEventHeader } from "@/components/organized/OrganizedEventHeader";
+import { FilterMenu, courseOptions } from "@/components/organized/FilterMenu";
 import type { OrganizedEventDetail } from "@/lib/organizedEventDetails";
 import type { EventRegistration } from "@/lib/organizedRegistrations";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
@@ -29,15 +30,19 @@ export function OrganizedRegistrationsView({
   const [query, setQuery] = useState("");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
+  const [courses, setCourses] = useState<string[]>([]);
+  const courseChoices = useMemo(() => courseOptions(registrations.map((row) => row.course)), [registrations]);
 
   const filtered = useMemo(() => {
-    const rows = registrations.filter((row) => matchesQuery(row, query.trim()));
+    const rows = registrations.filter(
+      (row) => matchesQuery(row, query.trim()) && (!courses.length || courses.includes(String(row.course || "").trim())),
+    );
     rows.sort((a, b) => {
       const cmp = a.studentName.localeCompare(b.studentName);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [registrations, query, sortDir]);
+  }, [registrations, query, sortDir, courses]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -74,11 +79,16 @@ export function OrganizedRegistrationsView({
               placeholder="Search"
               aria-label="Search registrations"
             />
-            <button type="button" className={styles.filterBtn} aria-label="Filter registrations">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M4 6h16M7 12h10M10 18h4" />
-              </svg>
-            </button>
+            <FilterMenu
+              label="Filter registrations"
+              options={courseChoices}
+              selected={courses}
+              onChange={(next) => {
+                setCourses(next);
+                setPage(1);
+              }}
+              buttonClassName={styles.filterBtn}
+            />
           </div>
         </div>
 

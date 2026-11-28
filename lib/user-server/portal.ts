@@ -2,6 +2,7 @@ import type { Db } from "mongodb";
 import { getUserDb } from "@/lib/user-server/get-user-db";
 import { usersCollection } from "@/lib/db/user-collections";
 import { escapeRegex } from "@/lib/events/ownership";
+import { CASE_INSENSITIVE } from "@/lib/db/indexes";
 
 export type NotificationDoc = {
   email: string;
@@ -49,12 +50,16 @@ export async function notifyUser(
 
     // Avoid duplicate invitation / status spam for the same event + type.
     if (input.eventId && input.type) {
-      const existing = await col.findOne({
-        email,
-        eventId: String(input.eventId),
-        type: String(input.type),
-        archived: { $ne: true },
-      });
+      const existing = await col.findOne(
+        {
+          email,
+          eventId: String(input.eventId),
+          type: String(input.type),
+          archived: { $ne: true },
+        },
+        // Uses the email index; publishing to every student checks this per student.
+        { collation: CASE_INSENSITIVE },
+      );
       if (existing) return;
     }
 
@@ -152,24 +157,22 @@ export async function ensureStudentNotifications(email: string) {
   ensureStudentNotificationsCache.set(cacheKey, now);
 
   const db = await getUserDb();
-  const emailFilter = {
-    $regex: `^${escapeRegex(normalized)}$`,
-    $options: "i",
-  };
+  // Exact match + case-insensitive collation → indexed lookups (no full scans).
+  const byEmail = { collation: CASE_INSENSITIVE };
   const col = notificationsCollection(db);
 
   const [invites, user, existing] = await Promise.all([
     invitationsCollection(db)
-      .find({ email: emailFilter })
+      .find({ email: normalized }, byEmail)
       .sort({ createdAt: -1 })
       .limit(50)
       .toArray(),
     usersCollection(db).findOne(
-      { email: emailFilter },
-      { projection: { organizationPart: 1, email: 1 } },
+      { email: normalized },
+      { projection: { organizationPart: 1, email: 1 }, ...byEmail },
     ),
     col
-      .find({ email: emailFilter })
+      .find({ email: normalized }, byEmail)
       .project({ eventId: 1, type: 1 })
       .limit(300)
       .toArray(),

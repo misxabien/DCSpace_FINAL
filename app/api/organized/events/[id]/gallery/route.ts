@@ -5,6 +5,7 @@ import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { eventGalleryCollection } from "@/lib/db/user-collections";
 import { eventOwnedBy } from "@/lib/events/ownership";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -15,7 +16,11 @@ async function requireOrganizer(eventId: string, email: string, userId?: string)
   const userDb = await getUserDb();
   const adminDb = await getAdminDb();
   if (!ObjectId.isValid(eventId)) return { error: "Invalid event id.", status: 400 } as const;
-  const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(eventId) });
+  const event = await eventsCollection(adminDb).findOne(
+    { _id: new ObjectId(eventId) },
+    // Ownership check only — skip the poster / template / paper files.
+    { projection: EVENT_LIST_PROJECTION },
+  );
   if (!event) return { error: "Event not found.", status: 404 } as const;
   if (!eventOwnedBy(event, email, userId)) {
     return { error: "Forbidden.", status: 403 } as const;

@@ -7,6 +7,7 @@ import { eventOwnedBy } from "@/lib/events/ownership";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { checkOrganizerAccess } from "@/lib/user-server/organizer-access";
+import { EVENT_LIST_PROJECTION } from "@/lib/events/list-projection";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -29,7 +30,11 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const userDb = await getUserDb();
     const adminDb = await getAdminDb();
-    const event = await eventsCollection(adminDb).findOne({ _id: new ObjectId(id) });
+    const event = await eventsCollection(adminDb).findOne(
+      { _id: new ObjectId(id) },
+      // Ownership check only — skip the poster / template / paper files.
+      { projection: EVENT_LIST_PROJECTION },
+    );
     if (!event) {
       return NextResponse.json({ error: "Event not found." }, { status: 404 });
     }

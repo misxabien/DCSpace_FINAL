@@ -181,7 +181,9 @@ export async function GET(request: Request) {
         lastLoginAt: { $gte: weekAgo },
       }),
       usersCol
-        .find({ role: { $nin: ["admin", "super-admin"] } })
+        // Photos are stored as data URLs (tens of KB each) and the lists here never
+        // show them; leaving them out keeps this response small on every admin page.
+        .find({ role: { $nin: ["admin", "super-admin"] } }, { projection: { passwordHash: 0, photoUrl: 0, bannerUrl: 0 } })
         .sort({ createdAt: -1 })
         .limit(100)
         .toArray(),
@@ -213,7 +215,7 @@ export async function GET(request: Request) {
       feedbackCol.countDocuments({}),
       certificatesCol.countDocuments({}),
       attendanceCol.find({}).sort({ createdAt: -1 }).limit(20).toArray(),
-      feedbackCol.find({}).sort({ createdAt: -1 }).limit(20).toArray(),
+      feedbackCol.find({}, { projection: { media: 0 } }).sort({ createdAt: -1 }).limit(20).toArray(),
     ]);
 
     const attendanceRate =

@@ -7,6 +7,7 @@ import {
   type InviteCandidate,
 } from "@/lib/organizedInvitations";
 import { toggleEventInvitationLive } from "@/lib/organized/live";
+import { FilterMenu, courseOptions } from "@/components/organized/FilterMenu";
 import styles from "@/components/organized/OrganizedInvitations.module.css";
 
 const PAGE_SIZE = 10;
@@ -77,17 +78,22 @@ export function InvitationTable({
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [courses, setCourses] = useState<string[]>([]);
+  const courseChoices = useMemo(() => courseOptions(candidates.map((row) => row.course)), [candidates]);
 
   const filtered = useMemo(() => {
     const rows = candidates.filter(
-      (row) => matchesQuery(row, query.trim()) && matchesFilters(row, activeFilters)
+      (row) =>
+        matchesQuery(row, query.trim()) &&
+        matchesFilters(row, activeFilters) &&
+        (!courses.length || courses.includes(String(row.course || "").trim()))
     );
     rows.sort((a, b) => {
       const cmp = a.name.localeCompare(b.name);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [candidates, query, sortDir, activeFilters]);
+  }, [candidates, query, sortDir, activeFilters, courses]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -210,11 +216,16 @@ export function InvitationTable({
               placeholder="Search"
               aria-label={`Search ${title.toLowerCase()}`}
             />
-            <button type="button" className={styles.filterBtn} aria-label={`Filter ${title.toLowerCase()}`}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M4 6h16M7 12h10M10 18h4" />
-              </svg>
-            </button>
+            <FilterMenu
+              label={`Filter ${title.toLowerCase()}`}
+              options={courseChoices}
+              selected={courses}
+              onChange={(next) => {
+                setCourses(next);
+                setPage(1);
+              }}
+              buttonClassName={styles.filterBtn}
+            />
           </div>
         </div>
       </div>

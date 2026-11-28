@@ -1,12 +1,17 @@
 import type { Db } from "mongodb";
 import { connectMongo } from "@/lib/user-server/mongo-connect";
+import { ensureIndexes } from "@/lib/db/indexes";
 
 let connectPromise: Promise<{ userDb: Db; adminDb: Db }> | null = null;
 
 async function resolveDbs(): Promise<{ userDb: Db; adminDb: Db }> {
   if (!connectPromise) {
     connectPromise = connectMongo()
-      .then(({ userDb, adminDb }) => ({ userDb, adminDb }))
+      .then(({ userDb, adminDb }) => {
+        // Background, once per server start: requests never wait on it.
+        void ensureIndexes(userDb, adminDb);
+        return { userDb, adminDb };
+      })
       .catch((error) => {
         connectPromise = null;
         throw error;

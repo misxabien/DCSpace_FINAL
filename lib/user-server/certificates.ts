@@ -1,7 +1,6 @@
 import type { Db } from "mongodb";
 import { certificatesCollection, logUserActivity } from "@/lib/user-server/activity";
 import { notifyUser } from "@/lib/user-server/portal";
-import { buildCertificatePdfFromTemplate } from "@/lib/certificates/template";
 import { inferCertificateCategory } from "@/lib/certificates/duration";
 
 export type StoredCertificateDoc = {
@@ -55,12 +54,9 @@ export async function createCertificateDoc(input: {
     day: "numeric",
     year: "numeric",
   });
-  const generatedPdfBase64 = await buildCertificatePdfFromTemplate({
-    templateBase64: input.event.certificateTemplateBase64,
-    recipientName: input.recipient.userName,
-    eventName: input.event.title,
-    dateIssued,
-  });
+  // The PDF is built from the event's template when it is downloaded. Storing a
+  // copy per student saved a full template (often 1–3 MB) for every certificate,
+  // filling the database and making bulk issuing very slow.
   const doc: StoredCertificateDoc = {
     name: "Certificate of Participation",
     eventId: input.event.id,
@@ -72,14 +68,13 @@ export async function createCertificateDoc(input: {
     category: inferCertificateCategory(input.event.startsAt || now),
     createdAt: now,
     generatedBy: input.generatedBy.email,
-    generatedPdfBase64,
     generatedPdfMimeType: "application/pdf",
     generatedPdfFileName: `${input.event.title || "certificate"} - ${
       input.recipient.userName || input.recipient.email
     }.pdf`,
     qualificationSource: input.qualificationSource,
     attendanceMinutes: input.attendanceMinutes,
-    layoutVersion: 2,
+    layoutVersion: 3,
   };
   const result = await certificatesCollection(input.db).insertOne({
     ...doc,

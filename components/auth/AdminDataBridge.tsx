@@ -2023,7 +2023,8 @@ export function AdminDataBridge() {
     let liveEventsPainted = false;
     if (EVENT_LIST_PAGES.has(pageId)) {
       try {
-        const eventsRes = await fetch("/api/events?limit=150", {
+        // Server maximum: with more events than this, older ones would drop off the lists.
+        const eventsRes = await fetch("/api/events?limit=500", {
           cache: "no-store",
           credentials: "include",
         });

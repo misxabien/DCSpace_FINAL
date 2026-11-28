@@ -6,7 +6,7 @@ import {
   notificationsCollection,
 } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
-import { escapeRegex } from "@/lib/events/ownership";
+import { CASE_INSENSITIVE } from "@/lib/db/indexes";
 
 function isReminder(doc: { type?: string; title?: string }) {
   const type = String(doc.type || "").toLowerCase();
@@ -37,8 +37,9 @@ export async function GET(request: Request) {
       await ensureStudentNotifications(email);
     }
 
+    // Exact match + case-insensitive collation → uses the email index.
     const docs = await notificationsCollection(db)
-      .find({ email: { $regex: `^${escapeRegex(email)}$`, $options: "i" } })
+      .find({ email }, { collation: CASE_INSENSITIVE })
       .sort({ createdAt: -1 })
       .limit(100)
       .toArray();
@@ -91,12 +92,11 @@ export async function PATCH(request: Request) {
     const email = actor.email.trim().toLowerCase();
     const db = await getUserDb();
     const col = notificationsCollection(db);
-    const emailFilter = { $regex: `^${escapeRegex(email)}$`, $options: "i" };
-
     if (body.markAllRead) {
       await col.updateMany(
-        { email: emailFilter, read: { $ne: true } },
+        { email, read: { $ne: true } },
         { $set: { read: true } },
+        { collation: CASE_INSENSITIVE },
       );
       return NextResponse.json({ ok: true });
     }

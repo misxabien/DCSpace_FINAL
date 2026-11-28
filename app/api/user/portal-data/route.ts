@@ -5,7 +5,7 @@ import { compareEventsForDisplay } from "@/lib/events/map-event";
 import { PORTAL_EVENT_PROJECTION } from "@/lib/events/list-projection";
 import { findEventsSorted } from "@/lib/events/events-query";
 import { findEventsByIds, mergeEventDocs, type EventDoc } from "@/lib/events/find-event";
-import { escapeRegex } from "@/lib/events/ownership";
+import { CASE_INSENSITIVE } from "@/lib/db/indexes";
 import { PUBLIC_EVENT_STATUSES } from "@/lib/events/public-status";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { savedEventsCollection } from "@/lib/db/user-collections";
@@ -22,7 +22,8 @@ export async function GET(request: Request) {
   }
 
   const email = actor.email.trim().toLowerCase();
-  const emailFilter = { $regex: `^${escapeRegex(email)}$`, $options: "i" };
+  // Exact match + case-insensitive collation → indexed lookups (no full scans).
+  const byEmail = { collation: CASE_INSENSITIVE };
 
   try {
     const [userDb, adminDb] = await Promise.all([getUserDb(), getAdminDb()]);
@@ -42,23 +43,23 @@ export async function GET(request: Request) {
           limit: 500,
         }),
         registrationsCollection(userDb)
-          .find({ email: emailFilter })
+          .find({ email }, byEmail)
           .project({ eventId: 1, status: 1, eventTitle: 1, createdAt: 1 })
           .sort({ createdAt: -1 })
           .limit(500)
           .toArray(),
         invitationsCollection(userDb)
-          .find({ email: emailFilter })
+          .find({ email }, byEmail)
           .project({ eventId: 1, eventTitle: 1, status: 1, createdAt: 1 })
           .sort({ createdAt: -1 })
           .limit(500)
           .toArray(),
         savedEventsCollection(userDb).findOne(
-          { email: emailFilter },
-          { projection: { eventIds: 1 } },
+          { email },
+          { projection: { eventIds: 1 }, ...byEmail },
         ),
         attendanceCollection(userDb)
-          .find({ email: emailFilter })
+          .find({ email }, byEmail)
           .sort({ scannedAt: -1, createdAt: -1 })
           .limit(200)
           .toArray(),

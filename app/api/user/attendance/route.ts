@@ -7,12 +7,9 @@ import {
   AttendanceError,
   recordAttendanceTap,
 } from "@/lib/user-server/record-attendance";
+import { CASE_INSENSITIVE } from "@/lib/db/indexes";
 
 export const dynamic = "force-dynamic";
-
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function pairSessions(
   docs: Array<{
@@ -119,12 +116,14 @@ export async function GET(request: Request) {
           ? emailParam.trim().toLowerCase()
           : "";
     if (email) {
-      // Case-insensitive match so RFID-linked rows always show for the user account.
-      filter.email = { $regex: `^${escapeRegex(email)}$`, $options: "i" };
+      // Case-insensitive match (collation + email index) so RFID-linked rows
+      // always show for the user account without scanning every tap.
+      filter.email = email;
     }
 
     const docs = await attendanceCollection(db)
       .find(filter, {
+        ...(email ? { collation: CASE_INSENSITIVE } : {}),
         projection: {
           eventId: 1,
           eventTitle: 1,

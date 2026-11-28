@@ -6,8 +6,23 @@ import { findEventById } from "@/lib/events/find-event";
 import { sanitizeEvent } from "@/lib/events/types";
 import { attendanceRequirementLabel, gracePeriodLabel } from "@/lib/events/map-event";
 import { courseLabel } from "@/lib/labels/academic";
+import { eventsCollection } from "@/lib/events/types";
+import { contentDisposition } from "@/lib/http/content-disposition";
+import {
+  buildEventFeedbackCsv,
+  buildEventFeedbackPdf,
+  feedbackExportFileName,
+} from "@/lib/admin/event-feedback-export";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+/** Admin switch on the Feedback Details page; "open" unless paused/closed. */
+const FEEDBACK_STATUSES = ["open", "paused", "closed"] as const;
+type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
+const readFeedbackStatus = (doc: unknown): FeedbackStatus => {
+  const value = String((doc as { feedbackStatus?: unknown })?.feedbackStatus || "").toLowerCase();
+  return (FEEDBACK_STATUSES as readonly string[]).includes(value) ? (value as FeedbackStatus) : "open";
+};
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +52,9 @@ export async function GET(request: Request, context: RouteContext) {
   if (!ObjectId.isValid(id)) {
     return NextResponse.json({ error: "Invalid event id." }, { status: 400 });
   }
-  const onlyEmail = String(new URL(request.url).searchParams.get("email") || "").trim().toLowerCase();
+  const searchParams = new URL(request.url).searchParams;
+  const onlyEmail = String(searchParams.get("email") || "").trim().toLowerCase();
+  const format = String(searchParams.get("format") || "").toLowerCase();
 
   try {
     const { event: doc, userDb } = await findEventById(id);
@@ -123,7 +140,35 @@ export async function GET(request: Request, context: RouteContext) {
       };
     };
 
+    const feedbackStatus = readFeedbackStatus(doc);
+    if (format === "csv" || format === "pdf") {
+      const input = {
+        event: {
+          title: String(event.title || ""),
+          startsAt: String(event.startsAt || ""),
+          venue: String(event.reservationRoomName || event.location || ""),
+          status: String(event.status || ""),
+        },
+        feedbackStatus,
+        registered,
+        midEvent: summarize("mid"),
+        postEvent: summarize("post"),
+        participants: all,
+      };
+      const title = String(event.title || "event");
+      const body = format === "csv" ? buildEventFeedbackCsv(input) : await buildEventFeedbackPdf(input);
+      return new NextResponse(body, {
+        status: 200,
+        headers: {
+          "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/pdf",
+          "Content-Disposition": contentDisposition("attachment", feedbackExportFileName(title, format as "csv" | "pdf")),
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+
     return NextResponse.json({
+      feedbackStatus,
       event: {
         id,
         title: String(event.title || ""),
@@ -146,5 +191,44 @@ export async function GET(request: Request, context: RouteContext) {
   } catch (error) {
     const details = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to load event feedback.", details }, { status: 500 });
+  }
+}
+
+/** Open, pause or close an event's surveys (Feedback Details → Admin Actions). */
+export async function PATCH(request: Request, context: RouteContext) {
+  const auth = await requireAdminAuth(request);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const denied = await requireAdminPermission(auth, "view-feedback");
+  if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+
+  const { id } = await context.params;
+  if (!ObjectId.isValid(id)) {
+    return NextResponse.json({ error: "Invalid event id." }, { status: 400 });
+  }
+  let body: { feedbackStatus?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  const next = String(body.feedbackStatus || "").toLowerCase();
+  if (!(FEEDBACK_STATUSES as readonly string[]).includes(next)) {
+    return NextResponse.json({ error: "Feedback status must be open, paused or closed." }, { status: 400 });
+  }
+
+  try {
+    const { event, adminDb, userDb, source } = await findEventById(id);
+    if (!event) return NextResponse.json({ error: "Event not found." }, { status: 404 });
+    const now = new Date().toISOString();
+    await eventsCollection(source === "user" ? userDb : adminDb).updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { feedbackStatus: next, feedbackStatusBy: auth.session.email, feedbackStatusAt: now } },
+    );
+    return NextResponse.json({ ok: true, feedbackStatus: next });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: "Failed to update feedback status.", details }, { status: 500 });
   }
 }

@@ -111,6 +111,19 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    // Admins can pause or close an event's surveys from Feedback Details.
+    const feedbackStatus = String((event as { feedbackStatus?: unknown }).feedbackStatus || "").toLowerCase();
+    if (feedbackStatus === "paused" || feedbackStatus === "closed") {
+      return NextResponse.json(
+        {
+          error:
+            feedbackStatus === "paused"
+              ? "Feedback for this event is paused for now. Please try again later."
+              : "Feedback for this event is closed.",
+        },
+        { status: 409 },
+      );
+    }
     const db = await getUserDb();
     const registered = await registrationsCollection(db).findOne({
       eventId,

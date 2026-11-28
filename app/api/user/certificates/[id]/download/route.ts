@@ -53,10 +53,11 @@ export async function GET(request: Request, context: RouteContext) {
     const dateIssued = String(cert.dateIssued || "");
     const layoutVersion = Number(cert.layoutVersion || 0);
 
-    // Rebuild once from the live event template so older certificates pick up
-    // the corrected name placement, then cache the result.
+    // Built from the event's template: certificates issued now keep no stored
+    // copy, and older ones are rebuilt so they get the corrected name placement.
+    // Nothing is written back — one stored copy per student filled the database.
     if (
-      layoutVersion < 2 &&
+      (!base64 || layoutVersion < 2) &&
       recipientName &&
       eventId &&
       ObjectId.isValid(eventId)
@@ -75,16 +76,6 @@ export async function GET(request: Request, context: RouteContext) {
             eventName: String(cert.eventName || event?.title || ""),
             dateIssued,
           });
-          await db.collection("certificates").updateOne(
-            { _id: cert._id },
-            {
-              $set: {
-                generatedPdfBase64: base64,
-                generatedPdfMimeType: "application/pdf",
-                layoutVersion: 2,
-              },
-            },
-          );
         }
       } catch {
         // Fall through to the stored PDF if rebuild fails.

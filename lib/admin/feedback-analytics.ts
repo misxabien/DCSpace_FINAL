@@ -153,15 +153,19 @@ export async function loadFeedbackAnalytics(
 ): Promise<FeedbackAnalytics> {
   const database = db || (await getUserDb());
   const [feedbackDocsRaw, registrationDocsRaw, eventDocs, users] = await Promise.all([
-    feedbackCollection(database).find({}).sort({ createdAt: -1 }).limit(1000).toArray() as Promise<
-      FeedbackDoc[]
-    >,
+    // Only the fields used below: uploaded photos, registration files and event
+    // attachments (posters, templates) can be megabytes each.
+    feedbackCollection(database)
+      .find({}, { projection: { media: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(1000)
+      .toArray() as Promise<FeedbackDoc[]>,
     registrationsCollection(database)
-      .find({ status: { $in: ["joined", "approved"] } })
+      .find({ status: { $in: ["joined", "approved"] } }, { projection: { eventId: 1, email: 1 } })
       .limit(5000)
       .toArray(),
     eventsCollection(database)
-      .find({ status: { $in: ["approved", "live", "completed"] } })
+      .find({ status: { $in: ["approved", "live", "completed"] } }, { projection: { title: 1, status: 1 } })
       .sort({ updatedAt: -1 })
       .limit(200)
       .toArray(),

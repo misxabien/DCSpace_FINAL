@@ -3558,6 +3558,7 @@ function wireUser27Views(root: Element) {
 
 type FeedbackPhaseEntry = { at: string; rating: number; title: string; type: string; comment: string };
 type EventFeedbackPayload = {
+  feedbackStatus?: "open" | "paused" | "closed";
   event: {
     id: string;
     title: string;
@@ -3659,7 +3660,9 @@ function paintRing(item: HTMLElement, pct: number, text: string, note: string) {
   if (noteEl) noteEl.textContent = note;
 }
 
-function feedbackStatusText(status: string) {
+function feedbackStatusText(status: string, feedbackStatus = "open") {
+  if (feedbackStatus === "paused") return "Paused by admin";
+  if (feedbackStatus === "closed") return "Closed by admin";
   const s = String(status || "").toLowerCase();
   if (s === "live") return "Collecting mid-event feedback";
   if (s === "completed") return "Collecting post-event feedback";
@@ -3735,7 +3738,7 @@ function fillFeedbackDetails(data: EventFeedbackPayload) {
       if (v) v.textContent = `${stats.responses}/${data.registered}`;
     } else if (key.includes("feedback status")) {
       const v = block.querySelector(".v");
-      if (v) v.textContent = feedbackStatusText(event.status);
+      if (v) v.textContent = feedbackStatusText(event.status, data.feedbackStatus);
     } else if (key.includes("feedback")) {
       const score = block.querySelector(".score");
       if (score) score.textContent = stats.averageRating ? `${stats.averageRating}/5` : "—";
@@ -3784,6 +3787,137 @@ function fillFeedbackDetails(data: EventFeedbackPayload) {
   } else if (data.participants.length && empty) {
     empty.remove();
   }
+  wireFeedbackAdminActions(data);
+}
+
+const FD_STATUS_LABEL: Record<string, string> = { open: "Open", paused: "Pause", closed: "Close" };
+let fdActionState: { eventId: string; title: string; eventStatus: string; feedbackStatus: string } | null = null;
+
+function fdMiniSet(wrap: Element, label: string) {
+  const toggle = wrap.querySelector<HTMLElement>("[data-mini-toggle]");
+  const svg = toggle?.querySelector("svg");
+  if (toggle) {
+    toggle.textContent = `${label} `;
+    if (svg) toggle.appendChild(svg);
+    toggle.setAttribute("aria-expanded", "false");
+  }
+  wrap.querySelectorAll(".fd-mini-menu button").forEach((b) => {
+    b.classList.toggle("is-active", (b.textContent || "").trim() === label);
+  });
+  wrap.classList.remove("open");
+}
+
+/**
+ * Feedback Details → Admin Actions. Feedback Status opens/pauses/closes the
+ * event's surveys; Export downloads every participant's answers as CSV or PDF.
+ */
+function wireFeedbackAdminActions(data: EventFeedbackPayload) {
+  fdActionState = {
+    eventId: data.event.id,
+    title: data.event.title || "this event",
+    eventStatus: data.event.status,
+    feedbackStatus: data.feedbackStatus || "open",
+  };
+  const rows = Array.from(document.querySelectorAll<HTMLElement>(".fd-actions .fd-action-row"));
+  const statusRow = rows.find((r) => /feedback status/i.test(r.querySelector(".k")?.textContent || ""));
+  const exportRow = rows.find((r) => /export/i.test(r.querySelector(".k")?.textContent || ""));
+  const statusWrap = statusRow?.querySelector(".fd-mini");
+  const exportWrap = exportRow?.querySelector(".fd-mini");
+  if (statusWrap) fdMiniSet(statusWrap, FD_STATUS_LABEL[fdActionState.feedbackStatus] || "Open");
+  if (exportWrap) {
+    // "Download" is only the menu's caption; the choices are CSV and PDF.
+    exportWrap.querySelectorAll<HTMLElement>(".fd-mini-menu button").forEach((b) => {
+      if (/^download$/i.test((b.textContent || "").trim())) b.style.display = "none";
+    });
+  }
+  const container = document.querySelector<HTMLElement>(".fd-actions");
+  if (!container || container.dataset.dcWired === "1") return;
+  container.dataset.dcWired = "1";
+  container.addEventListener(
+    "click",
+    (e) => {
+      const item = (e.target as Element | null)?.closest?.(".fd-mini-menu button");
+      if (!item || !fdActionState) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      const wrap = item.closest(".fd-mini");
+      const choice = (item.textContent || "").trim().toLowerCase();
+      const state = fdActionState;
+      if (wrap && wrap === statusWrap) {
+        const next = choice === "open" ? "open" : choice === "pause" ? "paused" : "closed";
+        if (next === state.feedbackStatus) {
+          wrap.classList.remove("open");
+          return;
+        }
+        if (next !== "open") {
+          const ok = window.confirm(
+            next === "paused"
+              ? `Pause feedback for "${state.title}"? Participants can't submit responses until you open it again.`
+              : `Close feedback for "${state.title}"? Participants will no longer be able to submit responses.`,
+          );
+          if (!ok) {
+            wrap.classList.remove("open");
+            return;
+          }
+        }
+        void (async () => {
+          try {
+            const res = await fetch(`/api/admin/events/${encodeURIComponent(state.eventId)}/feedback`, {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ feedbackStatus: next }),
+            });
+            const json = (await res.json().catch(() => ({}))) as { error?: string };
+            if (!res.ok) throw new Error(json.error || "Could not update the feedback status.");
+            state.feedbackStatus = next;
+            fdMiniSet(wrap, FD_STATUS_LABEL[next]);
+            document.querySelectorAll<HTMLElement>(".fd-ov-block").forEach((block) => {
+              if (/feedback status/i.test(block.querySelector(".k")?.textContent || "")) {
+                const v = block.querySelector(".v");
+                if (v) v.textContent = feedbackStatusText(state.eventStatus, next);
+              }
+            });
+          } catch (err) {
+            wrap.classList.remove("open");
+            window.alert(err instanceof Error ? err.message : "Could not update the feedback status.");
+          }
+        })();
+        return;
+      }
+      if (wrap && wrap === exportWrap) {
+        wrap.classList.remove("open");
+        const format = choice === "pdf" ? "pdf" : "csv";
+        void (async () => {
+          try {
+            const res = await fetch(
+              `/api/admin/events/${encodeURIComponent(state.eventId)}/feedback?format=${format}`,
+              { credentials: "include" },
+            );
+            if (!res.ok) {
+              const json = (await res.json().catch(() => ({}))) as { error?: string };
+              throw new Error(json.error || "Could not export the feedback.");
+            }
+            const disposition = res.headers.get("content-disposition") || "";
+            const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+            const plain = disposition.match(/filename="([^"]+)"/i)?.[1];
+            const fileName = encoded ? decodeURIComponent(encoded) : plain || `feedback.${format}`;
+            const url = URL.createObjectURL(await res.blob());
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : "Could not export the feedback.");
+          }
+        })();
+      }
+    },
+    true,
+  );
 }
 
 function fillParticipantResponses(data: EventFeedbackPayload, email: string) {

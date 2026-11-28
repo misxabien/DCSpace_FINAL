@@ -91,7 +91,11 @@ export async function storeAdminReport(
 
 export async function syncExistingEventPdfReports(db?: Db) {
   const database = db || (await getUserDb());
-  const eventReports = await database.collection("event_reports").find({}).toArray();
+  // Only the fields used below — each stored report PDF can be megabytes.
+  const eventReports = await database
+    .collection("event_reports")
+    .find({}, { projection: { eventId: 1, generatedAt: 1, generatedPdfFileName: 1, generatedByEmail: 1, stats: 1 } })
+    .toArray();
   if (!eventReports.length) return 0;
 
   const existing = await adminReportsCollection(database)
@@ -110,7 +114,7 @@ export async function syncExistingEventPdfReports(db?: Db) {
           .filter((id) => MongoObjectId.isValid(id))
           .map((id) => new MongoObjectId(id)),
       },
-    })
+    }, { projection: { title: 1 } })
     .toArray();
   const titleById = new Map(events.map((event) => [String(event._id), String(event.title || "Event")]));
 
@@ -153,10 +157,15 @@ export async function listAdminReports(options?: {
     await syncExistingEventPdfReports(database).catch(() => 0);
   }
   const filter = options?.category ? { category: options.category } : {};
+  // The list only needs to know a file exists: keep the first character of the
+  // stored file instead of sending every report's bytes (often megabytes each).
   const docs = await adminReportsCollection(database)
-    .find(filter)
-    .sort({ generatedAt: -1 })
-    .limit(options?.limit ?? 50)
+    .aggregate([
+      { $match: filter },
+      { $sort: { generatedAt: -1 } },
+      { $limit: options?.limit ?? 50 },
+      { $addFields: { contentBase64: { $substrCP: [{ $ifNull: ["$contentBase64", ""] }, 0, 1] } } },
+    ])
     .toArray();
   return docs.map((doc) => sanitizeAdminReport(doc as AdminReportDoc & { _id?: ObjectId }));
 }
