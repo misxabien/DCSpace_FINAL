@@ -245,6 +245,13 @@
           heroWrap.style.display = '';
           heroWrap.hidden = false;
         }
+      } else {
+        // No poster: hide the banner instead of showing a broken image.
+        var emptyHero = heroImg.closest('.detail-hero');
+        if (emptyHero) {
+          emptyHero.style.display = 'none';
+          emptyHero.hidden = true;
+        }
       }
     }
 

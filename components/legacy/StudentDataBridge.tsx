@@ -340,6 +340,8 @@ function refreshLegacyEventViews(pathname: string) {
   if (pathname.startsWith("/events/submit") && window.DCEvents.renderSubmitPage) {
     window.DCEvents.renderSubmitPage();
     window.DCEvents.bindDetailBack?.("/events");
+    // Same Save / Share buttons as the other event pages.
+    if (detailId) window.DCEvents.wireDetailActions?.(detailId);
   }
 
   if (pathname.startsWith("/saved")) {

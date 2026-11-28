@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFImage, type PDFPage } from "pdf-lib";
+import { toWinAnsi } from "@/lib/pdf/win-ansi";
 
 export type EventReportPhotoInput = {
   id: string;
@@ -165,7 +166,7 @@ export async function buildEventReportPdf(input: EventReportPdfInput): Promise<s
 
   const drawLine = (text: string, size: number, useBold = false, color = rgb(0.15, 0.2, 0.3)) => {
     ensureSpace(size + 8);
-    page.drawText(text, {
+    page.drawText(toWinAnsi(text), {
       x: margin,
       y,
       size,

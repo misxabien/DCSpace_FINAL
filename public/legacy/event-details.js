@@ -157,6 +157,10 @@
       // Hide the design sample text (Lorem ipsum, Organization Name…) while the real event loads.
       ['detail-venue', 'detail-time', 'detail-organization', 'detail-course', 'detail-department', 'detail-attendance', 'detail-grace', 'detail-venue-type-label', 'detail-event-type-label'].forEach(function (fieldId) { setText(fieldId, '—'); });
       document.querySelectorAll('.detail-section p').forEach(function (p) { p.textContent = ''; });
+      // No poster yet while loading: hide the banner instead of a broken image.
+      var loadingHero = document.querySelector('.detail-hero');
+      var loadingImg = loadingHero ? loadingHero.querySelector('img') : null;
+      if (loadingHero && (!loadingImg || !loadingImg.getAttribute('src'))) loadingHero.style.display = 'none';
       if (!id) {
         // Opened without choosing an event: go back to the list instead of showing sample content.
         window.location.replace('/events');

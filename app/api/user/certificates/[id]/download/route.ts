@@ -6,6 +6,7 @@ import { requireSessionActor } from "@/lib/user-server/session-auth";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { eventsCollection } from "@/lib/events/types";
 import { buildCertificatePdfFromTemplate } from "@/lib/certificates/template";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -102,7 +103,7 @@ export async function GET(request: Request, context: RouteContext) {
     return new NextResponse(bytes, {
       headers: {
         "Content-Type": String(cert.generatedPdfMimeType || "application/pdf"),
-        "Content-Disposition": `inline; filename="${fileName.replace(/"/g, "")}"`,
+        "Content-Disposition": contentDisposition("inline", fileName, "certificate.pdf"),
         "Cache-Control": "private, no-store",
       },
     });

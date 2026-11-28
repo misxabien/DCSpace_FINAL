@@ -180,7 +180,7 @@ export async function GET(request: Request) {
         usersCsvBase64,
         db,
       });
-      return new NextResponse(csv, {
+      return new NextResponse(`\uFEFF${csv}`, {
         status: 200,
         headers: {
           "Content-Type": "text/csv; charset=utf-8",

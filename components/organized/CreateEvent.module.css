@@ -1138,6 +1138,15 @@
   margin-bottom: 24px;
 }
 
+.reviewNoBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #5b6b85;
+  font-size: 14px;
+}
+
 .reviewBody {
   padding: 0 28px 28px;
 }

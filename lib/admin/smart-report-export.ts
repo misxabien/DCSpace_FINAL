@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { toWinAnsi } from "@/lib/pdf/win-ansi";
 
 export type SmartReportDraft = {
   executiveSummary?: string;
@@ -35,14 +36,29 @@ function buildPlainBody(title: string, draft: SmartReportDraft) {
 }
 
 function buildRtf(title: string, draft: SmartReportDraft) {
-  const escape = (text: string) =>
-    String(text || "")
-      .replace(/\\/g, "\\\\")
-      .replace(/{/g, "\\{")
-      .replace(/}/g, "\\}")
-      .replace(/\n/g, "\\par ");
+  // RTF is read as ANSI: anything beyond plain ASCII ("ñ", "—", emoji) must be
+  // written as \uN? (signed 16-bit; characters above U+FFFF as a surrogate pair).
+  const escape = (text: string) => {
+    let out = "";
+    for (const ch of String(text || "")) {
+      const code = ch.codePointAt(0) ?? 0;
+      if (ch === "\\") out += "\\\\";
+      else if (ch === "{") out += "\\{";
+      else if (ch === "}") out += "\\}";
+      else if (ch === "\n") out += "\\par ";
+      else if (ch === "\r") continue;
+      else if (code < 128) out += ch;
+      else {
+        for (let i = 0; i < ch.length; i++) {
+          const unit = ch.charCodeAt(i);
+          out += `\\u${unit > 32767 ? unit - 65536 : unit}?`;
+        }
+      }
+    }
+    return out;
+  };
 
-  let body = `{\\rtf1\\ansi\\deff0{\\b\\fs28 ${escape(title)}}\\par\\par `;
+  let body = `{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0{\\b\\fs28 ${escape(title)}}\\par\\par `;
   for (const section of SECTIONS) {
     const value = String(draft[section.key] || "").trim();
     if (!value) continue;
@@ -75,7 +91,7 @@ async function buildPdf(title: string, draft: SmartReportDraft) {
 
   const drawLine = (text: string, size: number, isBold = false) => {
     const activeFont = isBold ? bold : font;
-    const words = text.split(/\s+/);
+    const words = toWinAnsi(text).split(/\s+/).filter(Boolean);
     let line = "";
     for (const word of words) {
       const next = line ? `${line} ${word}` : word;
@@ -109,8 +125,12 @@ async function buildPdf(title: string, draft: SmartReportDraft) {
     if (!value) continue;
     drawLine(section.title, 12, true);
     y -= 4;
-    drawLine(value, 10, false);
-    y -= 10;
+    for (const paragraph of value.split(/\n+/)) {
+      if (!paragraph.trim()) continue;
+      drawLine(paragraph, 10, false);
+      y -= 4;
+    }
+    y -= 6;
   }
 
   return Buffer.from(await pdf.save());
@@ -147,7 +167,8 @@ export async function buildSmartReportExport(input: {
     case "excel": {
       const body = buildCsv(title, draft);
       return {
-        buffer: Buffer.from(body, "utf8"),
+        // BOM so Excel opens it as UTF-8 (otherwise "ñ" shows as "Ã±").
+        buffer: Buffer.from(`\uFEFF${body}`, "utf8"),
         fileName: `${slug}-${safeDate}.csv`,
         mimeType: "text/csv; charset=utf-8",
         formatLabel: "Excel",

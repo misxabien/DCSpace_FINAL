@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { toWinAnsi } from "@/lib/pdf/win-ansi";
 
 export type TimedProgramActivity = {
   title: string;
@@ -92,7 +93,7 @@ export async function buildProgramFlowPdf(input: {
     const color = options.color || rgb(0.12, 0.14, 0.18);
     const x = options.x ?? marginX;
     const width = options.maxWidth ?? maxWidth;
-    const words = text.split(/\s+/).filter(Boolean);
+    const words = toWinAnsi(text).split(/\s+/).filter(Boolean);
     let line = "";
     const lines: string[] = [];
     for (const word of words) {
@@ -175,10 +176,11 @@ export async function buildProgramFlowPdf(input: {
       font: bold,
       color: rgb(0.15, 0.35, 0.55),
     });
+    const activityTitle = toWinAnsi(activity.title);
     const title =
-      font.widthOfTextAtSize(activity.title, 11) <= maxWidth - 24
-        ? activity.title
-        : `${activity.title.slice(0, 70)}…`;
+      font.widthOfTextAtSize(activityTitle, 11) <= maxWidth - 24
+        ? activityTitle
+        : `${activityTitle.slice(0, 70)}…`;
     page.drawText(title, {
       x: marginX + 12,
       y: rowTop - 30,

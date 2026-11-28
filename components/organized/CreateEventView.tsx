@@ -13,9 +13,6 @@ import styles from "@/components/organized/CreateEvent.module.css";
 import detailStyles from "@/components/organized/OrganizedDetail.module.css";
 import { IconAttendanceTime, IconEventType, IconGracePeriod, IconHostedBook, IconHostedBuilding, IconHostedPeople, IconRequiredFile, IconVenueType } from "@/components/organized/EventDetailIcons";
 
-const DEFAULT_REVIEW_IMAGE =
-  "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200&h=480&fit=crop&q=80";
-
 const STEPS = [
   "Event Details",
   "Attendance Setup",
@@ -1944,7 +1941,11 @@ export function CreateEventView() {
 
             <article className={styles.reviewCard}>
               <div className={`${detailStyles.hero} ${styles.reviewHero}`}>
-                <img src={bannerPreview || DEFAULT_REVIEW_IMAGE} alt="" />
+                {bannerPreview ? (
+                  <img src={bannerPreview} alt="" />
+                ) : (
+                  <span className={styles.reviewNoBanner}>No banner image uploaded</span>
+                )}
               </div>
 
               <div className={styles.reviewBody}>

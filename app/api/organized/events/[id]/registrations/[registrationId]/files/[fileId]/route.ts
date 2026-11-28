@@ -6,6 +6,7 @@ import { eventsCollection } from "@/lib/events/types";
 import { getAdminDb, getUserDb } from "@/lib/db/get-db";
 import { registrationsCollection } from "@/lib/user-server/portal";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 type RouteContext = {
   params: Promise<{ id: string; registrationId: string; fileId: string }>;
@@ -67,7 +68,7 @@ export async function GET(request: Request, context: RouteContext) {
       return new NextResponse(new Uint8Array(bytes), {
         headers: {
           "Content-Type": mimeType,
-          "Content-Disposition": `inline; filename="${fileName.replace(/["\r\n]/g, "")}"`,
+          "Content-Disposition": contentDisposition("inline", fileName),
           "Cache-Control": "private, no-store",
         },
       });

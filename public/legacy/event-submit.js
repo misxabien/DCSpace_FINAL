@@ -51,6 +51,7 @@
     var id = getQueryParam('id') || '';
     var event = DCEvents.getEventById(id);
 
+    applyHero(event);
     if (!event) {
       document.body.classList.add('detail-page--missing');
       setText('detail-title', 'Event Not Found');
@@ -86,6 +87,23 @@
         detail: { eventId: String(id), eventTitle: event.name }
       }));
     };
+  }
+
+  // The event's own poster; no poster → hide the banner (never a stock photo).
+  function applyHero(event) {
+    var heroWrap = document.querySelector('.detail-hero');
+    var heroImg = heroWrap ? heroWrap.querySelector('img') : null;
+    if (!heroWrap || !heroImg) return;
+    var imageUrl = event && event.imageUrl ? String(event.imageUrl).trim() : '';
+    if (imageUrl) {
+      if (heroImg.getAttribute('src') !== imageUrl) heroImg.src = imageUrl;
+      heroImg.alt = (event && event.name) || 'Event';
+      heroWrap.style.display = '';
+      heroWrap.hidden = false;
+    } else {
+      heroWrap.style.display = 'none';
+      heroWrap.hidden = true;
+    }
   }
 
   function toggleBlock(id, show) {

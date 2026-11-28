@@ -8,6 +8,7 @@ import {
 } from "@/lib/events/files";
 import { findEventAttachmentById } from "@/lib/events/find-event";
 import { requireSessionActor } from "@/lib/user-server/session-auth";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 type RouteContext = { params: Promise<{ id: string; kind: string }> };
 
@@ -65,7 +66,7 @@ export async function GET(request: Request, context: RouteContext) {
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": file.mimeType || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Content-Disposition": contentDisposition("inline", fileName),
         "Cache-Control":
           kind === "poster" && publiclyVisible
             ? "public, max-age=3600, stale-while-revalidate=86400"

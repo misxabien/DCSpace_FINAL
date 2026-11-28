@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAdminAuth } from "@/lib/admin-server/require-admin-auth";
 import { getLatestEventReportPdf } from "@/lib/admin/event-report";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -29,7 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
     return new NextResponse(bytes, {
       headers: {
         "Content-Type": pdf.mimeType || "application/pdf",
-        "Content-Disposition": `attachment; filename="${pdf.fileName.replace(/"/g, "")}"`,
+        "Content-Disposition": contentDisposition("attachment", pdf.fileName, "event-report.pdf"),
         "Cache-Control": "private, no-store",
       },
     });

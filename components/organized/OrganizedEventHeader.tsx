@@ -40,6 +40,24 @@ export function OrganizedEventHeader({
     setSaved(toggleSavedEvent(event.id));
   };
 
+  // Same as Share on the student event pages, using the link students open.
+  const onShare = (e: MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    const url = `${window.location.origin}/events/explore?id=${encodeURIComponent(event.id)}`;
+    if (navigator.share) {
+      navigator.share({ title: event.title || "Event", url }).catch(() => {});
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => window.alert("Event link copied to clipboard."))
+        .catch(() => window.prompt("Copy this link:", url));
+      return;
+    }
+    window.prompt("Copy this link:", url);
+  };
+
   return (
     <>
       <div className="detail-hero">
@@ -88,7 +106,7 @@ export function OrganizedEventHeader({
               <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
             </svg>
           </button>
-          <button type="button" className="detail-icon-btn" aria-label="Share event">
+          <button type="button" className="detail-icon-btn" aria-label="Share event" onClick={onShare}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="18" cy="5" r="3" />
               <circle cx="6" cy="12" r="3" />
