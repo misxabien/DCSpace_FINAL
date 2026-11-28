@@ -12,6 +12,7 @@ export type ActivityType =
   | "event_completed"
   | "event_postponed"
   | "event_revision_requested"
+  | "event_deleted"
   | "account_updated"
   | "attendance_recorded"
   | "feedback_submitted"

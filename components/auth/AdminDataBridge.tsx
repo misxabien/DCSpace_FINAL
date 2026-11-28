@@ -164,6 +164,8 @@ function activityLabel(type: string) {
       return "Event approved";
     case "event_rejected":
       return "Event rejected";
+    case "event_deleted":
+      return "Event deleted";
     case "attendance_recorded":
       return "Attendance recorded";
     case "feedback_submitted":

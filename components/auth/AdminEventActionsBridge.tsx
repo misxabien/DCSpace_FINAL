@@ -82,6 +82,20 @@ const LIST_FOR_DETAIL_PAGE: Record<string, string> = {
   "/admin/c23": "/admin/inactive20",
 };
 
+/** Event detail pages with the admin "Delete Event" button (not the attendance view). */
+const DELETE_PAGES = new Set([...DETAIL_PAGES].filter((page) => page !== "/admin/deets43"));
+
+/** Where to land after deleting: the list the event was shown in. */
+function listPageForStatus(status: string) {
+  if (status === "approved") return "/admin/event13?tab=approved";
+  if (status === "live") return "/admin/ongoing16";
+  if (status === "completed") return "/admin/complete18";
+  if (status === "rejected" || status === "postponed" || status === "cancelled") {
+    return "/admin/inactive20";
+  }
+  return "/admin/event13";
+}
+
 const EVENT_DETAIL_CACHE_MS = 30_000;
 const eventDetailCache = new Map<string, { event: LiveEvent; fetchedAt: number }>();
 const eventDetailInflight = new Map<string, Promise<LiveEvent | null>>();
@@ -535,7 +549,142 @@ function fillEventDetails(root: ParentNode, event: LiveEvent) {
     ensureStatusButtons(actions, event.status);
     showPendingReviewActions(event.status, roomValidated, reservationStatus, syncError);
     showApprovedActionGroup(event.status);
+    ensureDeleteButton(actions);
   }
+}
+
+/** Red "Delete Event" button, always last in the action row. */
+function ensureDeleteButton(actions: Element) {
+  if (!DELETE_PAGES.has(window.location.pathname)) return;
+  const group = actions.querySelector<HTMLElement>(".action-group");
+  if (!group) return;
+  let btn = group.querySelector<HTMLButtonElement>(".dc-delete-event");
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "action-btn dc-delete-event";
+    btn.textContent = "Delete Event";
+    btn.title = "Permanently delete this event";
+    btn.style.cssText = "background:#ef4444;color:#fff;border:none;cursor:pointer;";
+  }
+  // Status buttons can be added later on; keep Delete after them.
+  if (group.lastElementChild !== btn) group.appendChild(btn);
+  // Completed / rejected / cancelled events have no other actions, so their
+  // row is hidden by default: show it for the Delete button alone.
+  if (!group.querySelector(".action-btn:not(.dc-delete-event)")) group.style.display = "flex";
+}
+
+type LinkedCounts = Partial<
+  Record<"registrations" | "invitations" | "attendance" | "feedback" | "certificates" | "photos", number>
+>;
+
+function describeLinkedRecords(counts: LinkedCounts) {
+  const parts: string[] = [];
+  const add = (count: number | undefined, one: string, many: string) => {
+    if (count && count > 0) parts.push(`${count} ${count === 1 ? one : many}`);
+  };
+  add(counts.registrations, "registration", "registrations");
+  add(counts.invitations, "invitation", "invitations");
+  add(counts.attendance, "attendance record", "attendance records");
+  add(counts.feedback, "feedback response", "feedback responses");
+  add(counts.certificates, "certificate", "certificates");
+  add(counts.photos, "gallery photo", "gallery photos");
+  return parts;
+}
+
+/**
+ * Confirmation before deleting an event, styled like the other admin confirm
+ * boxes. Shows what else will be removed; when the event has attendance or
+ * certificates (or the check fails) the admin must also type DELETE.
+ * Resolves true only when the admin confirms.
+ */
+function openDeleteEventModal(eventId: string, title: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(40,48,70,0.45);";
+    overlay.innerHTML = `
+      <div style="width:min(480px,100%);background:#fff;border-radius:10px;padding:32px 28px 26px;box-shadow:0 12px 40px rgba(28,49,82,0.18);font-family:var(--font, Montserrat, sans-serif);text-align:center;">
+        <h2 style="margin:0 0 10px;font-size:20px;font-weight:700;color:#1f2937;">Delete Event?</h2>
+        <p data-del-message style="margin:0 0 12px;font-size:14px;line-height:1.5;color:#6b7280;"></p>
+        <p data-del-linked style="margin:0 0 14px;font-size:14px;line-height:1.5;color:#b12b2b;font-weight:600;">Checking what else will be removed…</p>
+        <div data-del-type hidden style="margin:0 0 6px;">
+          <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Type <strong style="color:#1f2937;">DELETE</strong> to confirm</label>
+          <input data-del-input type="text" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;border:1px solid rgba(239,68,68,0.45);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;outline:none;text-align:center;" />
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:18px;flex-wrap:wrap;">
+          <button type="button" data-del-back style="min-width:120px;padding:11px 20px;border-radius:8px;border:1px solid #448aff;background:#fff;color:#448aff;font:inherit;font-weight:600;cursor:pointer;">Go back</button>
+          <button type="button" data-del-confirm disabled style="min-width:160px;padding:11px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font:inherit;font-weight:700;cursor:pointer;">Yes, delete event</button>
+        </div>
+      </div>`;
+    overlay.querySelector("[data-del-message]")!.textContent =
+      `"${title}" will be permanently deleted. This cannot be undone.`;
+    const linked = overlay.querySelector<HTMLElement>("[data-del-linked]")!;
+    const typeBox = overlay.querySelector<HTMLElement>("[data-del-type]")!;
+    const input = overlay.querySelector<HTMLInputElement>("[data-del-input]")!;
+    const confirmBtn = overlay.querySelector<HTMLButtonElement>("[data-del-confirm]")!;
+
+    let ready = false;
+    let needsTyping = false;
+    const refresh = () => {
+      const typedOk = !needsTyping || input.value.trim().toUpperCase() === "DELETE";
+      confirmBtn.disabled = !ready || !typedOk;
+      confirmBtn.style.opacity = confirmBtn.disabled ? "0.5" : "";
+      confirmBtn.style.cursor = confirmBtn.disabled ? "not-allowed" : "pointer";
+    };
+    refresh();
+
+    let open = true;
+    const close = (value: boolean) => {
+      if (!open) return;
+      open = false;
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(false);
+    };
+    overlay.querySelector("[data-del-back]")!.addEventListener("click", () => close(false));
+    confirmBtn.addEventListener("click", () => {
+      if (!confirmBtn.disabled) close(true);
+    });
+    input.addEventListener("input", refresh);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !confirmBtn.disabled) close(true);
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(overlay);
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
+        const data = (await res.json().catch(() => ({}))) as { counts?: LinkedCounts; error?: string };
+        if (!res.ok || !data.counts) throw new Error(data.error || "check failed");
+        const parts = describeLinkedRecords(data.counts);
+        linked.textContent = parts.length
+          ? `This also deletes ${parts.join(", ")}.`
+          : "Nothing else is linked to this event (no registrations, attendance or certificates).";
+        if (!parts.length) linked.style.color = "#6b7280";
+        needsTyping = Boolean(data.counts.attendance || data.counts.certificates);
+      } catch {
+        linked.textContent =
+          "Its registrations, attendance, certificates and feedback will also be deleted.";
+        needsTyping = true;
+      }
+      if (!open) return;
+      typeBox.hidden = !needsTyping;
+      ready = true;
+      refresh();
+      if (needsTyping) input.focus();
+      else confirmBtn.focus();
+    })();
+  });
 }
 
 /** Make Approve/Reject/Revisions visible once eRoomReserve has validated the room. */
@@ -712,6 +861,8 @@ export function AdminEventActionsBridge() {
     if (!DETAIL_PAGES.has(pathname)) return;
 
     let cancelled = false;
+    // Set once the event is deleted, so the background refresh stops refilling the page.
+    let removed = false;
 
     const root = () =>
       document.querySelector(".admin-legacy-root") ||
@@ -719,6 +870,7 @@ export function AdminEventActionsBridge() {
       document.body;
 
     const load = async () => {
+      if (removed) return;
       const rootEl = root();
       if (rootEl instanceof HTMLElement) {
         rootEl.classList.add("is-loading-details");
@@ -787,8 +939,54 @@ export function AdminEventActionsBridge() {
     void load();
     const stopPoll = startSmartPoll(load, 10000);
 
+    const onDelete = async (btn: HTMLButtonElement) => {
+      const id =
+        queryId ||
+        root().querySelector("#detail-actions")?.getAttribute("data-event-id") ||
+        "";
+      if (!id) {
+        window.alert("Open an event from the Events list so it has a database id.");
+        return;
+      }
+      const known = eventDetailCache.get(id)?.event;
+      const shownTitle = (
+        root().querySelector("#event-info-card h3, .detail-top-main h3, .detail-card h3")?.textContent || ""
+      ).trim();
+      const title = known?.title || shownTitle || "this event";
+      const status = known?.status || statusParam;
+
+      if (!(await openDeleteEventModal(id, title))) return; // admin pressed Go back
+
+      btn.disabled = true;
+      btn.textContent = "Deleting…";
+      try {
+        const res = await fetch(`/api/admin/events/${encodeURIComponent(id)}?confirm=yes`, {
+          method: "DELETE",
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok && res.status !== 404) {
+          throw new Error(data.error || "Failed to delete event.");
+        }
+        removed = true;
+        eventDetailCache.delete(id);
+        window.alert(res.status === 404 ? "This event was already deleted." : `"${title}" was deleted.`);
+        window.location.assign(listPageForStatus(status));
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : "Failed to delete event.");
+        btn.disabled = false;
+        btn.textContent = "Delete Event";
+      }
+    };
+
     const onClick = async (event: MouseEvent) => {
       const target = event.target as Element | null;
+      const deleteBtn = target?.closest<HTMLButtonElement>(".dc-delete-event");
+      if (deleteBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!deleteBtn.disabled) await onDelete(deleteBtn);
+        return;
+      }
       const btn = target?.closest<HTMLButtonElement>(
         ".action-btn.approve, .action-btn.reject, .action-btn.revisions, .action-btn[data-next-status]",
       );
